@@ -1,13 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRequireAuth } from '@/hooks/useAuth';
-import { api } from '@/lib/api';
-import { PaymentAttempt } from '@/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatDate, formatCurrency } from '@/lib/utils';
+import { useRequireAuth } from '../../../hooks/useAuth';
+import { api } from '../../../lib/api';
+import { PaymentAttempt } from '../../../types';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Badge } from '../../../components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { formatDate, formatCurrency } from '../../../lib/utils';
 
 export default function AdminPaymentsPage() {
   const { isLoading: authLoading } = useRequireAuth(['admin']);
