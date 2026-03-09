@@ -1,26 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  reactStrictMode: true,
+  output: 'standalone',
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    ignoreBuildErrors: false,
+  },
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '*.amazonaws.com',
-      },
-      {
-        protocol: 'https',
-        hostname: '*.stripe.com',
-      },
-    ],
+    unoptimized: true,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://localhost:8000/:path*',
-      },
-    ];
-  },
-};
+}
 
-module.exports = nextConfig;
+module.exports = nextConfig
