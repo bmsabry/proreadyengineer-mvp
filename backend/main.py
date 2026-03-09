@@ -50,9 +50,13 @@ def create_application() -> FastAPI:
     origins = [
         "http://localhost:3000",  # Next.js dev server
         "http://localhost:8000",
+        "https://proreadyengineer-web.onrender.com",  # Render deployment
+        "https://proreadyengineer.com",
+        "https://www.proreadyengineer.com",
     ]
-    if settings.is_production:
-        origins = ["https://proreadyengineer.com", "https://www.proreadyengineer.com"]
+    # Also allow any preview deployments
+    if settings.FRONTEND_URL and settings.FRONTEND_URL not in origins:
+        origins.append(settings.FRONTEND_URL)
 
     app.add_middleware(
         CORSMiddleware,
