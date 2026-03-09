@@ -6,8 +6,8 @@ import { SetupWizard } from './SetupWizard';
 export function SetupWrapper() {
   const { showSetup, setShowSetup, isConfigured } = useConfig();
 
-  // Only show setup wizard if it's explicitly shown or not fully configured
-  if (!showSetup && isConfigured) {
+  // Hide setup wizard when explicitly dismissed
+  if (!showSetup) {
     return null;
   }
 
