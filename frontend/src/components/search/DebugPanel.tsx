@@ -65,7 +65,7 @@ export function DebugPanel({
     setIsLoadingDebug(true);
     setDebugError(null);
     try {
-      const response = await api.get('/search/debug');
+      const response = await api.search.debug();
       setDebugInfo(response.data);
     } catch (err: any) {
       setDebugError(err.response?.data?.detail || err.message || 'Failed to fetch debug info');
