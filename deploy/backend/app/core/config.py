@@ -77,6 +77,7 @@ class Settings(BaseSettings):
 
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_BASE: Optional[str] = None
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     OPENAI_LLM_MODEL: str = "gpt-4o-mini"
 
