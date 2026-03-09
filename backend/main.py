@@ -86,7 +86,7 @@ def create_application() -> FastAPI:
     # - POST /providers/claim-search
     app.include_router(
         search_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1/search",
         tags=["Search & Discovery"],
     )
 
@@ -97,7 +97,7 @@ def create_application() -> FastAPI:
     # - POST /provider/profile/request-rank-up, GET /provider/memberships
     app.include_router(
         providers_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
     )
 
     # RFQs: 13 routes
@@ -108,7 +108,7 @@ def create_application() -> FastAPI:
     #           GET /provider/rfqs/{id}/files, POST /provider/rfqs/{id}/quote
     app.include_router(
         rfqs_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
     )
 
     # Quotes: 4 routes
@@ -116,7 +116,7 @@ def create_application() -> FastAPI:
     # - POST /provider/quotes/{id}/withdraw, GET /provider/quotes/me
     app.include_router(
         quotes_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
     )
 
     # Payments & Billing: 4 routes
@@ -124,7 +124,7 @@ def create_application() -> FastAPI:
     # - POST /webhooks/stripe, /webhooks/paypal, /webhooks/signrequest
     app.include_router(
         payments_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
     )
 
     # Advertising: 7 routes
@@ -133,7 +133,7 @@ def create_application() -> FastAPI:
     # - POST /advertiser/ads/{id}/asset/initiate|complete, PATCH /advertiser/ads/{id}
     app.include_router(
         ads_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
     )
 
     # Admin: 12 routes
@@ -143,7 +143,7 @@ def create_application() -> FastAPI:
     # - GET /admin/ads, POST /admin/ads/{id}/pause, POST /admin/users/{id}/suspend
     app.include_router(
         admin_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
     )
 
     # =============================================================================

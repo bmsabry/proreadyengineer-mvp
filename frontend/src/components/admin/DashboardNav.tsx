@@ -13,6 +13,7 @@ const navItems = [
   { href: '/admin/payments', label: 'Payments', icon: DollarSign },
   { href: '/admin/ads', label: 'Ads', icon: Megaphone },
   { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 
 export function DashboardNav() {

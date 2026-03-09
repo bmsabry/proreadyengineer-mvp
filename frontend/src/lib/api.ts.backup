@@ -3,7 +3,7 @@ import {
   User, RegisterRequest, LoginRequest, AuthResponse, PasswordResetRequest, PasswordResetConfirm,
   Provider, ProviderClaimRequest, ProviderMembership, TierEvaluationRequest,
   SearchQueryRequest, SearchQueryResponse,
-  RFQ, RFQFile, RFQDispatch, RFQUnlock, RFQMatch, RFQNDA, RFQTeaser, CreateRFQRequest,
+  RFQ, RFQFile, RFQDispatch, RFQUnlock, RFQMatch, RFQNDA, CreateRFQRequest,
   Quote, QuoteFile, CreateQuoteRequest,
   PaymentAttempt, Subscription,
   Advertisement, AdSlot,
@@ -15,7 +15,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 // Create Axios instance
 const apiClient: AxiosInstance = axios.create({
-  baseURL: API_URL + '/api/v1',
+  baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -100,29 +100,6 @@ const search = {
     apiClient.post<Provider[]>('/providers/claim-search', { query }),
 };
 
-// Providers
-const providers = {
-  // Public
-  getPublic: (id: string) =>
-    apiClient.get<Provider>(`/providers/${id}/public`),
-
-  claimSearch: (data: { query: string }) =>
-    apiClient.post<Provider[]>('/providers/claim-search', data),
-
-  // Provider profile
-  getProfile: () =>
-    apiClient.get<Provider>('/provider/profile'),
-
-  updateProfile: (data: Partial<Provider>) =>
-    apiClient.patch<Provider>('/provider/profile', data),
-
-  requestRankUp: (data: { requested_reason: string; supporting_payload?: Record<string, unknown> }) =>
-    apiClient.post('/provider/profile/request-rank-up', data),
-
-  getMemberships: () =>
-    apiClient.get<ProviderMembership[]>('/provider/memberships'),
-};
-
 // Provider Claims API
 const providerClaims = {
   create: (data: { provider_id: string; proof_type?: string; proof_payload?: Record<string, unknown>; submitted_notes?: string }) => 
@@ -166,35 +143,6 @@ const rfqs = {
     apiClient.post<RFQ>(`/rfqs/${rfqId}/submit`),
 };
 
-// Provider RFQ access
-const providerRFQ = {
-  getTeasers: () =>
-    apiClient.get<RFQTeaser[]>('/provider/rfqs/teasers'),
-
-  getTeaser: (rfqId: string) =>
-    apiClient.get<RFQTeaser>(`/provider/rfqs/${rfqId}/teaser`),
-
-  unlockCheckout: (rfqId: string) =>
-    apiClient.post<{ client_secret: string }>(`/provider/rfqs/${rfqId}/unlock/checkout`),
-
-  getUnlockStatus: (rfqId: string) =>
-    apiClient.get<{ unlocked: boolean }>(`/provider/rfqs/${rfqId}/unlock/status`),
-
-  getFiles: (rfqId: string) =>
-    apiClient.get<RFQFile[]>(`/provider/rfqs/${rfqId}/files`),
-
-  submitQuote: (rfqId: string, data: {
-    rough_price_min?: number;
-    rough_price_max?: number;
-    currency?: string;
-    turnaround_estimate_text?: string;
-    assumptions_text?: string;
-    scope_notes?: string;
-  }) =>
-    apiClient.post<Quote>(`/provider/rfqs/${rfqId}/quote`, data),
-};
-
-
 // Provider RFQ Access API
 const providerRfqAccess = {
   getTeasers: () => 
@@ -221,9 +169,6 @@ const quotes = {
   // Customer endpoints
   getCustomerQuotes: (rfqId: string) => 
     apiClient.get<Quote[]>(`/customer/rfqs/${rfqId}/quotes`),
-
-  getForCustomer: (rfqId: string) =>
-    apiClient.get<Quote[]>(`/customer/rfqs/${rfqId}/quotes`),
   
   accept: (quoteId: string) => 
     apiClient.post<Quote>(`/customer/quotes/${quoteId}/accept`),
@@ -233,9 +178,6 @@ const quotes = {
     apiClient.post<Quote>(`/provider/quotes/${quoteId}/withdraw`),
   
   getMyQuotes: () => 
-    apiClient.get<Quote[]>('/provider/quotes/me'),
-
-  getForProvider: () =>
     apiClient.get<Quote[]>('/provider/quotes/me'),
 };
 
@@ -330,10 +272,15 @@ const admin = {
     apiClient.post<Advertisement>(`/admin/ads/${id}/pause`),
   
   // Users
+  // Users
   listUsers: (params?: { page?: number; page_size?: number; is_active?: boolean }) =>
     apiClient.get<PaginatedResponse<User>>("/admin/users", { params }),
 
   suspendUser: (id: string) => 
+  // Users
+  listUsers: (params?: { page?: number; page_size?: number; is_active?: boolean }) =>
+    apiClient.get<PaginatedResponse<User>>("/admin/users", { params }),
+
     apiClient.post<User>(`/admin/users/${id}/suspend`),
 };
 
@@ -353,10 +300,8 @@ const webhooks = {
 export const api = {
   auth,
   search,
-  providers,
   providerClaims,
   rfqs,
-  providerRFQ,
   providerRfqAccess,
   quotes,
   providerProfile,
