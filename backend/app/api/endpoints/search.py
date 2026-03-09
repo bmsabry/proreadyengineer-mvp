@@ -218,14 +218,3 @@ async def get_provider_public(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
 
     return ProviderPublicResponse.from_orm(provider)
-
-
-
-@router.exception_handler(Exception)
-async def generic_exception_handler(request: Request, exc: Exception):
-    """Catch all unhandled exceptions and return details."""
-    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": f"Internal Server Error: {str(exc)}"}
-    )
