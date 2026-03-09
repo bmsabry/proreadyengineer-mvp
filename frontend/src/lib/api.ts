@@ -98,6 +98,9 @@ const search = {
   
   claimSearch: (query: string) => 
     apiClient.post<Provider[]>('/providers/claim-search', { query }),
+  
+  debug: () =>
+    apiClient.get('/search/debug'),
 };
 
 // Providers
