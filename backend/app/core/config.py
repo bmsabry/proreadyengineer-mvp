@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     def assemble_db_connection(cls, v: Optional[str], info) -> str:
         """Build async database URL if not provided."""
         if isinstance(v, str) and v:
+            # Ensure +asyncpg driver is added for async operations
+            if v.startswith("postgresql://") and "+asyncpg" not in v:
+                return v.replace("postgresql://", "postgresql+asyncpg://")
             return v
         values = info.data
         return (
