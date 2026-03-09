@@ -1,7 +1,7 @@
 """Search and discovery request and response schemas."""
 
 from datetime import datetime
-from typing import , Optional, Dict, Any
+from typing import Any, Dict, Optional
 from uuid import UUID
 
 from pydantic import Field
