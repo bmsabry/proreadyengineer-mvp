@@ -38,8 +38,8 @@ class RFQNDA(Base):
         ForeignKey("rfqs.id", ondelete="CASCADE"),
         nullable=False,
     )
-    provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    provider_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
         ForeignKey("providers.id", ondelete="CASCADE"),
         nullable=True,
     )

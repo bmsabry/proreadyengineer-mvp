@@ -1,8 +1,8 @@
-"""initial migration
+"""initial migration with fixed types
 
-Revision ID: 77d4a732998f
+Revision ID: 66ab93e4c8e1
 Revises: 
-Create Date: 2026-03-09 10:17:03.392281
+Create Date: 2026-03-09 11:29:52.700629
 
 """
 from alembic import op
@@ -12,7 +12,7 @@ from pgvector.sqlalchemy import Vector
 
 
 # revision identifiers, used by Alembic.
-revision = '77d4a732998f'
+revision = '66ab93e4c8e1'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -189,7 +189,7 @@ def upgrade() -> None:
     sa.Column('claim_status', sa.String(), nullable=True),
     sa.Column('claimed_by_user_id', sa.UUID(), nullable=True),
     sa.Column('claimed_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('embedding', Vector(dim=1536), nullable=True),
+    sa.Column('embedding', pgvector.sqlalchemy.vector.VECTOR(dim=1536), nullable=True),
     sa.Column('embedding_model', sa.Text(), nullable=True),
     sa.Column('embedding_generated_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('embedding_version', sa.Text(), nullable=True),
@@ -399,7 +399,7 @@ def upgrade() -> None:
     op.create_table('rfq_ndas',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('rfq_id', sa.UUID(), nullable=False),
-    sa.Column('provider_id', sa.UUID(), nullable=True),
+    sa.Column('provider_id', sa.Integer(), nullable=True),
     sa.Column('customer_user_id', sa.UUID(), nullable=True),
     sa.Column('nda_status', sa.String(length=50), nullable=False),
     sa.Column('signrequest_document_id', sa.String(length=255), nullable=True),
