@@ -9,8 +9,18 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { formatDate } from '@/lib/utils';
-import { Pause, Play } from 'lucide-react';
+import { Pause } from 'lucide-react';
 import { toast } from 'sonner';
+
+// Helper to map ad_status to valid Badge variants
+const getStatusVariant = (status: string): "default" | "secondary" | "destructive" | "outline" => {
+  switch (status) {
+    case 'active': return 'default';
+    case 'paused': return 'destructive';
+    case 'empty': return 'outline';
+    default: return 'secondary';
+  }
+};
 
 export default function AdminAdsPage() {
   const { isLoading: authLoading } = useRequireAuth(['admin']);
@@ -21,7 +31,7 @@ export default function AdminAdsPage() {
     const fetchAds = async () => {
       try {
         const response = await api.admin.listAds();
-        setAds(response.data);
+        setAds(response.data.items);
       } catch (error) {
         console.error('Failed to fetch ads:', error);
       } finally {
@@ -75,7 +85,7 @@ export default function AdminAdsPage() {
                 <TableRow key={ad.id}>
                   <TableCell>{ad.title}</TableCell>
                   <TableCell>
-                    <Badge variant={ad.ad_status === 'active' ? 'success' : ad.ad_status === 'paused' ? 'warning' : 'default'}>
+                    <Badge variant={getStatusVariant(ad.ad_status)}>
                       {ad.ad_status}
                     </Badge>
                   </TableCell>

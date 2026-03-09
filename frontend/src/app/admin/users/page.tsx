@@ -23,7 +23,7 @@ export default function AdminUsersPage() {
     const fetchUsers = async () => {
       try {
         const response = await api.admin.listUsers();
-        setUsers(response.data);
+        setUsers(response.data.items);  // Fixed: use .items for paginated response
       } catch (error) {
         console.error('Failed to fetch users:', error);
       } finally {
@@ -44,7 +44,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  const filteredUsers = users.filter(user => 
+  const filteredUsers = users.filter(user =>
     user.email.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -60,18 +60,26 @@ export default function AdminUsersPage() {
 
   return (
     <div className="container py-8">
-      <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">User Management</h1>
-        <div className="relative w-64">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search users..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
-        </div>
-      </div>
+      <h1 className="text-3xl font-bold mb-8">User Management</h1>
+
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle>Search Users</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by email..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -83,8 +91,7 @@ export default function AdminUsersPage() {
               <TableRow>
                 <TableHead>Email</TableHead>
                 <TableHead>Roles</TableHead>
-                <TableHead>Active</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>Joined</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -93,24 +100,23 @@ export default function AdminUsersPage() {
                 <TableRow key={user.id}>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       {user.roles.map((role) => (
-                        <Badge key={role} variant="secondary">{role}</Badge>
+                        <Badge key={role} variant="secondary">
+                          {role}
+                        </Badge>
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <Badge variant={user.is_active ? 'success' : 'destructive'}>
-                      {user.is_active ? 'Active' : 'Suspended'}
-                    </Badge>
-                  </TableCell>
                   <TableCell>{formatDate(user.created_at)}</TableCell>
                   <TableCell>
-                    {user.is_active && (
-                      <Button variant="ghost" size="sm" onClick={() => handleSuspend(user.id)}>
-                        <Ban className="h-4 w-4 text-red-500" />
-                      </Button>
-                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleSuspend(user.id)}
+                    >
+                      <Ban className="h-4 w-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
