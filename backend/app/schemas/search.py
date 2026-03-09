@@ -96,3 +96,8 @@ class SearchRequestLogResponse(ResponseSchema):
 SearchRequest = SearchQueryRequest
 SearchResponse = SearchQueryResponse
 SearchResult = SearchResultItem
+
+
+# Additional aliases for service compatibility
+SearchQuery = SearchQueryRequest
+ProviderMatch = SearchResultItem
