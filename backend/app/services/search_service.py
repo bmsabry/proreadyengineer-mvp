@@ -556,3 +556,51 @@ async def search_providers(
             )
             for p in providers
         ]
+
+
+# Standalone wrapper function for direct imports
+_search_service_instance = None
+
+def _get_search_service():
+    """Get or create singleton SearchService instance."""
+    global _search_service_instance
+    if _search_service_instance is None:
+        _search_service_instance = SearchService()
+    return _search_service_instance
+
+
+async def search_providers(
+    db: AsyncSession,
+    query: str,
+    filters: Optional[Dict[str, Any]] = None,
+    limit: int = 50
+) -> List[Any]:
+    """Standalone wrapper for SearchService.search_providers."""
+    service = _get_search_service()
+    return await service.search_providers(db, query, filters, limit)
+
+
+async def generate_embedding(text: str) -> List[float]:
+    """Standalone wrapper for SearchService.generate_embedding."""
+    service = _get_search_service()
+    return await service.generate_embedding(text)
+
+
+async def check_search_quota(
+    db: AsyncSession,
+    user: Optional[Any],
+    ip_address: str
+) -> Tuple[bool, int]:
+    """Standalone wrapper for SearchService.check_search_quota."""
+    service = _get_search_service()
+    return await service.check_search_quota(db, user, ip_address)
+
+
+def calculate_match_score(
+    provider: Any,
+    intent: Dict[str, Any],
+    similarity: float
+) -> Dict[str, Any]:
+    """Standalone wrapper for SearchService._calculate_score."""
+    service = _get_search_service()
+    return service._calculate_score(provider, intent, similarity)
