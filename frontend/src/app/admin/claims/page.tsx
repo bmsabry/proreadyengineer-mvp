@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRequireAuth } from '@/hooks/useAuth';
-import { api } from '@/lib/api';
-import { ProviderClaimRequest } from '@/types';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { formatDate } from '@/lib/utils';
+import { useRequireAuth } from '../../../hooks/useAuth';
+import { api } from '../../../lib/api';
+import { ProviderClaimRequest } from '../../../types';
+import { Button } from '../../../components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/card';
+import { Badge } from '../../../components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../../components/ui/table';
+import { formatDate } from '../../../lib/utils';
 import { CheckCircle, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
