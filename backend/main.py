@@ -177,6 +177,21 @@ def create_application() -> FastAPI:
 # Create application instance
 app = create_application()
 
+
+
+
+@app.get("/debug/simple-test")
+async def debug_simple_test():
+    """Simplest possible test endpoint."""
+    return {"status": "ok", "message": "Basic endpoint works"}
+
+
+@app.post("/debug/search-test")
+async def debug_search_test(query: str = "test"):
+    """Test search without database dependency."""
+    return {"status": "ok", "query": query, "mode": "no-db"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

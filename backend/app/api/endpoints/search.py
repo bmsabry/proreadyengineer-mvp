@@ -23,6 +23,24 @@ logger = logging.getLogger(__name__)
 _last_search_error = {"error": None, "timestamp": None, "query": None}
 
 
+
+
+@router.get("/test")
+async def search_test():
+    """Simple test endpoint to verify search router works."""
+    return {"status": "ok", "message": "Search router is working"}
+
+
+@router.post("/test-db")
+async def search_test_db(db: AsyncSession = Depends(get_db)):
+    """Test database connection."""
+    try:
+        result = await db.execute(select(func.count()).select_from(Provider))
+        count = result.scalar()
+        return {"status": "ok", "provider_count": count}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 @router.post("/query", response_model=SearchResponse)
 async def search_query(
     request: Request,
@@ -200,3 +218,14 @@ async def get_provider_public(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
 
     return ProviderPublicResponse.from_orm(provider)
+
+
+
+@router.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions and return details."""
+    logger.error(f"Unhandled exception: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"}
+    )
