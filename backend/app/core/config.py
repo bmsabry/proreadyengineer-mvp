@@ -75,10 +75,12 @@ class Settings(BaseSettings):
     EMAIL_FROM: str = "noreply@proreadyengineer.com"
     EMAIL_FROM_NAME: str = "ProReadyEngineer"
 
-    # OpenAI
+    # AI/LLM Configuration (OpenAI-compatible)
+    # Supports OpenAI, DeepInfra, or any OpenAI-compatible API
     OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_BASE: Optional[str] = None  # e.g., "https://api.deepinfra.com/v1/openai"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-    OPENAI_LLM_MODEL: str = "gpt-4o-mini"
+    OPENAI_LLM_MODEL: str = "gpt-4o-mini"  # or "moonshotai/kimi-k2.5" for DeepInfra
 
     # Search & Quotas (in cents)
     ANONYMOUS_SEARCH_LIMIT_PER_MONTH: int = 3
@@ -132,6 +134,11 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development environment."""
         return self.ENVIRONMENT.lower() == "development"
+
+    @property
+    def openai_base_url(self) -> Optional[str]:
+        """Get OpenAI-compatible API base URL."""
+        return self.OPENAI_API_BASE
 
 
 # Global settings instance

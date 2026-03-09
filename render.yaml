@@ -21,24 +21,36 @@ services:
         value: "https://proreadyengineer-web.onrender.com,http://localhost:3000"
       - key: FRONTEND_URL
         value: "https://proreadyengineer-web.onrender.com"
+      # AI/LLM Configuration - Supports OpenAI, DeepInfra, or any OpenAI-compatible API
       - key: OPENAI_API_KEY
         sync: false
+      - key: OPENAI_API_BASE
+        sync: false  # e.g., https://api.deepinfra.com/v1/openai
+      - key: OPENAI_LLM_MODEL
+        value: "moonshotai/kimi-k2.5"  # or gpt-4o-mini for OpenAI
+      - key: OPENAI_EMBEDDING_MODEL
+        value: "text-embedding-3-small"
+      # Payment providers
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_PUBLISHABLE_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      # Email
       - key: RESEND_API_KEY
         sync: false
+      # File storage
       - key: AWS_ACCESS_KEY_ID
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       - key: S3_BUCKET_NAME
         value: "proreadyengineer-uploads"
+      # Document signing
       - key: SIGNREQUEST_API_KEY
         sync: false
+      # Celery configuration (using database as broker)
       - key: CELERY_BROKER_URL
         fromDatabase:
           name: proreadyengineer-db
