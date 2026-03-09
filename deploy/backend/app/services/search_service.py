@@ -305,6 +305,8 @@ async def calculate_match_score(provider, intent, similarity):
 async def check_search_quota(db, user=None, ip_address=None):
     """Check if user has search quota remaining."""
     from app.models.search import IPUsageTracking
+    from app.models.user import User
+    from app.models.payment import Subscription, SubscriptionType, SubscriptionStatus
     from datetime import datetime
 
     user_id = user.id if user else None
@@ -313,18 +315,44 @@ async def check_search_quota(db, user=None, ip_address=None):
     logger.info(f"[QUOTA CHECK] user_id={user_id}, ip={ip_address}")
 
     if user_id:
-        # Check user quota
-        from app.models.user import User
+        # Check user quota - get monthly_search_count
         result = await db.execute(
-            select(User.search_quota_used, User.search_quota_limit, User.search_quota_reset_at)
+            select(User.monthly_search_count, User.search_count_reset_at)
             .where(User.id == user_id)
         )
         user_row = result.first()
+        
+        # Determine quota limit based on subscription status
+        # Default: 10 for free users
+        quota_limit = 10
+        
+        # Check for active search subscription
+        sub_result = await db.execute(
+            select(Subscription)
+            .where(
+                Subscription.user_id == user_id,
+                Subscription.subscription_type.in_([SubscriptionType.SEARCH_TIER_1, SubscriptionType.SEARCH_TIER_2]),
+                Subscription.subscription_status == SubscriptionStatus.ACTIVE
+            )
+            .order_by(Subscription.created_at.desc())
+        )
+        subscription = sub_result.scalar_one_or_none()
+        
+        if subscription:
+            if subscription.subscription_type == SubscriptionType.SEARCH_TIER_1:
+                quota_limit = 100  # $10/month tier
+            elif subscription.subscription_type == SubscriptionType.SEARCH_TIER_2:
+                quota_limit = 200  # $20/month tier
+        
         if user_row:
-            quota_used, quota_limit, reset_at = user_row
+            quota_used = user_row[0] or 0
             remaining = max(0, quota_limit - quota_used)
             logger.info(f"[QUOTA CHECK] User {user_id}: used={quota_used}, limit={quota_limit}, remaining={remaining}")
             return remaining > 0, remaining
+        else:
+            # User found but no quota record yet - they have full quota
+            logger.info(f"[QUOTA CHECK] User {user_id}: no usage yet, limit={quota_limit}")
+            return True, quota_limit
     elif ip_address:
         # Check IP quota for anonymous users
         result = await db.execute(
@@ -372,7 +400,7 @@ async def increment_search_quota(db, user_id=None, ip_address=None):
         await db.execute(
             text("""
                 UPDATE users 
-                SET search_quota_used = search_quota_used + 1,
+                SET monthly_search_count = monthly_search_count + 1,
                     updated_at = NOW()
                 WHERE id = :user_id
             """),
