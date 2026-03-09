@@ -103,7 +103,11 @@ class Settings(BaseSettings):
     def assemble_db_connection(cls, v: Optional[str], info) -> str:
         """Build async database URL if not provided."""
         if isinstance(v, str) and v:
+            # If URL is provided, ensure it uses asyncpg driver
+            if v.startswith("postgresql://") and "asyncpg" not in v:
+                return v.replace("postgresql://", "postgresql+asyncpg://", 1)
             return v
+        # Build from components
         values = info.data
         return (
             f"postgresql+asyncpg://{values.get('POSTGRES_USER')}"
