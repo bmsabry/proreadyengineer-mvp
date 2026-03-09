@@ -1,0 +1,359 @@
+"""RFQ API endpoints."""
+
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List, Optional
+
+from app.api.deps import get_db, get_current_active_user, get_current_user_optional, get_client_ip
+from app.schemas.rfq import (
+    RFQCreateRequest, RFQResponse, RFQStatusResponse,
+    RFQMatchResponse, RFQFileUploadResponse,
+)
+from app.schemas.payment import PaymentIntentResponse
+from app.models.user import User
+from app.services.rfq_service import create_rfq, submit_rfq, get_rfq_matches
+from app.services.file_service import generate_upload_url
+from app.services.payment_service import create_payment_intent
+from app.core.celery import celery_app
+
+router = APIRouter()
+
+
+@router.post("", response_model=RFQResponse, status_code=status.HTTP_201_CREATED)
+async def create_rfq_endpoint(
+    data: RFQCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Create a new RFQ (anonymous or authenticated)."""
+    rfq = await create_rfq(db, data, current_user)
+    return RFQResponse.from_orm(rfq)
+
+
+@router.get("/{rfq_id}", response_model=RFQResponse)
+async def get_rfq(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get RFQ details (customer only)."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQ
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    if rfq.customer_user_id != current_user.id and "admin" not in (current_user.roles or []):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    return RFQResponse.from_orm(rfq)
+
+
+@router.post("/{rfq_id}/files/initiate")
+async def initiate_file_upload(
+    rfq_id: str,
+    filename: str,
+    content_type: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Get presigned URL for RFQ file upload."""
+    import uuid
+    key = f"rfqs/{rfq_id}/files/{uuid.uuid4()}/{filename}"
+    url_data = generate_upload_url(key, content_type)
+    return {"upload_url": url_data["url"], "fields": url_data["fields"], "key": key}
+
+
+@router.post("/{rfq_id}/files/complete")
+async def complete_file_upload(
+    rfq_id: str,
+    key: str,
+    filename: str,
+    mime_type: str,
+    file_size: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Record uploaded RFQ file."""
+    from app.models.rfq import RFQFile
+    import uuid
+    from datetime import datetime
+
+    rfq_file = RFQFile(
+        id=uuid.uuid4(),
+        rfq_id=rfq_id,
+        s3_key=key,
+        original_filename=filename,
+        mime_type=mime_type,
+        file_size_bytes=file_size,
+        uploaded_by_user_id=current_user.id if current_user else None,
+        created_at=datetime.utcnow(),
+    )
+    db.add(rfq_file)
+    await db.commit()
+
+    return {"file_id": str(rfq_file.id), "status": "uploaded"}
+
+
+@router.post("/{rfq_id}/nda/checkout", response_model=PaymentIntentResponse)
+async def nda_checkout(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create payment intent for NDA fee."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQ
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    if not rfq.nda_required:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="NDA not required for this RFQ")
+
+    intent = await create_payment_intent(
+        db, "nda_fee", 500, "usd", current_user, rfq_id  # $5.00
+    )
+
+    return PaymentIntentResponse(
+        client_secret=intent["client_secret"],
+        payment_intent_id=intent["id"],
+    )
+
+
+@router.get("/{rfq_id}/status", response_model=RFQStatusResponse)
+async def get_rfq_status(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get RFQ status and progress."""
+    from sqlalchemy import select, func
+    from app.models.rfq import RFQ, RFQProviderDispatch, RFQDispatchBatch
+    from app.models.quote import Quote
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    if rfq.customer_user_id != current_user.id and "admin" not in (current_user.roles or []):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    # Count dispatches
+    result = await db.execute(
+        select(func.count()).where(RFQProviderDispatch.rfq_id == rfq_id)
+    )
+    firms_contacted = result.scalar()
+
+    # Count quotes
+    result = await db.execute(
+        select(func.count()).where(Quote.rfq_id == rfq_id, Quote.quote_status == "submitted")
+    )
+    quotes_received = result.scalar()
+
+    return RFQStatusResponse(
+        rfq_id=rfq_id,
+        status=rfq.rfq_status.value if rfq.rfq_status else "unknown",
+        firms_contacted=firms_contacted,
+        quotes_received=quotes_received,
+        quote_limit=5,
+        is_closed=rfq.is_closed,
+    )
+
+
+@router.post("/{rfq_id}/submit")
+async def submit_rfq_endpoint(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Submit RFQ for dispatch to providers."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQ
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    if rfq.customer_user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+
+    await submit_rfq(db, rfq_id)
+
+    return {"message": "RFQ submitted and dispatch initiated"}
+
+
+# Provider RFQ endpoints
+@router.get("/provider/rfqs/teasers")
+async def get_provider_teasers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get RFQ teasers for provider."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQProviderDispatch
+    from app.models.provider import ProviderMembership
+
+    # Get user's provider
+    result = await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
+    )
+    membership = result.scalar_one_or_none()
+
+    if not membership:
+        return {"teasers": []}
+
+    # Get dispatches
+    result = await db.execute(
+        select(RFQProviderDispatch).where(
+            RFQProviderDispatch.provider_id == membership.provider_id
+        )
+    )
+    dispatches = result.scalars().all()
+
+    return {"teasers": [{"rfq_id": str(d.rfq_id), "status": d.dispatch_status.value} for d in dispatches]}
+
+
+@router.get("/provider/rfqs/{rfq_id}/teaser")
+async def get_rfq_teaser(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get teaser details for an RFQ."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQ, RFQProviderDispatch
+    from app.models.provider import ProviderMembership
+
+    result = await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
+    )
+    membership = result.scalar_one_or_none()
+
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
+
+    result = await db.execute(
+        select(RFQProviderDispatch).where(
+            RFQProviderDispatch.rfq_id == rfq_id,
+            RFQProviderDispatch.provider_id == membership.provider_id
+        )
+    )
+    dispatch = result.scalar_one_or_none()
+
+    if not dispatch:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Teaser not found")
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one()
+
+    return {
+        "rfq_id": rfq_id,
+        "urgency": rfq.urgency,
+        "dispatch_status": dispatch.dispatch_status.value,
+    }
+
+
+@router.post("/provider/rfqs/{rfq_id}/unlock/checkout", response_model=PaymentIntentResponse)
+async def unlock_checkout(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create payment intent to unlock RFQ."""
+    intent = await create_payment_intent(
+        db, "rfq_unlock", 1000, "usd", current_user, rfq_id  # $10.00
+    )
+
+    return PaymentIntentResponse(
+        client_secret=intent["client_secret"],
+        payment_intent_id=intent["id"],
+    )
+
+
+@router.get("/provider/rfqs/{rfq_id}/unlock/status")
+async def get_unlock_status(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Check if RFQ is unlocked for provider."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQUnlock
+    from app.models.provider import ProviderMembership
+
+    result = await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
+    )
+    membership = result.scalar_one_or_none()
+
+    if not membership:
+        return {"unlocked": False}
+
+    result = await db.execute(
+        select(RFQUnlock).where(
+            RFQUnlock.rfq_id == rfq_id,
+            RFQUnlock.provider_id == membership.provider_id,
+            RFQUnlock.unlock_status == "completed"
+        )
+    )
+    unlock = result.scalar_one_or_none()
+
+    return {"unlocked": unlock is not None}
+
+
+@router.get("/provider/rfqs/{rfq_id}/files")
+async def get_rfq_files(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get download URLs for RFQ files (if unlocked)."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQUnlock, RFQFile
+    from app.models.provider import ProviderMembership
+    from app.services.file_service import generate_download_url
+
+    result = await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
+    )
+    membership = result.scalar_one_or_none()
+
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
+
+    # Check unlock
+    result = await db.execute(
+        select(RFQUnlock).where(
+            RFQUnlock.rfq_id == rfq_id,
+            RFQUnlock.provider_id == membership.provider_id,
+            RFQUnlock.unlock_status == "completed"
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RFQ not unlocked")
+
+    # Get files
+    result = await db.execute(select(RFQFile).where(RFQFile.rfq_id == rfq_id))
+    files = result.scalars().all()
+
+    return {
+        "files": [
+            {
+                "file_id": str(f.id),
+                "filename": f.original_filename,
+                "download_url": generate_download_url(f.s3_key, 3600),
+            }
+            for f in files
+        ]
+    }

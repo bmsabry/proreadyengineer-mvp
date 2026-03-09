@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}New RFQ Opportunity{% endblock %}
+
+{% block content %}
+<h2>New RFQ Available</h2>
+<p>Hello,</p>
+<p>A new RFQ matching your capabilities has been posted:</p>
+<div style="background: white; padding: 15px; border-left: 4px solid #2563eb; margin: 20px 0;">
+    <p><strong>Urgency:</strong> {{ urgency }}</p>
+    <p><strong>Project Phase:</strong> {{ tollgate_phases }}</p>
+</div>
+<p><strong>Important:</strong> Multiple firms have been contacted. Only the first five quotes will be shown to the customer.</p>
+<p style="text-align: center; margin-top: 30px;">
+    <a href="{{ rfq_url }}" class="button">View RFQ Details</a>
+</p>
+<p style="font-size: 12px; color: #6b7280;">This is a rough estimate request. Final estimates will follow direct engagement.</p>
+{% endblock %}

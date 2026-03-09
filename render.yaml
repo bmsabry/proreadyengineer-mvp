@@ -1,0 +1,58 @@
+services:
+  # Backend API Service
+  - type: web
+    name: proreadyengineer-api
+    runtime: python
+    plan: standard
+    buildCommand: |
+      pip install -r requirements.txt
+      alembic upgrade head
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: proreadyengineer-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: proreadyengineer-redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://proreadyengineer-web.onrender.com
+      - key: ALLOWED_ORIGINS
+        value: https://proreadyengineer-web.onrender.com,https://proreadyengineer.com
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # Frontend Web Service
+  - type: web
+    name: proreadyengineer-web
+    runtime: node
+    plan: starter
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NEXT_PUBLIC_API_URL
+        value: https://proreadyengineer-api.onrender.com
+    autoDeploy: true
+
+databases:
+  - name: proreadyengineer-db
+    plan: starter
+    databaseName: proreadyengineer
+    user: proreadyengineer
+    postgresMajorVersion: "15"
+
+redis:
+  - name: proreadyengineer-redis
+    plan: starter
+    ipAllowList: []

@@ -1,0 +1,127 @@
+"""Quote request and response schemas."""
+
+from datetime import datetime
+from decimal import Decimal
+from typing import Literal, Optional
+from uuid import UUID
+
+from pydantic import Field
+
+from app.schemas.base import BaseSchema, ResponseSchema
+
+
+# Quote enums as Literals
+QuoteStatus = Literal["draft", "submitted", "withdrawn", "customer_viewed", "shortlisted", "accepted", "not_selected", "expired"]
+
+
+# === Quote Create/Submit ===
+
+class QuoteCreateRequest(BaseSchema):
+    """Create quote draft."""
+    rough_price_min: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
+    rough_price_max: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
+    currency: str = Field(default="USD", max_length=3)
+    turnaround_estimate_text: Optional[str] = Field(None, max_length=500)
+    assumptions_text: Optional[str] = Field(None, max_length=2000)
+    scope_notes: Optional[str] = Field(None, max_length=2000)
+
+
+class QuoteSubmitRequest(BaseSchema):
+    """Submit quote (immutable after submission)."""
+    rough_price_min: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
+    rough_price_max: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
+    currency: str = Field(default="USD", max_length=3)
+    turnaround_estimate_text: Optional[str] = Field(None, max_length=500)
+    assumptions_text: Optional[str] = Field(None, max_length=2000)
+    scope_notes: Optional[str] = Field(None, max_length=2000)
+
+
+class QuoteFileCreateRequest(BaseSchema):
+    """Attach file to quote."""
+    s3_key: str
+    original_filename: str
+    mime_type: str
+    file_size_bytes: int
+
+
+# === Quote Response ===
+
+class QuoteFileResponse(ResponseSchema):
+    """Quote file details."""
+    id: UUID
+    quote_id: UUID
+    original_filename: str
+    mime_type: str
+    file_size_bytes: int
+
+
+class QuoteProviderInfo(BaseSchema):
+    """Provider info visible to customer (limited until accepted)."""
+    provider_id: int
+    provider_name: str
+    firm_name: str
+    primary_specialty: Optional[str]
+
+
+class QuoteResponse(ResponseSchema):
+    """Quote response (full details)."""
+    id: UUID
+    rfq_id: UUID
+    provider_id: int
+    submitter_user_id: UUID
+    quote_status: QuoteStatus
+    rough_price_min: Optional[Decimal]
+    rough_price_max: Optional[Decimal]
+    currency: str
+    turnaround_estimate_text: Optional[str]
+    assumptions_text: Optional[str]
+    scope_notes: Optional[str]
+    submitted_at: Optional[datetime]
+    customer_viewed_at: Optional[datetime]
+
+
+class QuoteForCustomerResponse(QuoteResponse):
+    """Quote as seen by customer."""
+    provider: QuoteProviderInfo
+    files: list[QuoteFileResponse]
+
+
+class QuoteForProviderResponse(QuoteResponse):
+    """Quote as seen by provider (no sensitive customer data)."""
+    files: list[QuoteFileResponse]
+
+
+class QuoteListResponse(BaseSchema):
+    """List of quotes for an RFQ (customer view)."""
+    quotes: list[QuoteForCustomerResponse]
+    rfq_id: UUID
+    can_accept: bool  # RFQ is open and quote count < 5
+    disclaimer: str = "Quotes are rough, non-binding, order-of-magnitude estimates. Refined final estimate will follow direct engagement."
+
+
+class QuoteAcceptRequest(BaseSchema):
+    """Accept a quote."""
+    pass  # Action only
+
+
+class QuoteAcceptResponse(BaseSchema):
+    """Quote acceptance response."""
+    success: bool
+    message: str
+    rfq_id: UUID
+    selected_quote_id: UUID
+    selected_provider_id: int
+    provider_contact_revealed: bool = True
+
+
+class QuoteWithdrawRequest(BaseSchema):
+    """Withdraw a submitted quote."""
+    reason: Optional[str] = Field(None, max_length=500)
+
+
+class QuoteWithdrawResponse(BaseSchema):
+    """Quote withdrawal response."""
+    success: bool
+    message: str
+    quote_id: UUID
+    new_status: QuoteStatus
