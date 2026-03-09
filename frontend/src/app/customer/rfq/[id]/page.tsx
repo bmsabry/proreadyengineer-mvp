@@ -143,9 +143,9 @@ export default function RFQDetailPage() {
                   <CardContent className="p-6">
                     <div className="flex justify-between items-start">
                       <div>
-                        <h3 className="font-semibold">{quote.provider_name}</h3>
+                        <h3 className="font-semibold">{quote.provider?.name}</h3>
                         <p className="text-sm text-muted-foreground">
-                          Submitted {formatDate(quote.submitted_at)}
+                          Submitted {quote.submitted_at ? formatDate(quote.submitted_at) : "Unknown"}
                         </p>
                       </div>
                       <div className="text-right">

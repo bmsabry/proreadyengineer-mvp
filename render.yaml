@@ -61,7 +61,11 @@ services:
     name: proreadyengineer-web
     env: node
     plan: free
-    buildCommand: rm -rf frontend/node_modules frontend/.next && cd frontend && npm ci && npm run build
+    buildCommand: |
+      cd frontend
+      rm -rf node_modules .next
+      npm ci
+      npm run build
     startCommand: cd frontend && npm start
     envVars:
       - key: NODE_ENV

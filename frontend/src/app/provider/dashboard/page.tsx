@@ -127,9 +127,9 @@ export default function ProviderDashboard() {
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="font-medium">{quote.provider_name}</p>
+                          <p className="font-medium">{quote.provider?.name}</p>
                           <p className="text-sm text-muted-foreground">
-                            Submitted {formatDate(quote.submitted_at)}
+                            Submitted {quote.submitted_at ? formatDate(quote.submitted_at) : "Unknown"}
                           </p>
                         </div>
                         <Badge>{quote.quote_status}</Badge>

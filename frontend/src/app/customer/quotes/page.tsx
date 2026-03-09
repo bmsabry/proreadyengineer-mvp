@@ -45,9 +45,9 @@ export default function CustomerQuotesPage() {
               <CardContent className="p-6">
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="font-semibold">{quote.provider_name}</h3>
+                    <h3 className="font-semibold">{quote.provider?.name || "Unknown Provider"}</h3>
                     <p className="text-sm text-muted-foreground">
-                      Submitted {formatDate(quote.submitted_at)}
+                      Submitted {formatDate(quote.submitted_at || new Date())}
                     </p>
                   </div>
                   <Badge>{quote.quote_status}</Badge>

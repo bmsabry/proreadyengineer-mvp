@@ -26,7 +26,7 @@ export default function ProviderClaimPage() {
     
     try {
       const response = await api.providers.claimSearch({ query: searchQuery });
-      setResults(response.data.results || []);
+      setResults(response.data || []);
     } catch (error) {
       console.error('Search failed:', error);
     } finally {

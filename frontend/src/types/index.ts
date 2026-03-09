@@ -254,6 +254,15 @@ export interface RFQDispatch {
   updated_at: string;
   provider?: Provider;
 }
+// RFQ Teaser for providers
+export interface RFQTeaser {
+  rfq_id: string;
+  urgency: string;
+  tollgate_phases?: string[];
+  nda_required: boolean;
+}
+
+
 
 export interface RFQUnlock {
   id: string;
