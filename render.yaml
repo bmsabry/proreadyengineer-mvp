@@ -23,36 +23,30 @@ services:
         value: "https://proreadyengineer-web.onrender.com,http://localhost:3000"
       - key: FRONTEND_URL
         value: "https://proreadyengineer-web.onrender.com"
-      # AI/LLM Configuration - DeepInfra (REQUIRED - enter your key)
       - key: OPENAI_API_KEY
-        sync: false  # REQUIRED: Your DeepInfra API key
+        sync: false
       - key: OPENAI_API_BASE
         value: "https://api.deepinfra.com/v1/openai"
       - key: OPENAI_LLM_MODEL
         value: "moonshotai/kimi-k2.5"
       - key: OPENAI_EMBEDDING_MODEL
         value: "text-embedding-3-small"
-      # Payment providers - OPTIONAL (leave blank to disable payments)
       - key: STRIPE_SECRET_KEY
-        value: ""  # Optional - sk_test_... or sk_live_...
+        value: ""
       - key: STRIPE_PUBLISHABLE_KEY
-        value: ""  # Optional - pk_test_... or pk_live_...
+        value: ""
       - key: STRIPE_WEBHOOK_SECRET
-        value: ""  # Optional - whsec_...
-      # Email - OPTIONAL (leave blank to disable emails)
+        value: ""
       - key: RESEND_API_KEY
-        value: ""  # Optional - re_...
-      # File storage - OPTIONAL (leave blank to disable uploads)
+        value: ""
       - key: AWS_ACCESS_KEY_ID
-        value: ""  # Optional
+        value: ""
       - key: AWS_SECRET_ACCESS_KEY
-        value: ""  # Optional
+        value: ""
       - key: S3_BUCKET_NAME
         value: "proreadyengineer-uploads"
-      # Document signing - OPTIONAL (leave blank to disable NDAs)
       - key: SIGNREQUEST_API_KEY
-        value: ""  # Optional
-      # Celery configuration (using database as broker)
+        value: ""
       - key: CELERY_BROKER_URL
         fromDatabase:
           name: proreadyengineer-db
@@ -67,7 +61,7 @@ services:
     name: proreadyengineer-web
     env: node
     plan: free
-    buildCommand: cd frontend && npm install && npm run build
+    buildCommand: rm -rf frontend/node_modules frontend/.next && cd frontend && npm ci && npm run build
     startCommand: cd frontend && npm start
     envVars:
       - key: NODE_ENV
@@ -75,7 +69,7 @@ services:
       - key: NEXT_PUBLIC_API_URL
         value: https://proreadyengineer-api.onrender.com
       - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-        value: ""  # Optional - for Stripe payments
+        value: ""
 
 databases:
   - name: proreadyengineer-db
