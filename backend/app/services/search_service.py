@@ -398,7 +398,9 @@ async def log_search_request(db, user_id, ip_address, query, structured_intent, 
     return search_log
 
 
-async def search_providers(db, query, user_tier=None, filters=None):
+async def search_providers(db, query, user_tier=None, filters=None, limit=50):
     """Search providers using vector similarity and scoring."""
+    from app.schemas.search import SearchRequest
     service = SearchService()
-    return await service.search_providers(db, query, user_tier, filters)
+    search_query = SearchRequest(query=query, filters=filters or {})
+    return await service.search_providers(db, search_query, user_tier, ip_address=None)
