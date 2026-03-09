@@ -1,7 +1,7 @@
 """Search and discovery request and response schemas."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import , Optional, Dict, Any
 from uuid import UUID
 
 from pydantic import Field
@@ -14,6 +14,7 @@ class SearchQueryRequest(BaseSchema):
     query: str = Field(..., min_length=3, max_length=2000)
     document_text: Optional[str] = None  # Extracted text from uploaded document
     document_upload_id: Optional[UUID] = None  # If user uploaded document
+    filters: Optional[Dict[str, Any]] = Field(default_factory=dict)  # Optional filters
 
 
 class LLMStructuredOutput(BaseSchema):
