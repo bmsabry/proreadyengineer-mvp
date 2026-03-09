@@ -20,7 +20,15 @@ from app.models.provider import Provider
 import sqlite3
 
 # Source SQLite database
-SQLITE_DB = '/a0/usr/projects/engineering_services_directory_v2/engineering_directory.db'
+# Detect environment and use correct path
+import os
+if os.path.exists('/opt/render/project/src/engineering_directory.db'):
+    SQLITE_DB = '/opt/render/project/src/engineering_directory.db'
+elif os.path.exists('/a0/usr/projects/engineering_services_directory_v2/engineering_directory.db'):
+    SQLITE_DB = '/a0/usr/projects/engineering_services_directory_v2/engineering_directory.db'
+else:
+    # Try current directory
+    SQLITE_DB = 'engineering_directory.db'  # Should be in same folder on Render
 
 
 def parse_json_field(value):
