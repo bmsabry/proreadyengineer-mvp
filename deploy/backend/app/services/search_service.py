@@ -1,512 +1,606 @@
-"""Search and discovery service with OpenAI embeddings and pgvector similarity."""
+"""Search service for provider matching using AI embeddings with comprehensive debugging."""
 
-import uuid
-from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
-
-import openai
-from sqlalchemy import func, select
+import json
+import logging
+from typing import List, Optional, Dict, Any, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
+from openai import AsyncOpenAI
 
 from app.core.config import settings
-from app.models import IPUsageTracking, Provider, SearchRequest, User
-from app.schemas.search import LLMStructuredOutput, SearchResultItem
-
-if TYPE_CHECKING:
-    from app.models import Provider
-
-
-async def generate_embedding(text: str) -> list[float]:
-    """Generate embedding vector using OpenAI API.
-
-    Args:
-        text: Text to embed (normalized query or provider description).
-
-    Returns:
-        list[float]: 1536-dimensional embedding vector.
-
-    Raises:
-        RuntimeError: If OpenAI API call fails.
-    """
-    if not settings.OPENAI_API_KEY:
-        raise RuntimeError("OpenAI API key not configured")
-
-    try:
-        client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-        response = await client.embeddings.create(
-            model=settings.OPENAI_EMBEDDING_MODEL,
-            input=text[:8000],  # Truncate to safe limit
-        )
-        return response.data[0].embedding
-    except Exception as e:
-        raise RuntimeError(f"Failed to generate embedding: {e}")
-
-
-async def extract_structured_intent(query: str) -> Optional[LLMStructuredOutput]:
-    """Use LLM to extract structured search intent from natural language query.
-
-    Args:
-        query: Natural language search query.
-
-    Returns:
-        LLMStructuredOutput | None: Structured intent or None if extraction fails.
-    """
-    if not settings.OPENAI_API_KEY:
-        return None
-
-    try:
-        client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-        system_prompt = """You are an engineering services search analyzer.
-Extract structured information from the user's search query about engineering needs.
-Return ONLY valid JSON matching the schema."""
-
-        user_prompt = f"""Analyze this engineering services search query:
-"{query}"
-
-Extract and return JSON with these fields:
-- requires_engineering: 1 if query is for engineering services, 0 otherwise
-- requires_mechanical: 1 if query involves mechanical/physical engineering, 0 otherwise
-- software_mentioned: list of CAD/CAE software mentioned (e.g., ["ANSYS", "SolidWorks"])
-- inferred_specialty: string describing the engineering specialty needed
-- capabilities_needed: list of specific capabilities mentioned
-
-Example output:
-{{
-    "requires_engineering": 1,
-    "requires_mechanical": 1,
-    "software_mentioned": ["ANSYS", "SolidWorks"],
-    "inferred_specialty": "structural fatigue analysis",
-    "capabilities_needed": ["FEA", "stress analysis", "fatigue testing"]
-}}"""
-
-        response = await client.chat.completions.create(
-            model=settings.OPENAI_LLM_MODEL,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            response_format={"type": "json_object"},
-            max_tokens=500,
-            temperature=0.1,
-        )
-
-        import json
-        result = json.loads(response.choices[0].message.content)
-        return LLMStructuredOutput(**result)
-    except Exception:
-        # Fail gracefully - return None to trigger fallback logic
-        return None
-
-
-def _normalize_query(query: str) -> str:
-    """Normalize search query for better matching.
-
-    Args:
-        query: Raw search query.
-
-    Returns:
-        str: Normalized query.
-    """
-    # Basic normalization
-    normalized = query.lower().strip()
-    # Remove extra whitespace
-    normalized = " ".join(normalized.split())
-    return normalized
-
-
-def _calculate_tier_score(tier: Optional[str]) -> int:
-    """Calculate tier multiplier score.
-
-    Args:
-        tier: Provider tier (A, B, C, D, E).
-
-    Returns:
-        int: Tier score (25, 20, 15, 10, 5 or 0).
-    """
-    tier_scores = {"A": 25, "B": 20, "C": 15, "D": 10, "E": 5}
-    return tier_scores.get(tier.upper() if tier else "", 0)
-
-
-def _calculate_specialty_score(
-    provider: Provider, intent: LLMStructuredOutput
-) -> int:
-    """Calculate specialty match score (0-25).
-
-    Args:
-        provider: Provider record.
-        intent: Extracted search intent.
-
-    Returns:
-        int: Specialty match score.
-    """
-    score = 0
-
-    if not intent or not intent.inferred_specialty:
-        # No structured intent - give partial credit
-        return 15
-
-    # Check primary specialty match
-    if provider.primary_specialty:
-        primary_lower = provider.primary_specialty.lower()
-        intent_specialty_lower = intent.inferred_specialty.lower()
-
-        # Direct match or significant overlap
-        if intent_specialty_lower in primary_lower or primary_lower in intent_specialty_lower:
-            score += 15
-        # Partial match - check keywords
-        elif any(word in primary_lower for word in intent_specialty_lower.split() if len(word) > 3):
-            score += 8
-
-    # Check secondary specialties
-    if provider.secondary_specialties and intent.inferred_specialty:
-        for specialty in provider.secondary_specialties:
-            if intent.inferred_specialty.lower() in specialty.lower():
-                score += 5
-                break
-
-    # Check inferred specialty against specialties array
-    if provider.specialties and intent.inferred_specialty:
-        for spec in provider.specialties:
-            if intent.inferred_specialty.lower() in spec.lower():
-                score += 5
-                break
-
-    return min(score, 25)
-
-
-def _calculate_capabilities_score(
-    provider: Provider, intent: LLMStructuredOutput
-) -> int:
-    """Calculate capabilities match score (0-50).
-
-    Args:
-        provider: Provider record.
-        intent: Extracted search intent.
-
-    Returns:
-        int: Capabilities match score.
-    """
-    score = 0
-
-    if not intent or not intent.capabilities_needed:
-        return 25  # Neutral score if no capabilities specified
-
-    provider_capabilities = provider.capabilities or []
-    provider_software = provider.software_tools or []
-
-    # Check software mentions
-    if intent.software_mentioned:
-        for software in intent.software_mentioned:
-            software_lower = software.lower()
-            # Check in software_tools
-            if any(software_lower in s.lower() for s in provider_software):
-                score += 10
-            # Check in capabilities
-            if any(software_lower in c.lower() for c in provider_capabilities):
-                score += 5
-
-    # Check capability keywords
-    for needed in intent.capabilities_needed:
-        needed_lower = needed.lower()
-        if any(needed_lower in c.lower() for c in provider_capabilities):
-            score += 8
-        elif provider.business_description and needed_lower in provider.business_description.lower():
-            score += 4
-
-    return min(score, 50)
-
-
-async def calculate_match_score(
-    provider: Provider, query_intent: LLMStructuredOutput
-) -> dict[str, Any]:
-    """Calculate composite match score for a provider.
-
-    Args:
-        provider: Provider to score.
-        query_intent: Extracted structured intent.
-
-    Returns:
-        dict: Scoring breakdown with specialty, capabilities, tier, and total.
-    """
-    specialty_score = _calculate_specialty_score(provider, query_intent)
-    capabilities_score = _calculate_capabilities_score(provider, query_intent)
-    tier_score = _calculate_tier_score(provider.business_evaluation_tier)
-
-    composite_score = specialty_score + capabilities_score + tier_score
-
-    return {
-        "composite_score": composite_score,
-        "specialty_score": specialty_score,
-        "capabilities_score": capabilities_score,
-        "tier_score": tier_score,
-        "scoring_inputs": {
-            "primary_specialty": provider.primary_specialty,
-            "capabilities": provider.capabilities,
-            "tier": provider.business_evaluation_tier,
-            "intent_specialty": query_intent.inferred_specialty if query_intent else None,
-            "intent_capabilities": query_intent.capabilities_needed if query_intent else None,
-        },
-    }
-
-
-async def search_providers(
-    db: AsyncSession,
-    query: str,
-    filters: dict[str, Any],
-    limit: int = 50,
-) -> list[dict[str, Any]]:
-    """Search providers using vector similarity with hard filters.
-
-    Args:
-        db: Database session.
-        query: Search query text.
-        filters: Hard filters to apply (is_engineering_service, is_mechanical_focus, etc.).
-        limit: Maximum results to return.
-
-    Returns:
-        list: Provider matches with scores.
-    """
-    # Normalize query
-    normalized_query = _normalize_query(query)
-
-    # Extract structured intent
-    structured_intent = await extract_structured_intent(query)
-
-    # Generate query embedding
-    try:
-        query_embedding = await generate_embedding(normalized_query)
-    except RuntimeError:
-        # Fallback: use keyword search only
-        query_embedding = None
-
-    # Build base query with hard filters
-    stmt = select(Provider).where(Provider.is_engineering_service == 1)
-
-    # Apply hard filters
-    if filters.get("is_mechanical_focus"):
-        stmt = stmt.where(Provider.is_mechanical_focus == 1)
-
-    if filters.get("software_mentioned") and query_embedding:
-        # Software filtering will be done post-vector similarity
-        pass
-
-    if query_embedding:
-        # Use pgvector cosine similarity
-        # Embedding model produces 1536-dim vectors
-        embedding_param = "[" + ",".join(str(x) for x in query_embedding) + "]"
-
-        stmt = stmt.where(Provider.embedding.isnot(None))
-        stmt = stmt.order_by(
-            Provider.embedding.cosine_distance(query_embedding)
-        )
-        stmt = stmt.limit(limit * 2)  # Get extra for filtering
-    else:
-        # Fallback: order by tier and rating
-        stmt = stmt.order_by(
-            func.coalesce(Provider.business_evaluation_tier, "Z"),
-            Provider.rating.desc().nullslast(),
-        )
-        stmt = stmt.limit(limit * 2)
-
-    result = await db.execute(stmt)
-    providers = result.scalars().all()
-
-    # Apply software filter if needed
-    if filters.get("software_mentioned") and structured_intent:
-        software_list = [s.lower() for s in structured_intent.software_mentioned]
-        filtered_providers = []
-
-        for provider in providers:
-            provider_software = [s.lower() for s in (provider.software_tools or [])]
-            # Check if any required software matches
-            if any(req in ps for req in software_list for ps in provider_software):
-                filtered_providers.append(provider)
-
-        # If no matches after filter, include all (fallback)
-        if not filtered_providers and providers:
-            fallback_reason = "software_filter_relaxed"
-            filtered_providers = list(providers)
-        else:
-            fallback_reason = None
-
-        providers = filtered_providers
-    else:
-        fallback_reason = None
-
-    # Calculate scores for all candidates
-    scored_results = []
-    for provider in providers:
-        score_data = await calculate_match_score(provider, structured_intent)
-        scored_results.append({
-            "provider": provider,
-            **score_data,
-        })
-
-    # Sort by composite score descending
-    scored_results.sort(key=lambda x: x["composite_score"], reverse=True)
-
-    # Take top results
-    top_results = scored_results[:limit]
-
-    # Add fallback reason if applicable
-    for result in top_results:
-        result["fallback_reason"] = fallback_reason
-
-    return top_results
-
-
-async def check_search_quota(
-    db: AsyncSession, user: Optional[User], ip: str
-) -> tuple[bool, int, Optional[int], Optional[datetime]]:
-    """Check if user has remaining search quota.
-
-    Args:
-        db: Database session.
-        user: Authenticated user or None for anonymous.
-        ip: Client IP address.
-
-    Returns:
-        tuple: (has_quota, quota_used, quota_limit, reset_at)
-    """
+from app.models.provider import Provider
+from app.models.search import SearchRequest
+from app.schemas.search import SearchQuery, SearchResult, ProviderMatch
+
+logger = logging.getLogger(__name__)
+
+
+class SearchService:
+    """Service for AI-powered provider search with debug logging."""
+
+    def __init__(self):
+        """Initialize OpenAI-compatible client."""
+        client_kwargs = {
+            "api_key": settings.OPENAI_API_KEY or "dummy-key",
+        }
+
+        # Support custom base URL (e.g., DeepInfra, other providers)
+        if settings.OPENAI_API_BASE:
+            client_kwargs["base_url"] = settings.OPENAI_API_BASE
+
+        self.client = AsyncOpenAI(**client_kwargs)
+        self.embedding_model = settings.OPENAI_EMBEDDING_MODEL
+        self.llm_model = settings.OPENAI_LLM_MODEL
+
+        logger.info(f"[SEARCH SERVICE] Initialized with embedding_model={self.embedding_model}, llm_model={self.llm_model}")
+        logger.info(f"[SEARCH SERVICE] API Base: {settings.OPENAI_API_BASE or 'default (OpenAI)'}")
+        logger.info(f"[SEARCH SERVICE] API Key configured: {bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != 'dummy-key')}")
+
+    async def extract_search_intent(
+        self, query_text: str, document_text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Use LLM to extract structured intent from search query."""
+        logger.info(f"[SEARCH INTENT] Starting extraction for query: '{query_text[:100]}...'")
+
+        combined_text = query_text
+        if document_text:
+            combined_text += f"\n\nDocument content:\n{document_text[:4000]}"
+            logger.info(f"[SEARCH INTENT] Including document text ({len(document_text)} chars)")
+
+        prompt = f"""
+        Analyze this engineering services search query and extract structured information.
+
+        Query: {combined_text}
+
+        Return ONLY a JSON object with these fields:
+        - requires_engineering: 1 if engineering services needed, 0 otherwise
+        - requires_mechanical: 1 if mechanical engineering focus, 0 otherwise
+        - requires_software: 1 if software/simulation tools mentioned, 0 otherwise
+        - software_mentioned: list of software tools mentioned (e.g., ["ANSYS", "SolidWorks"])
+        - inferred_specialty: primary engineering specialty inferred (string)
+        - capabilities_needed: list of required capabilities
+        - tollgate_phases: list of tollgate phases mentioned (TG0, TG1, TG3, TG4, TG6)
+
+        Return valid JSON only, no markdown formatting.
+        """
+
+        try:
+            logger.info(f"[SEARCH INTENT] Calling LLM API (model={self.llm_model})")
+            response = await self.client.chat.completions.create(
+                model=self.llm_model,
+                messages=[
+                    {"role": "system", "content": "You are an engineering services analyzer. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=500
+            )
+
+            content = response.choices[0].message.content.strip()
+            logger.info(f"[SEARCH INTENT] LLM response received: {len(content)} chars")
+
+            # Clean up markdown if present
+            if content.startswith("```json"):
+                content = content[7:]
+            if content.startswith("```"):
+                content = content[3:]
+            if content.endswith("```"):
+                content = content[:-3]
+            content = content.strip()
+
+            intent = json.loads(content)
+            logger.info(f"[SEARCH INTENT] Parsed intent: {json.dumps(intent)}")
+            return intent
+
+        except json.JSONDecodeError as e:
+            logger.error(f"[SEARCH INTENT] Failed to parse LLM response as JSON: {str(e)}")
+            logger.error(f"[SEARCH INTENT] Raw response: {content[:500]}")
+            # Return default intent on parse failure
+            return {
+                "requires_engineering": 1,
+                "requires_mechanical": 0,
+                "requires_software": 0,
+                "software_mentioned": [],
+                "inferred_specialty": "",
+                "capabilities_needed": [],
+                "tollgate_phases": []
+            }
+        except Exception as e:
+            logger.error(f"[SEARCH INTENT] LLM API error: {str(e)}", exc_info=True)
+            raise
+
+    async def generate_embedding(self, text: str) -> List[float]:
+        """Generate vector embedding for text."""
+        logger.info(f"[EMBEDDING] Generating embedding for text ({len(text)} chars, model={self.embedding_model})")
+
+        if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY == "dummy-key":
+            logger.error("[EMBEDDING] No API key configured!")
+            raise ValueError("OpenAI API key not configured")
+
+        try:
+            response = await self.client.embeddings.create(
+                model=self.embedding_model,
+                input=text[:8000]  # Limit input size
+            )
+            embedding = response.data[0].embedding
+            logger.info(f"[EMBEDDING] Generated embedding with {len(embedding)} dimensions")
+            return embedding
+        except Exception as e:
+            logger.error(f"[EMBEDDING] Failed to generate embedding: {str(e)}", exc_info=True)
+            raise
+
+    async def search_providers(
+        self,
+        db: AsyncSession,
+        query: str,
+        filters: Optional[Dict[str, Any]] = None,
+        limit: int = 50
+    ) -> List[Any]:
+        """Execute AI-powered provider search with detailed logging."""
+        logger.info(f"[SEARCH] Starting search: query='{query[:100]}...', filters={filters}, limit={limit}")
+
+        filters = filters or {}
+
+        # Extract structured intent
+        try:
+            intent = await self.extract_search_intent(query)
+            logger.info(f"[SEARCH] Intent extracted successfully")
+        except Exception as e:
+            logger.error(f"[SEARCH] Intent extraction failed: {str(e)}")
+            intent = {"requires_engineering": 1, "requires_mechanical": 0, "inferred_specialty": "", "software_mentioned": []}
+
+        # Generate query embedding
+        try:
+            query_embedding = await self.generate_embedding(query)
+            logger.info(f"[SEARCH] Query embedding generated")
+        except Exception as e:
+            logger.error(f"[SEARCH] Embedding generation failed: {str(e)}")
+            return []
+
+        # Build and execute database query
+        embedding_str = f"[{','.join(str(x) for x in query_embedding)}]"
+
+        try:
+            logger.info(f"[SEARCH] Querying database with vector similarity")
+            stmt = select(
+                Provider,
+                (1 - Provider.embedding.cosine_distance(embedding_str)).label("similarity")
+            ).where(
+                Provider.embedding.isnot(None)
+            ).order_by(
+                Provider.embedding.cosine_distance(embedding_str)
+            ).limit(limit)
+
+            result = await db.execute(stmt)
+            rows = result.all()
+            logger.info(f"[SEARCH] Database returned {len(rows)} rows")
+
+            if len(rows) == 0:
+                logger.warning(f"[SEARCH] No providers found with embeddings - checking if any providers have embeddings")
+                count_result = await db.execute(select(Provider).where(Provider.embedding.isnot(None)))
+                with_embeddings = len(count_result.scalars().all())
+                logger.warning(f"[SEARCH] Providers with embeddings: {with_embeddings}")
+
+        except Exception as e:
+            logger.error(f"[SEARCH] Database query failed: {str(e)}", exc_info=True)
+            return []
+
+        # Score and rank providers
+        matches = []
+        logger.info(f"[SEARCH] Scoring {len(rows)} providers")
+
+        for idx, (provider, similarity) in enumerate(rows):
+            try:
+                score_result = self._calculate_score(provider, intent, similarity)
+
+                # Create a simple match object
+                match_obj = type('Match', (), {
+                    'provider': provider,
+                    'score': score_result["total"],
+                    'explanation': score_result["explanation"]
+                })()
+                matches.append(match_obj)
+
+                if idx < 3:  # Log details for top 3
+                    logger.info(f"[SEARCH] Provider {idx+1}: {provider.name}, score={score_result['total']}, similarity={similarity:.3f}")
+            except Exception as e:
+                logger.error(f"[SEARCH] Failed to score provider {provider.id}: {str(e)}")
+
+        # Sort by score
+        matches.sort(key=lambda x: x.score, reverse=True)
+        logger.info(f"[SEARCH] Returning top {min(5, len(matches))} matches from {len(matches)} total")
+
+        return matches[:5]
+
+    def _calculate_score(
+        self,
+        provider: Provider,
+        intent: Dict[str, Any],
+        similarity: float
+    ) -> Dict[str, Any]:
+        """Calculate 100-point composite score for a provider match."""
+
+        # Base similarity score (0-50 points for capabilities match)
+        capabilities_score = min(50, int(similarity * 50))
+
+        # Specialty match (0-25 points)
+        specialty_score = 0
+        inferred_specialty = intent.get("inferred_specialty", "").lower()
+        if provider.primary_specialty and inferred_specialty:
+            if inferred_specialty in provider.primary_specialty.lower():
+                specialty_score = 25
+            elif provider.secondary_specialties:
+                secondary_match = any(
+                    inferred_specialty in s.lower()
+                    for s in (provider.secondary_specialties or [])
+                )
+                if secondary_match:
+                    specialty_score = 20
+
+        # Tier multiplier (5-25 points)
+        tier_scores = {"A": 25, "B": 20, "C": 15, "D": 10, "E": 5}
+        tier_score = tier_scores.get(provider.tier, 5)
+
+        # Software match bonus (up to 10 bonus points)
+        software_bonus = 0
+        mentioned_software = intent.get("software_mentioned", [])
+        if mentioned_software and provider.software_tools:
+            matches = sum(
+                1 for sw in mentioned_software
+                if any(sw.lower() in pt.lower() for pt in provider.software_tools)
+            )
+            software_bonus = min(10, matches * 3)
+
+        total = min(100, capabilities_score + specialty_score + tier_score + software_bonus)
+
+        # Generate explanation
+        explanation_parts = []
+        if specialty_score >= 20:
+            explanation_parts.append(f"Strong specialty match in {provider.primary_specialty}")
+        if capabilities_score >= 35:
+            explanation_parts.append("High capability alignment")
+        if software_bonus > 0:
+            explanation_parts.append(f"Uses relevant software tools")
+        explanation_parts.append(f"Tier {provider.tier} provider")
+
+        return {
+            "total": total,
+            "specialty": specialty_score,
+            "capabilities": capabilities_score,
+            "tier": tier_score,
+            "software_bonus": software_bonus,
+            "explanation": "; ".join(explanation_parts) if explanation_parts else "General match"
+        }
+
+    async def generate_provider_embedding(
+        self,
+        provider: Provider
+    ) -> List[float]:
+        """Generate embedding for a provider's business description."""
+        # Combine relevant fields for embedding
+        text_parts = [
+            provider.name or "",
+            provider.primary_specialty or "",
+            provider.business_description or "",
+            " ".join(provider.capabilities or []),
+            " ".join(provider.specialties or []),
+        ]
+        text = " ".join(filter(None, text_parts))
+
+        return await self.generate_embedding(text)
+
+
+# Global instance
+search_service = SearchService()
+
+
+# Standalone function wrappers for backward compatibility and imports
+
+async def calculate_match_score(provider, intent, similarity):
+    """Calculate composite match score for a provider."""
+    service = SearchService()
+    return service._calculate_score(provider, intent, similarity)
+
+
+async def check_search_quota(db, user=None, ip_address=None):
+    """Check if user has search quota remaining."""
+    from app.models.search import IPUsageTracking
+    from datetime import datetime
+
+    user_id = user.id if user else None
     current_month = datetime.utcnow().strftime("%Y-%m")
 
-    if user:
-        # Check user's monthly search count
-        # Reset if needed
-        if (user.search_count_reset_at is None or 
-            user.search_count_reset_at.strftime("%Y-%m") != current_month):
-            user.monthly_search_count = 0
-            user.search_count_reset_at = datetime.utcnow()
+    logger.info(f"[QUOTA CHECK] user_id={user_id}, ip={ip_address}")
 
-        # Check active subscriptions for paid tiers
-        from app.models import Subscription, SubscriptionStatus, SubscriptionType
-
+    if user_id:
+        # Check user quota
+        from app.models.user import User
         result = await db.execute(
-            select(Subscription).where(
-                Subscription.user_id == user.id,
-                Subscription.subscription_status == SubscriptionStatus.ACTIVE,
-                Subscription.subscription_type.in_([
-                    SubscriptionType.SEARCH_TIER_1,
-                    SubscriptionType.SEARCH_TIER_2,
-                ]),
-            )
+            select(User.search_quota_used, User.search_quota_limit, User.search_quota_reset_at)
+            .where(User.id == user_id)
         )
-        subscription = result.scalar_one_or_none()
-
-        if subscription:
-            # Paid tier
-            if subscription.subscription_type == SubscriptionType.SEARCH_TIER_1:
-                quota_limit = settings.SEARCH_TIER_1_LIMIT
-            else:
-                quota_limit = settings.SEARCH_TIER_2_LIMIT
-        else:
-            # Free tier
-            quota_limit = settings.REGISTERED_SEARCH_LIMIT_PER_MONTH
-
-        has_quota = user.monthly_search_count < quota_limit
-        reset_at = (user.search_count_reset_at + timedelta(days=30)) if user.search_count_reset_at else None
-
-        return has_quota, user.monthly_search_count, quota_limit, reset_at
-
-    else:
-        # Anonymous - track by IP
+        user_row = result.first()
+        if user_row:
+            quota_used, quota_limit, reset_at = user_row
+            remaining = max(0, quota_limit - quota_used)
+            logger.info(f"[QUOTA CHECK] User {user_id}: used={quota_used}, limit={quota_limit}, remaining={remaining}")
+            return remaining > 0, remaining
+    elif ip_address:
+        # Check IP quota for anonymous users
         result = await db.execute(
-            select(IPUsageTracking).where(
-                IPUsageTracking.ip_address == ip,
-                IPUsageTracking.usage_month == current_month,
+            select(IPUsageTracking)
+            .where(
+                IPUsageTracking.ip_address == ip_address,
+                IPUsageTracking.usage_month == current_month
             )
         )
         tracking = result.scalar_one_or_none()
 
         if not tracking:
-            # First search from this IP this month
-            return True, 0, settings.ANONYMOUS_SEARCH_LIMIT_PER_MONTH, None
+            logger.info(f"[QUOTA CHECK] IP {ip_address}: new this month, 3 searches available")
+            return True, 3
 
-        has_quota = tracking.search_count < settings.ANONYMOUS_SEARCH_LIMIT_PER_MONTH
+        remaining = max(0, 3 - tracking.search_count)
+        logger.info(f"[QUOTA CHECK] IP {ip_address}: used={tracking.search_count}, remaining={remaining}")
+        return remaining > 0, remaining
 
-        # Reset is start of next month
-        next_month = datetime.utcnow().replace(day=1) + timedelta(days=32)
-        next_month = next_month.replace(day=1)
-
-        return has_quota, tracking.search_count, settings.ANONYMOUS_SEARCH_LIMIT_PER_MONTH, next_month
+    logger.warning(f"[QUOTA CHECK] No user_id or ip_address provided")
+    return False, 0
 
 
-async def increment_search_quota(
-    db: AsyncSession, user: Optional[User], ip: str
-) -> None:
-    """Increment search quota usage.
+async def extract_structured_intent(query: str):
+    """Extract structured intent from natural language query."""
+    service = SearchService()
+    return await service.extract_search_intent(query)
 
-    Args:
-        db: Database session.
-        user: Authenticated user or None for anonymous.
-        ip: Client IP address.
-    """
-    if user:
-        user.monthly_search_count += 1
-    else:
-        current_month = datetime.utcnow().strftime("%Y-%m")
 
+async def generate_embedding(text: str):
+    """Generate vector embedding for text."""
+    service = SearchService()
+    return await service.generate_embedding(text)
+
+
+async def increment_search_quota(db, user_id=None, ip_address=None):
+    """Increment search quota usage."""
+    from app.models.search import IPUsageTracking
+    from datetime import datetime
+
+    current_month = datetime.utcnow().strftime("%Y-%m")
+
+    if user_id:
+        from app.models.user import User
+        await db.execute(
+            text("""
+                UPDATE users 
+                SET search_quota_used = search_quota_used + 1,
+                    updated_at = NOW()
+                WHERE id = :user_id
+            """),
+            {"user_id": user_id}
+        )
+        logger.info(f"[QUOTA] Incremented user {user_id} search count")
+    elif ip_address:
+        # Upsert IP usage tracking
         result = await db.execute(
-            select(IPUsageTracking).where(
-                IPUsageTracking.ip_address == ip,
-                IPUsageTracking.usage_month == current_month,
+            select(IPUsageTracking)
+            .where(
+                IPUsageTracking.ip_address == ip_address,
+                IPUsageTracking.usage_month == current_month
             )
         )
         tracking = result.scalar_one_or_none()
 
         if tracking:
             tracking.search_count += 1
+            tracking.updated_at = datetime.utcnow()
+            logger.info(f"[QUOTA] Incremented IP {ip_address} search count to {tracking.search_count}")
         else:
             tracking = IPUsageTracking(
-                ip_address=ip,
+                ip_address=ip_address,
                 usage_month=current_month,
-                search_count=1,
+                search_count=1
             )
             db.add(tracking)
+            logger.info(f"[QUOTA] Created new IP tracking for {ip_address}")
 
     await db.commit()
 
 
-async def log_search_request(
+
+# Standalone function for import compatibility
+async def search_providers(
     db: AsyncSession,
     query: str,
-    user: Optional[User],
-    ip: str,
-    structured_intent: Optional[LLMStructuredOutput],
-    results_count: int,
-    fallback_reason: Optional[str] = None,
-) -> SearchRequest:
-    """Log search request for audit and analytics.
-
-    Args:
-        db: Database session.
-        query: Original search query.
-        user: Authenticated user or None.
-        ip: Client IP address.
-        structured_intent: Extracted structured intent.
-        results_count: Number of results returned.
-        fallback_reason: Reason for fallback logic if applicable.
-
-    Returns:
-        SearchRequest: Created log record.
+    filters: dict = None,
+    limit: int = 50
+) -> List[Any]:
     """
-    import json
+    Search providers using embeddings and return ranked results.
 
-    search_request = SearchRequest(
-        user_id=user.id if user else None,
-        ip_address=ip,
-        raw_query_text=query,
-        normalized_query_text=_normalize_query(query),
-        llm_structured_output=structured_intent.model_dump() if structured_intent else None,
-        llm_model=settings.OPENAI_LLM_MODEL if structured_intent else None,
-        search_status="completed",
-        fallback_reason=fallback_reason,
-        results_count=results_count,
-    )
+    Returns a list of objects with .provider, .score, and .explanation attributes.
+    """
+    from dataclasses import dataclass
 
-    db.add(search_request)
-    await db.commit()
-    await db.refresh(search_request)
+    @dataclass
+    class SearchResultItem:
+        provider: Provider
+        score: float
+        explanation: str
 
-    return search_request
+    logger.info(f"[SEARCH] Starting search: query='{query[:100]}...', filters={filters}, limit={limit}")
+
+    # Check if API key is configured
+    if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY == "dummy-key":
+        logger.warning("[SEARCH] No API key configured, falling back to basic text search")
+        # Fallback: simple text search on description and specialty
+        from sqlalchemy import or_
+
+        search_terms = query.lower().split()
+        conditions = []
+        for term in search_terms[:5]:  # Limit to first 5 terms
+            if len(term) > 3:
+                conditions.append(Provider.business_description.ilike(f"%{term}%"))
+                conditions.append(Provider.primary_specialty.ilike(f"%{term}%"))
+
+        if conditions:
+            stmt = select(Provider).where(or_(*conditions)).limit(limit)
+        else:
+            stmt = select(Provider).limit(limit)
+
+        result = await db.execute(stmt)
+        providers = result.scalars().all()
+
+        logger.info(f"[SEARCH] Fallback search returned {len(providers)} providers")
+
+        return [
+            SearchResultItem(
+                provider=p,
+                score=50.0,
+                explanation=f"Matched via keyword search for: {query[:50]}"
+            )
+            for p in providers
+        ]
+
+    # Generate embedding for the query
+    try:
+        service = SearchService()
+        embedding = await service.generate_embedding(query)
+        logger.info(f"[SEARCH] Generated embedding with {len(embedding)} dimensions")
+    except Exception as e:
+        logger.error(f"[SEARCH] Failed to generate embedding: {str(e)}")
+        # Fallback to basic search
+        stmt = select(Provider).limit(limit)
+        result = await db.execute(stmt)
+        providers = result.scalars().all()
+        return [
+            SearchResultItem(
+                provider=p,
+                score=30.0,
+                explanation="Fallback due to embedding error"
+            )
+            for p in providers
+        ]
+
+    # Perform vector similarity search using pgvector
+    try:
+        # Convert embedding to string for SQL
+        embedding_str = f"[{','.join(str(x) for x in embedding)}]"
+
+        # Use pgvector cosine similarity
+        stmt = text("""
+            SELECT id, 1 - (embedding <=> :embedding) as similarity
+            FROM providers
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> :embedding
+            LIMIT :limit
+        """)
+
+        result = await db.execute(stmt, {
+            "embedding": embedding_str,
+            "limit": limit
+        })
+
+        rows = result.all()
+        logger.info(f"[SEARCH] Vector search returned {len(rows)} results")
+
+        if not rows:
+            # No embeddings yet, fall back to basic search
+            stmt = select(Provider).limit(limit)
+            result = await db.execute(stmt)
+            providers = result.scalars().all()
+            return [
+                SearchResultItem(
+                    provider=p,
+                    score=25.0,
+                    explanation="No embeddings available, showing available providers"
+                )
+                for p in providers
+            ]
+
+        # Get full provider objects
+        provider_ids = [row[0] for row in rows]
+        stmt = select(Provider).where(Provider.id.in_(provider_ids))
+        result = await db.execute(stmt)
+        providers = {p.id: p for p in result.scalars().all()}
+
+        # Build results with scores
+        results = []
+        for provider_id, similarity in rows:
+            if provider_id in providers:
+                provider = providers[provider_id]
+                # Convert similarity to 0-100 score
+                score = similarity * 100
+                results.append(SearchResultItem(
+                    provider=provider,
+                    score=score,
+                    explanation=f"Vector similarity match (score: {score:.1f})"
+                ))
+
+        # Sort by score descending
+        results.sort(key=lambda x: x.score, reverse=True)
+
+        logger.info(f"[SEARCH] Returning {len(results)} ranked results")
+        return results
+
+    except Exception as e:
+        logger.error(f"[SEARCH] Vector search failed: {str(e)}", exc_info=True)
+        # Fallback to basic search
+        stmt = select(Provider).limit(limit)
+        result = await db.execute(stmt)
+        providers = result.scalars().all()
+        return [
+            SearchResultItem(
+                provider=p,
+                score=20.0,
+                explanation="Fallback due to vector search error"
+            )
+            for p in providers
+        ]
+
+
+# Standalone wrapper function for direct imports
+_search_service_instance = None
+
+def _get_search_service():
+    """Get or create singleton SearchService instance."""
+    global _search_service_instance
+    if _search_service_instance is None:
+        _search_service_instance = SearchService()
+    return _search_service_instance
+
+
+async def search_providers(
+    db: AsyncSession,
+    query: str,
+    filters: Optional[Dict[str, Any]] = None,
+    limit: int = 50
+) -> List[Any]:
+    """Standalone wrapper for SearchService.search_providers."""
+    service = _get_search_service()
+    return await service.search_providers(db, query, filters, limit)
+
+
+async def generate_embedding(text: str) -> List[float]:
+    """Standalone wrapper for SearchService.generate_embedding."""
+    service = _get_search_service()
+    return await service.generate_embedding(text)
+
+
+async def check_search_quota(
+    db: AsyncSession,
+    user: Optional[Any],
+    ip_address: str
+) -> Tuple[bool, int]:
+    """Standalone wrapper for SearchService.check_search_quota."""
+    service = _get_search_service()
+    return await service.check_search_quota(db, user, ip_address)
+
+
+def calculate_match_score(
+    provider: Any,
+    intent: Dict[str, Any],
+    similarity: float
+) -> Dict[str, Any]:
+    """Standalone wrapper for SearchService._calculate_score."""
+    service = _get_search_service()
+    return service._calculate_score(provider, intent, similarity)
