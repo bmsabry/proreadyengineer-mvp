@@ -68,3 +68,6 @@ logs/
 # Render deployment (already in repo)
 # render.yaml
 # deploy/
+
+# Keep provider database for Render migration
+!engineering_directory.db
