@@ -218,3 +218,82 @@ async def get_provider_public(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
 
     return ProviderPublicResponse.from_orm(provider)
+
+
+@router.post("/test-quota")
+async def test_quota_debug(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """Debug endpoint to test quota check with full error details."""
+    import traceback
+    from app.services import search_service
+
+    results = {
+        "status": "testing",
+        "tests": {}
+    }
+
+    # Test 1: Check if User model has correct columns
+    try:
+        from app.models.user import User
+        from sqlalchemy import inspect
+
+        inspector = inspect(User)
+        columns = [c.name for c in inspector.columns]
+
+        results["tests"]["user_columns"] = {
+            "success": True,
+            "columns": columns,
+            "has_monthly_search_count": "monthly_search_count" in columns,
+            "has_search_count_reset_at": "search_count_reset_at" in columns
+        }
+    except Exception as e:
+        results["tests"]["user_columns"] = {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+    # Test 2: Try to call check_search_quota directly
+    try:
+        # Get client IP
+        client_ip = request.headers.get("x-forwarded-for", "unknown")
+        if "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+
+        has_quota, remaining = await search_service.check_search_quota(
+            db=db,
+            user=None,
+            ip_address=client_ip
+        )
+
+        results["tests"]["quota_check"] = {
+            "success": True,
+            "has_quota": has_quota,
+            "remaining": remaining
+        }
+    except Exception as e:
+        results["tests"]["quota_check"] = {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+    # Test 3: Check database connection with a simple query
+    try:
+        from sqlalchemy import text
+        result = await db.execute(text("SELECT 1 as test"))
+        row = result.first()
+        results["tests"]["db_connection"] = {
+            "success": True,
+            "result": row.test if row else None
+        }
+    except Exception as e:
+        results["tests"]["db_connection"] = {
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+    return results
