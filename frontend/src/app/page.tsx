@@ -3,10 +3,46 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useConfig } from '@/contexts/ConfigContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Search, Users, Building2, Megaphone } from 'lucide-react';
+
+
+function Footer() {
+  const { setShowSetup, missingServices } = useConfig();
+  const needsConfig = missingServices.length > 0;
+
+  return (
+    <footer className="border-t py-6">
+      <div className="container flex flex-col md:flex-row justify-between items-center gap-4">
+        <p className="text-sm text-muted-foreground">
+          &copy; {new Date().getFullYear()} ProReadyEngineer. All rights reserved.
+        </p>
+        <div className="flex gap-4 items-center">
+          {needsConfig && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => setShowSetup(true)}
+              className="text-amber-600 border-amber-300 hover:bg-amber-50"
+            >
+              ⚙️ Configure APIs
+            </Button>
+          )}
+          <Link href="/software-providers" className="text-sm text-muted-foreground hover:underline">
+            Software Providers
+          </Link>
+          <Link href="/featured-firms" className="text-sm text-muted-foreground hover:underline">
+            Featured Firms
+          </Link>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
 
 export default function LandingPage() {
   const [searchQuery, setSearchQuery] = useState('');
@@ -147,21 +183,7 @@ export default function LandingPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t py-6">
-        <div className="container flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-muted-foreground">
-            &copy; {new Date().getFullYear()} ProReadyEngineer. All rights reserved.
-          </p>
-          <div className="flex gap-4">
-            <Link href="/software-providers" className="text-sm text-muted-foreground hover:underline">
-              Software Providers
-            </Link>
-            <Link href="/featured-firms" className="text-sm text-muted-foreground hover:underline">
-              Featured Firms
-            </Link>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }
