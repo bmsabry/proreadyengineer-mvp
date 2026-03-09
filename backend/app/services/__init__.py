@@ -37,6 +37,7 @@ from app.services.search_service import (
     extract_structured_intent,
     generate_embedding,
     increment_search_quota,
+    search_providers,
 )
 
 # RFQ Service
@@ -115,6 +116,7 @@ __all__ = [
     "extract_structured_intent",
     "generate_embedding",
     "increment_search_quota",
+    "search_providers",
     # RFQ
     "accept_quote",
     "can_submit_quote",

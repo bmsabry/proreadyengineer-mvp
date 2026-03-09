@@ -404,3 +404,155 @@ async def increment_search_quota(db, user_id=None, ip_address=None):
             logger.info(f"[QUOTA] Created new IP tracking for {ip_address}")
 
     await db.commit()
+
+
+
+# Standalone function for import compatibility
+async def search_providers(
+    db: AsyncSession,
+    query: str,
+    filters: dict = None,
+    limit: int = 50
+) -> List[Any]:
+    """
+    Search providers using embeddings and return ranked results.
+
+    Returns a list of objects with .provider, .score, and .explanation attributes.
+    """
+    from dataclasses import dataclass
+
+    @dataclass
+    class SearchResultItem:
+        provider: Provider
+        score: float
+        explanation: str
+
+    logger.info(f"[SEARCH] Starting search: query='{query[:100]}...', filters={filters}, limit={limit}")
+
+    # Check if API key is configured
+    if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY == "dummy-key":
+        logger.warning("[SEARCH] No API key configured, falling back to basic text search")
+        # Fallback: simple text search on description and specialty
+        from sqlalchemy import or_
+
+        search_terms = query.lower().split()
+        conditions = []
+        for term in search_terms[:5]:  # Limit to first 5 terms
+            if len(term) > 3:
+                conditions.append(Provider.business_description.ilike(f"%{term}%"))
+                conditions.append(Provider.primary_specialty.ilike(f"%{term}%"))
+
+        if conditions:
+            stmt = select(Provider).where(or_(*conditions)).limit(limit)
+        else:
+            stmt = select(Provider).limit(limit)
+
+        result = await db.execute(stmt)
+        providers = result.scalars().all()
+
+        logger.info(f"[SEARCH] Fallback search returned {len(providers)} providers")
+
+        return [
+            SearchResultItem(
+                provider=p,
+                score=50.0,
+                explanation=f"Matched via keyword search for: {query[:50]}"
+            )
+            for p in providers
+        ]
+
+    # Generate embedding for the query
+    try:
+        service = SearchService()
+        embedding = await service.generate_embedding(query)
+        logger.info(f"[SEARCH] Generated embedding with {len(embedding)} dimensions")
+    except Exception as e:
+        logger.error(f"[SEARCH] Failed to generate embedding: {str(e)}")
+        # Fallback to basic search
+        stmt = select(Provider).limit(limit)
+        result = await db.execute(stmt)
+        providers = result.scalars().all()
+        return [
+            SearchResultItem(
+                provider=p,
+                score=30.0,
+                explanation="Fallback due to embedding error"
+            )
+            for p in providers
+        ]
+
+    # Perform vector similarity search using pgvector
+    try:
+        # Convert embedding to string for SQL
+        embedding_str = f"[{','.join(str(x) for x in embedding)}]"
+
+        # Use pgvector cosine similarity
+        stmt = text("""
+            SELECT id, 1 - (embedding <=> :embedding) as similarity
+            FROM providers
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> :embedding
+            LIMIT :limit
+        """)
+
+        result = await db.execute(stmt, {
+            "embedding": embedding_str,
+            "limit": limit
+        })
+
+        rows = result.all()
+        logger.info(f"[SEARCH] Vector search returned {len(rows)} results")
+
+        if not rows:
+            # No embeddings yet, fall back to basic search
+            stmt = select(Provider).limit(limit)
+            result = await db.execute(stmt)
+            providers = result.scalars().all()
+            return [
+                SearchResultItem(
+                    provider=p,
+                    score=25.0,
+                    explanation="No embeddings available, showing available providers"
+                )
+                for p in providers
+            ]
+
+        # Get full provider objects
+        provider_ids = [row[0] for row in rows]
+        stmt = select(Provider).where(Provider.id.in_(provider_ids))
+        result = await db.execute(stmt)
+        providers = {p.id: p for p in result.scalars().all()}
+
+        # Build results with scores
+        results = []
+        for provider_id, similarity in rows:
+            if provider_id in providers:
+                provider = providers[provider_id]
+                # Convert similarity to 0-100 score
+                score = similarity * 100
+                results.append(SearchResultItem(
+                    provider=provider,
+                    score=score,
+                    explanation=f"Vector similarity match (score: {score:.1f})"
+                ))
+
+        # Sort by score descending
+        results.sort(key=lambda x: x.score, reverse=True)
+
+        logger.info(f"[SEARCH] Returning {len(results)} ranked results")
+        return results
+
+    except Exception as e:
+        logger.error(f"[SEARCH] Vector search failed: {str(e)}", exc_info=True)
+        # Fallback to basic search
+        stmt = select(Provider).limit(limit)
+        result = await db.execute(stmt)
+        providers = result.scalars().all()
+        return [
+            SearchResultItem(
+                provider=p,
+                score=20.0,
+                explanation="Fallback due to vector search error"
+            )
+            for p in providers
+        ]
