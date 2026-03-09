@@ -1,22 +1,22 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
-import { Provider } from '@/types';
+import { SearchResult } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Search, Building2, MapPin, Star } from 'lucide-react';
 
-export default function SearchPage() {
+function SearchPageContent() {
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get('q') || '';
   
   const [query, setQuery] = useState(initialQuery);
-  const [results, setResults] = useState<Provider[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
@@ -96,37 +96,37 @@ export default function SearchPage() {
                     Found {results.length} providers
                   </p>
                   {results.map((provider) => (
-                    <Link key={provider.id} href={`/providers/${provider.id}`}>
+                    <Link key={provider.provider.id} href={`/providers/${provider.provider.id}`}>
                       <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
                         <CardContent className="p-4">
                           <div className="flex justify-between items-start">
                             <div>
-                              <h3 className="font-semibold text-lg">{provider.name}</h3>
+                              <h3 className="font-semibold text-lg">{provider.provider.name}</h3>
                               <div className="flex items-center gap-4 text-sm text-muted-foreground mt-1">
                                 <span className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3" />
-                                  {provider.city}, {provider.state}
+                                  {provider.provider.city}, {provider.provider.state}
                                 </span>
-                                {provider.tier && (
+                                {provider.provider.tier && (
                                   <span className="flex items-center gap-1">
                                     <Star className="h-3 w-3" />
-                                    Tier {provider.tier}
+                                    Tier {provider.provider.tier}
                                   </span>
                                 )}
                               </div>
-                              {provider.primary_specialty && (
+                              {provider.provider.primary_specialty && (
                                 <p className="text-sm mt-2">
-                                  <span className="font-medium">Specialty:</span> {provider.primary_specialty}
+                                  <span className="font-medium">Specialty:</span> {provider.provider.primary_specialty}
                                 </p>
                               )}
-                              {provider.business_description && (
+                              {provider.provider.business_description && (
                                 <p className="text-sm text-muted-foreground mt-2 line-clamp-2">
-                                  {provider.business_description}
+                                  {provider.provider.business_description}
                                 </p>
                               )}
                             </div>
                             <Badge variant="outline">
-                              {provider.is_engineering_service ? 'Engineering' : 'Service'}
+                              {provider.provider.is_engineering_service ? 'Engineering' : 'Service'}
                             </Badge>
                           </div>
                         </CardContent>
@@ -140,5 +140,14 @@ export default function SearchPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<div className="container py-8"><p className="text-center">Loading...</p></div>}>
+      <SearchPageContent />
+    </Suspense>
   );
 }
