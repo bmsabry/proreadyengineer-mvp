@@ -65,7 +65,7 @@ async def create_ad_checkout(
     return {"client_secret": intent["client_secret"], "payment_intent_id": intent["id"]}
 
 
-@router.get("/advertiser/ads/me", response_model=List[dict][AdvertisementResponse])
+@router.get("/advertiser/ads/me", response_model=List[AdvertisementResponse])
 async def get_my_ads(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["advertiser"])),

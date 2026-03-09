@@ -174,7 +174,7 @@ async def request_rank_up(
     return {"message": "Rank up request submitted", "request_id": str(request.id)}
 
 
-@router.get("/memberships", response_model=List[dict][ProviderMembershipResponse])
+@router.get("/memberships", response_model=List[ProviderMembershipResponse])
 async def get_memberships(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -225,7 +225,7 @@ async def create_claim_request(
     return ProviderClaimResponse.from_orm(claim)
 
 
-@router.get("/claims/me", response_model=List[dict][ProviderClaimResponse])
+@router.get("/claims/me", response_model=List[ProviderClaimResponse])
 async def get_my_claims(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),

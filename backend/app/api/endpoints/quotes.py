@@ -12,7 +12,7 @@ from app.services.rfq_service import submit_quote, accept_quote
 router = APIRouter()
 
 
-@router.get("/customer/rfqs/{rfq_id}/quotes", response_model=List[dict][QuoteResponse])
+@router.get("/customer/rfqs/{rfq_id}/quotes", response_model=List[QuoteResponse])
 async def get_customer_quotes(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
@@ -86,7 +86,7 @@ async def withdraw_quote(
     return {"message": "Quote withdrawn"}
 
 
-@router.get("/provider/quotes/me", response_model=List[dict][QuoteResponse])
+@router.get("/provider/quotes/me", response_model=List[QuoteResponse])
 async def get_provider_quotes(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["provider"])),
