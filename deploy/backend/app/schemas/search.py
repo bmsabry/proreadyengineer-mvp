@@ -12,6 +12,7 @@ from app.schemas.base import BaseSchema, ResponseSchema
 class SearchQueryRequest(BaseSchema):
     """Natural language search query."""
     query: str = Field(..., min_length=3, max_length=2000)
+    document_text: Optional[str] = None  # Extracted text from uploaded document
     document_upload_id: Optional[UUID] = None  # If user uploaded document
 
 
@@ -96,3 +97,8 @@ class SearchRequestLogResponse(ResponseSchema):
 SearchRequest = SearchQueryRequest
 SearchResponse = SearchQueryResponse
 SearchResult = SearchResultItem
+
+
+# Additional aliases for service compatibility
+SearchQuery = SearchQueryRequest
+ProviderMatch = SearchResultItem
