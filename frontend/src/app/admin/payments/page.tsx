@@ -18,7 +18,7 @@ export default function AdminPaymentsPage() {
     const fetchPayments = async () => {
       try {
         const response = await api.admin.listPayments();
-        setPayments(response.data);
+        setPayments(response.data.items);
       } catch (error) {
         console.error('Failed to fetch payments:', error);
       } finally {
@@ -65,7 +65,7 @@ export default function AdminPaymentsPage() {
                   <TableCell>{payment.purpose.replace(/_/g, ' ')}</TableCell>
                   <TableCell>{formatCurrency(payment.amount)}</TableCell>
                   <TableCell>
-                    <Badge variant={payment.payment_status === 'completed' ? 'success' : payment.payment_status === 'failed' ? 'destructive' : 'default'}>
+                    <Badge variant={payment.payment_status === 'completed' ? 'default' : payment.payment_status === 'failed' ? 'destructive' : 'default'}>
                       {payment.payment_status}
                     </Badge>
                   </TableCell>

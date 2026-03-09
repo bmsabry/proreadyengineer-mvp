@@ -20,7 +20,7 @@ export default function AdminClaimsPage() {
   useEffect(() => {
     const fetchClaims = async () => {
       try {
-        const response = await api.admin.listProviderClaims();
+        const response = await api.providerClaims.listAll();
         setClaims(response.data);
       } catch (error) {
         console.error('Failed to fetch claims:', error);
@@ -34,7 +34,7 @@ export default function AdminClaimsPage() {
 
   const handleApprove = async (claimId: string) => {
     try {
-      await api.admin.approveProviderClaim(claimId);
+      await api.providerClaims.approve(claimId);
       toast.success('Claim approved');
       setClaims(claims.map(c => c.id === claimId ? { ...c, status: 'approved' } : c));
     } catch (error) {
@@ -44,7 +44,7 @@ export default function AdminClaimsPage() {
 
   const handleReject = async (claimId: string) => {
     try {
-      await api.admin.rejectProviderClaim(claimId);
+      await api.providerClaims.reject(claimId, {});
       toast.success('Claim rejected');
       setClaims(claims.map(c => c.id === claimId ? { ...c, status: 'rejected' } : c));
     } catch (error) {
@@ -85,11 +85,11 @@ export default function AdminClaimsPage() {
             <TableBody>
               {claims.map((claim) => (
                 <TableRow key={claim.id}>
-                  <TableCell>{claim.provider_name}</TableCell>
-                  <TableCell>{claim.claimant_email}</TableCell>
+                  <TableCell>{claim.provider?.name || "Unknown"}</TableCell>
+                  <TableCell>{claim.claimant_user_id}</TableCell>
                   <TableCell>{claim.proof_type}</TableCell>
                   <TableCell>
-                    <Badge variant={claim.status === 'pending' ? 'default' : claim.status === 'approved' ? 'success' : 'destructive'}>
+                    <Badge variant={claim.status === 'pending' ? 'default' : claim.status === 'approved' ? 'default' : 'destructive'}>
                       {claim.status}
                     </Badge>
                   </TableCell>

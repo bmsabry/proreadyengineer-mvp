@@ -89,7 +89,7 @@ export default function AdminAdsPage() {
                       {ad.ad_status}
                     </Badge>
                   </TableCell>
-                  <TableCell>{formatDate(ad.started_at)}</TableCell>
+                  <TableCell>{ad.started_at ? formatDate(ad.started_at) : "N/A"}</TableCell>
                   <TableCell>
                     {ad.ad_status === 'active' && (
                       <Button variant="ghost" size="sm" onClick={() => handlePause(ad.id)}>
