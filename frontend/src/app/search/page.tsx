@@ -9,16 +9,23 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Search, Building2, MapPin, Star } from 'lucide-react';
+import { Search, Building2, MapPin, Star, AlertTriangle } from 'lucide-react';
+import { DebugPanel } from '@/components/search/DebugPanel';
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get('q') || '';
-  
+
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // Debug tracking state
+  const [searchStatus, setSearchStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [resultCount, setResultCount] = useState(0);
+  const [totalMatches, setTotalMatches] = useState(0);
 
   useEffect(() => {
     if (initialQuery) {
@@ -28,15 +35,31 @@ function SearchPageContent() {
 
   const handleSearch = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
-    
+
     setIsLoading(true);
     setHasSearched(true);
-    
+    setSearchStatus('loading');
+    setSearchError(null);
+
     try {
+      console.log('[Search] Sending query:', searchQuery);
       const response = await api.search.query({ query: searchQuery });
-      setResults(response.data.results || []);
-    } catch (error) {
-      console.error('Search failed:', error);
+
+      const results = response.data.results || [];
+      setResults(results);
+      setResultCount(results.length);
+      setTotalMatches(response.data.total_matches || 0);
+      setSearchStatus('success');
+
+      console.log('[Search] Success:', results.length, 'results,', response.data.total_matches, 'total matches');
+    } catch (error: any) {
+      console.error('[Search] Search failed:', error);
+      setSearchStatus('error');
+      setResults([]);
+      setResultCount(0);
+
+      const errorMsg = error.response?.data?.detail || error.message || 'Search failed';
+      setSearchError(errorMsg);
     } finally {
       setIsLoading(false);
     }
@@ -67,7 +90,7 @@ function SearchPageContent() {
       <main className="container py-8">
         <div className="max-w-3xl mx-auto">
           <h1 className="text-2xl font-bold mb-6">Search Engineering Providers</h1>
-          
+
           <form onSubmit={handleSubmit} className="flex gap-2 mb-8">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -84,17 +107,49 @@ function SearchPageContent() {
             </Button>
           </form>
 
+          {/* Search Status Indicator */}
+          {hasSearched && (
+            <div className="mb-4">
+              {searchStatus === 'loading' && (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <div className="animate-spin h-4 w-4 border-2 border-current border-t-transparent rounded-full" />
+                  <span>Searching...</span>
+                </div>
+              )}
+              {searchStatus === 'error' && (
+                <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-md">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>Search error: {searchError}</span>
+                </div>
+              )}
+              {searchStatus === 'success' && resultCount > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  Found {resultCount} providers (of {totalMatches} total matches)
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Results */}
           {hasSearched && (
             <div className="space-y-4">
               {results.length === 0 ? (
-                <p className="text-center text-muted-foreground py-8">
-                  No providers found matching your search.
-                </p>
+                <div className="space-y-4">
+                  <p className="text-center text-muted-foreground py-8">
+                    No providers found matching your search.
+                  </p>
+
+                  {/* Debug Panel - shows automatically when no results */}
+                  <DebugPanel
+                    searchQuery={query}
+                    searchStatus={searchStatus}
+                    searchError={searchError}
+                    resultCount={resultCount}
+                    showOnEmpty={true}
+                  />
+                </div>
               ) : (
                 <>
-                  <p className="text-sm text-muted-foreground">
-                    Found {results.length} providers
-                  </p>
                   {results.map((provider) => (
                     <Link key={provider.provider.id} href={`/providers/${provider.provider.id}`}>
                       <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
@@ -124,6 +179,11 @@ function SearchPageContent() {
                                   {provider.provider.business_description}
                                 </p>
                               )}
+                              {provider.explanation && (
+                                <p className="text-xs text-muted-foreground mt-2">
+                                  <span className="font-medium">Match:</span> {provider.explanation}
+                                </p>
+                              )}
                             </div>
                             <Badge variant="outline">
                               {provider.provider.is_engineering_service ? 'Engineering' : 'Service'}
@@ -133,6 +193,15 @@ function SearchPageContent() {
                       </Card>
                     </Link>
                   ))}
+
+                  {/* Debug Panel - collapsible for successful searches too */}
+                  <DebugPanel
+                    searchQuery={query}
+                    searchStatus={searchStatus}
+                    searchError={searchError}
+                    resultCount={resultCount}
+                    showOnEmpty={false}
+                  />
                 </>
               )}
             </div>
