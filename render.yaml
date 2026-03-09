@@ -3,7 +3,7 @@ services:
   - type: web
     name: proreadyengineer-api
     env: python
-    plan: starter
+    plan: free
     buildCommand: cd backend && pip install -r requirements.txt
     startCommand: cd backend && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -40,15 +40,19 @@ services:
       - key: SIGNREQUEST_API_KEY
         sync: false
       - key: CELERY_BROKER_URL
-        value: "sqla+postgresql://replace_with_db_url"
+        fromDatabase:
+          name: proreadyengineer-db
+          property: connectionString
       - key: CELERY_RESULT_BACKEND
-        value: "db+postgresql://replace_with_db_url"
+        fromDatabase:
+          name: proreadyengineer-db
+          property: connectionString
 
   # Next.js Frontend
   - type: web
     name: proreadyengineer-web
     env: node
-    plan: starter
+    plan: free
     buildCommand: cd frontend && npm install && npm run build
     startCommand: cd frontend && npm start
     envVars:
@@ -61,5 +65,5 @@ services:
 
 databases:
   - name: proreadyengineer-db
-    plan: starter
+    plan: free
     ipAllowList: []
