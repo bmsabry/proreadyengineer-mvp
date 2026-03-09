@@ -103,3 +103,18 @@ SearchResult = SearchResultItem
 # Additional aliases for service compatibility
 SearchQuery = SearchQueryRequest
 ProviderMatch = SearchResultItem
+
+
+
+class SearchResult(BaseSchema):
+    """Single search result with provider and score."""
+    provider: dict  # ProviderPublicResponse as dict
+    score: float
+    explanation: str
+
+
+class SearchResponse(ResponseSchema):
+    """Response from provider search."""
+    results: list
+    total_matches: int
+    search_quota_remaining: int

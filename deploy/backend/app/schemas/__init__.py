@@ -66,6 +66,8 @@ from app.schemas.search import (
     DocumentUploadCompleteRequest,
     DocumentUploadCompleteResponse,
     SearchRequestLogResponse,
+    SearchResponse,
+    SearchResult,
 )
 
 # RFQ schemas
