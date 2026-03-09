@@ -1,17 +1,21 @@
 """Alembic environment configuration."""
 
 import asyncio
+import sys
 from logging.config import fileConfig
 
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 
+# Add the app directory to the path
+sys.path.append(".")
+
 # Import app models and config
 from app.core.config import settings
-from app.models.base import Base  # noqa
+from app.db.base import Base
 
 # this is the Alembic Config object
 config = context.config
@@ -20,16 +24,26 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Set target metadata
+# add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url with settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+
+def get_async_url():
+    """Get async database URL for migrations."""
+    url = settings.DATABASE_URL
+    # Ensure it uses asyncpg
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
 
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
+    """Run migrations in 'offline' mode.
+    
+    This configures the context with just a URL and not an Engine.
+    """
+    url = get_async_url()
+    
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -56,9 +70,10 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Run migrations in 'online' mode with async engine."""
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    url = get_async_url()
+    
+    connectable = create_async_engine(
+        url,
         poolclass=pool.NullPool,
     )
 
