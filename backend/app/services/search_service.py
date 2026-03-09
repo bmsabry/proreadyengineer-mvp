@@ -569,15 +569,7 @@ def _get_search_service():
     return _search_service_instance
 
 
-async def search_providers(
-    db: AsyncSession,
-    query: str,
-    filters: Optional[Dict[str, Any]] = None,
-    limit: int = 50
-) -> List[Any]:
-    """Standalone wrapper for SearchService.search_providers."""
-    service = _get_search_service()
-    return await service.search_providers(db, query, filters, limit)
+
 
 
 async def generate_embedding(text: str) -> List[float]:
