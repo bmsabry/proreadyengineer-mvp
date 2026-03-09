@@ -277,3 +277,31 @@ class ProviderClaimResponse(BaseSchema):
 
 # Aliases for endpoint compatibility
 ProviderResponse = ProviderPublicResponse
+
+
+
+class ProviderResponse(BaseSchema):
+    """Full provider response with all fields."""
+    id: int
+    name: str
+    business_name: Optional[str] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    postal_code: Optional[str] = None
+    country: Optional[str] = None
+    primary_specialty: Optional[str] = None
+    secondary_specialties: list = []
+    business_description: Optional[str] = None
+    capabilities: list = []
+    specialties: list = []
+    software_tools: list = []
+    notable_clients: list = []
+    email_addresses: list = []
+    certifications: list = []
+    tier: str = "D"
+    is_claimed: bool = False
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None

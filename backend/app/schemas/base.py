@@ -97,3 +97,18 @@ class PaginatedResponse(BaseSchema, Generic[T]):
 
 # Aliases for compatibility
 PagedResponse = PaginatedResponse
+
+
+
+class PagedResponse(BaseSchema):
+    """Paged list response wrapper."""
+    items: list
+    total: int
+    page: int
+    page_size: int
+    pages: int
+
+
+class TokenRefreshRequest(BaseSchema):
+    """Request to refresh access token."""
+    refresh_token: str
