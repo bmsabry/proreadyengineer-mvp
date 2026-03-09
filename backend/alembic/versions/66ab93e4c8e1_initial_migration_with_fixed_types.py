@@ -189,7 +189,7 @@ def upgrade() -> None:
     sa.Column('claim_status', sa.String(), nullable=True),
     sa.Column('claimed_by_user_id', sa.UUID(), nullable=True),
     sa.Column('claimed_at', sa.DateTime(timezone=True), nullable=True),
-    sa.Column('embedding', pgvector.sqlalchemy.vector.VECTOR(dim=1536), nullable=True),
+    sa.Column('embedding', Vector(dim=1536), nullable=True),
     sa.Column('embedding_model', sa.Text(), nullable=True),
     sa.Column('embedding_generated_at', sa.DateTime(timezone=True), nullable=True),
     sa.Column('embedding_version', sa.Text(), nullable=True),
