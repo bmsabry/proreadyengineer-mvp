@@ -272,3 +272,133 @@ class SearchService:
 
 # Global instance
 search_service = SearchService()
+
+
+# Standalone function wrappers for backward compatibility and imports
+# These delegate to SearchService class methods
+
+async def calculate_match_score(provider, intent, similarity):
+    """Calculate composite match score for a provider."""
+    service = SearchService()
+    return service._calculate_score(provider, intent, similarity)
+
+
+async def check_search_quota(db, user_id=None, ip_address=None):
+    """Check if user has search quota remaining."""
+    from app.models.search import IPUsageTracking
+    from datetime import datetime
+    
+    current_month = datetime.utcnow().strftime("%Y-%m")
+    
+    if user_id:
+        # Check user quota
+        from app.models.user import User
+        result = await db.execute(
+            select(User.search_quota_used, User.search_quota_limit, User.search_quota_reset_at)
+            .where(User.id == user_id)
+        )
+        user = result.first()
+        if user:
+            quota_used, quota_limit, reset_at = user
+            if reset_at and reset_at < datetime.utcnow():
+                # Reset quota
+                return True, quota_limit, datetime.utcnow() + timedelta(days=30)
+            return quota_used < quota_limit, quota_limit - quota_used, reset_at
+    elif ip_address:
+        # Check IP quota for anonymous users
+        result = await db.execute(
+            select(IPUsageTracking)
+            .where(
+                IPUsageTracking.ip_address == ip_address,
+                IPUsageTracking.usage_month == current_month
+            )
+        )
+        tracking = result.scalar_one_or_none()
+        
+        if not tracking:
+            return True, 3, None  # 3 free searches per month
+        
+        return tracking.search_count < 3, 3 - tracking.search_count, None
+    
+    return False, 0, None
+
+
+async def extract_structured_intent(query: str):
+    """Extract structured intent from natural language query."""
+    service = SearchService()
+    return await service.extract_search_intent(query)
+
+
+async def generate_embedding(text: str):
+    """Generate vector embedding for text."""
+    service = SearchService()
+    return await service.generate_embedding(text)
+
+
+async def increment_search_quota(db, user_id=None, ip_address=None):
+    """Increment search quota usage."""
+    from app.models.search import IPUsageTracking
+    from datetime import datetime
+    
+    current_month = datetime.utcnow().strftime("%Y-%m")
+    
+    if user_id:
+        from app.models.user import User
+        await db.execute(
+            update(User)
+            .where(User.id == user_id)
+            .values(
+                search_quota_used=User.search_quota_used + 1,
+                updated_at=datetime.utcnow()
+            )
+        )
+    elif ip_address:
+        # Upsert IP usage tracking
+        result = await db.execute(
+            select(IPUsageTracking)
+            .where(
+                IPUsageTracking.ip_address == ip_address,
+                IPUsageTracking.usage_month == current_month
+            )
+        )
+        tracking = result.scalar_one_or_none()
+        
+        if tracking:
+            tracking.search_count += 1
+            tracking.updated_at = datetime.utcnow()
+        else:
+            tracking = IPUsageTracking(
+                ip_address=ip_address,
+                usage_month=current_month,
+                search_count=1
+            )
+            db.add(tracking)
+    
+    await db.commit()
+
+
+async def log_search_request(db, user_id, ip_address, query, structured_intent, results_count, status):
+    """Log search request for audit."""
+    from app.models.search import SearchRequest as SearchRequestModel
+    from datetime import datetime
+    import json
+    
+    search_log = SearchRequestModel(
+        user_id=user_id,
+        ip_address=ip_address,
+        raw_query_text=query,
+        normalized_query_text=query.lower().strip(),
+        llm_structured_output=structured_intent if isinstance(structured_intent, dict) else json.loads(json.dumps(structured_intent, default=str)) if structured_intent else None,
+        search_status=status,
+        results_count=results_count,
+        created_at=datetime.utcnow()
+    )
+    db.add(search_log)
+    await db.commit()
+    return search_log
+
+
+async def search_providers(db, query, user_tier=None, filters=None):
+    """Search providers using vector similarity and scoring."""
+    service = SearchService()
+    return await service.search_providers(db, query, user_tier, filters)
