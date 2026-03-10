@@ -420,16 +420,3 @@ async def reset_password(
     await db.commit()
     return True
 
-
-
-async def authenticate_user(db: AsyncSession, email: str, password: str) -> Optional[User]:
-    """Authenticate a user by email and password."""
-    from sqlalchemy import select
-
-    result = await db.execute(select(User).where(User.email == email))
-    user = result.scalar_one_or_none()
-
-    if user and verify_password(password, user.password_hash):
-        return user
-    return None
-

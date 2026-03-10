@@ -1,9 +1,4 @@
 """ProReadyEngineer backend application."""
-
-# Import and expose the FastAPI app from main
-# This allows 'from app import app' or 'from app.main import app'
-try:
-    from main import app
-except ImportError:
-    # Fallback for when main imports app
-    app = None
+# NOTE: Do NOT import main here - it causes circular imports.
+# The FastAPI app is created in main.py and should be imported only by
+# the ASGI server (uvicorn) or explicitly in tests.

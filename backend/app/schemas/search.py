@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import Field
 
 from app.schemas.base import BaseSchema, ResponseSchema
+from app.schemas.provider import ProviderPublicResponse  # needed by SearchResult
 
 
 class SearchQueryRequest(BaseSchema):
@@ -100,7 +101,7 @@ class SearchRequestLogResponse(ResponseSchema):
 
 class SearchResult(BaseSchema):
     """Single provider search result returned by the /search/query endpoint."""
-    provider: Any  # ProviderPublicResponse - typed as Any to avoid circular import
+    provider: ProviderPublicResponse
     score: float
     explanation: str
 

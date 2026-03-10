@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # App
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
     PROJECT_NAME: str = "ProReadyEngineer API"
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "noreply@proreadyengineer.com")
