@@ -7,8 +7,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlalchemy import (
     Boolean,
-    JSON,
-
     DateTime,
     ForeignKey,
     Integer,
@@ -204,7 +202,7 @@ class Provider(Base):
         DateTime(timezone=True), nullable=True
     )
     
-        # Relationships
+    # Relationships
     claimed_by_user: Mapped[Optional["User"]] = relationship(
         "User", back_populates="claimed_providers"
     )
@@ -238,6 +236,17 @@ class Provider(Base):
     tier_evaluation_requests: Mapped[List["TierEvaluationRequest"]] = relationship(
         "TierEvaluationRequest", back_populates="provider"
     )
+
+    @property
+    def tier(self) -> Optional[str]:
+        """Alias for business_evaluation_tier used by search service and schemas."""
+        return self.business_evaluation_tier
+
+    @tier.setter
+    def tier(self, value: Optional[str]) -> None:
+        """Allow setting tier via alias."""
+        self.business_evaluation_tier = value
+
 
 class ProviderMembership(Base):
     """Maps users to providers with specific roles."""

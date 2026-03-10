@@ -199,6 +199,12 @@ class Provider(Base):
     )
     embedding_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
+
+    @property
+    def tier(self) -> "Optional[str]":
+        """Alias for business_evaluation_tier for compatibility with search service."""
+        return self.business_evaluation_tier
+
     # Timestamps (from companies - may be nullable for migrated data)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
