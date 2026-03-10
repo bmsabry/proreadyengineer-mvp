@@ -126,7 +126,7 @@ export default function ProviderClaimPage() {
                           </p>
                         )}
                       </div>
-                      <Button onClick={() => handleClaim(provider.id)}>
+                      <Button onClick={() => handleClaim(String(provider.id))}>
                         <CheckCircle className="mr-2 h-4 w-4" />
                         Claim
                       </Button>
