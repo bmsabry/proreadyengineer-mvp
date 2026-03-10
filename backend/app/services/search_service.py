@@ -309,78 +309,62 @@ async def calculate_match_score(provider, intent, similarity):
 
 
 async def check_search_quota(db, user=None, ip_address=None):
-    """Check if user has search quota remaining."""
+    """NON-FATAL: allows search even if quota check errors."""
+    try:
+        return await _check_search_quota_impl(db, user, ip_address)
+    except Exception as exc:
+        logger.error("[QUOTA] Non-fatal, allowing search: " + str(exc))
+        return True, 10
+
+
+async def _check_search_quota_impl(db, user=None, ip_address=None):
+    """Internal impl - may raise."""
     from app.models.search import IPUsageTracking
     from app.models.user import User
     from app.models.payment import Subscription, SubscriptionType, SubscriptionStatus
     from datetime import datetime
-
     user_id = user.id if user else None
     current_month = datetime.utcnow().strftime("%Y-%m")
-
-    logger.info(f"[QUOTA CHECK] user_id={user_id}, ip={ip_address}")
-
+    logger.info(f"[QUOTA] user_id={user_id} ip={ip_address}")
     if user_id:
-        # Check user quota - get monthly_search_count
         result = await db.execute(
             select(User.monthly_search_count, User.search_count_reset_at)
             .where(User.id == user_id)
         )
         user_row = result.first()
-        
-        # Determine quota limit based on subscription status
-        # Default: 10 for free users
         quota_limit = 10
-        
-        # Check for active search subscription
-        sub_result = await db.execute(
-            select(Subscription)
-            .where(
-                Subscription.user_id == user_id,
-                Subscription.subscription_type.in_([SubscriptionType.SEARCH_TIER_1, SubscriptionType.SEARCH_TIER_2]),
-                Subscription.subscription_status == SubscriptionStatus.ACTIVE
+        try:
+            sub_res = await db.execute(
+                select(Subscription).where(
+                    Subscription.user_id == user_id,
+                    Subscription.subscription_type.in_([
+                        SubscriptionType.SEARCH_TIER_1,
+                        SubscriptionType.SEARCH_TIER_2]),
+                    Subscription.subscription_status == SubscriptionStatus.ACTIVE
+                ).order_by(Subscription.created_at.desc())
             )
-            .order_by(Subscription.created_at.desc())
-        )
-        subscription = sub_result.scalar_one_or_none()
-        
-        if subscription:
-            if subscription.subscription_type == SubscriptionType.SEARCH_TIER_1:
-                quota_limit = 100  # $10/month tier
-            elif subscription.subscription_type == SubscriptionType.SEARCH_TIER_2:
-                quota_limit = 200  # $20/month tier
-        
+            sub = sub_res.scalars().first()
+            if sub:
+                if sub.subscription_type == SubscriptionType.SEARCH_TIER_1: quota_limit = 100
+                elif sub.subscription_type == SubscriptionType.SEARCH_TIER_2: quota_limit = 200
+        except Exception as e:
+            logger.warning(f"[QUOTA] sub lookup failed (non-fatal): {e}")
         if user_row:
-            quota_used = user_row[0] or 0
-            remaining = max(0, quota_limit - quota_used)
-            logger.info(f"[QUOTA CHECK] User {user_id}: used={quota_used}, limit={quota_limit}, remaining={remaining}")
+            used = user_row[0] or 0
+            remaining = max(0, quota_limit - used)
             return remaining > 0, remaining
-        else:
-            # User found but no quota record yet - they have full quota
-            logger.info(f"[QUOTA CHECK] User {user_id}: no usage yet, limit={quota_limit}")
-            return True, quota_limit
+        return True, quota_limit
     elif ip_address:
-        # Check IP quota for anonymous users
-        result = await db.execute(
-            select(IPUsageTracking)
-            .where(
+        res = await db.execute(
+            select(IPUsageTracking).where(
                 IPUsageTracking.ip_address == ip_address,
-                IPUsageTracking.usage_month == current_month
-            )
+                IPUsageTracking.usage_month == current_month)
         )
-        tracking = result.scalar_one_or_none()
-
-        if not tracking:
-            logger.info(f"[QUOTA CHECK] IP {ip_address}: new this month, 3 searches available")
-            return True, 3
-
+        tracking = res.scalar_one_or_none()
+        if not tracking: return True, 3
         remaining = max(0, 3 - tracking.search_count)
-        logger.info(f"[QUOTA CHECK] IP {ip_address}: used={tracking.search_count}, remaining={remaining}")
         return remaining > 0, remaining
-
-    logger.warning(f"[QUOTA CHECK] No user_id or ip_address provided - allowing search")
-    return True, 3  # Allow anonymous searches with default quota
-
+    return True, 3
 
 async def extract_structured_intent(query: str):
     """Extract structured intent from natural language query."""
@@ -470,47 +454,35 @@ async def search_providers(
         terms = [t for t in query.lower().split() if len(t) > 2]
         logger.info(f"[SEARCH FALLBACK] Search terms: {terms}")
 
-        # Base filter: only engineering services
-        base_filter = Provider.is_engineering_service == 1
+        # SOFT FILTER: try eng filter first, relax if 0 results
+        eng_filter = Provider.is_engineering_service == 1
 
-        if terms:
-            field_conditions = []
-            for term in terms[:6]:  # Up to 6 terms
-                field_conditions.append(Provider.name.ilike(f"%{term}%"))
-                field_conditions.append(Provider.firm_name.ilike(f"%{term}%"))
-                field_conditions.append(Provider.business_description.ilike(f"%{term}%"))
-                field_conditions.append(Provider.primary_specialty.ilike(f"%{term}%"))
-                field_conditions.append(Provider.notable_clients.ilike(f"%{term}%"))
+        def _build_kw_stmt(apply_eng: bool):
+            conds = []
+            for term in terms[:6]:
+                conds.append(Provider.name.ilike(f"%{term}%"))
+                conds.append(Provider.firm_name.ilike(f"%{term}%"))
+                conds.append(Provider.business_description.ilike(f"%{term}%"))
+                conds.append(Provider.primary_specialty.ilike(f"%{term}%"))
+                conds.append(Provider.notable_clients.ilike(f"%{term}%"))
+            q = select(Provider).order_by(Provider.business_evaluation_tier.asc().nullslast()).limit(limit)
+            if conds and apply_eng: return q.where(and_(eng_filter, or_(*conds)))
+            if conds: return q.where(or_(*conds))
+            if apply_eng: return q.where(eng_filter)
+            return q
 
-            stmt = (
-                select(Provider)
-                .where(and_(base_filter, or_(*field_conditions)))
-                .order_by(Provider.business_evaluation_tier.asc().nullslast())
-                .limit(limit)
-            )
-        else:
-            # No terms: return top-tier engineering service providers
-            stmt = (
-                select(Provider)
-                .where(base_filter)
-                .order_by(Provider.business_evaluation_tier.asc().nullslast())
-                .limit(limit)
-            )
-
-        result = await db.execute(stmt)
+        result = await db.execute(_build_kw_stmt(True))
         providers = result.scalars().all()
-        logger.info(f"[SEARCH FALLBACK] Keyword search returned {len(providers)} providers")
-
+        logger.info(f"[SEARCH FALLBACK] kw eng-filter: {len(providers)} providers")
         if not providers:
-            # Last resort: return any engineering providers regardless of keyword match
-            logger.warning("[SEARCH FALLBACK] No keyword matches, returning top providers")
-            stmt = (
-                select(Provider)
-                .where(base_filter)
-                .order_by(Provider.business_evaluation_tier.asc().nullslast())
-                .limit(min(limit, 20))
+            logger.warning("[SEARCH FALLBACK] eng=0, retrying without filter")
+            result = await db.execute(_build_kw_stmt(False))
+            providers = result.scalars().all()
+            logger.info(f"[SEARCH FALLBACK] kw no-filter: {len(providers)} providers")
+        if not providers:
+            result = await db.execute(
+                select(Provider).order_by(Provider.business_evaluation_tier.asc().nullslast()).limit(min(limit, 20))
             )
-            result = await db.execute(stmt)
             providers = result.scalars().all()
 
         return [
@@ -542,22 +514,28 @@ async def search_providers(
         embedding_values = ",".join(str(x) for x in embedding)
         embedding_str = f"[{embedding_values}]"
 
-        stmt = text("""
-            SELECT id, 1 - (embedding <=> :embedding) as similarity
-            FROM providers
-            WHERE embedding IS NOT NULL
-              AND is_engineering_service = 1
-            ORDER BY embedding <=> :embedding
-            LIMIT :limit
+        # SOFT FILTER: eng first, relax if 0 results
+        eng_sql = text("""
+            SELECT id, 1 - (embedding <=> :embedding) AS similarity
+            FROM providers WHERE embedding IS NOT NULL AND is_engineering_service = 1
+            ORDER BY embedding <=> :embedding LIMIT :limit
         """)
-
-        result = await db.execute(stmt, {"embedding": embedding_str, "limit": limit})
+        nofilt_sql = text("""
+            SELECT id, 1 - (embedding <=> :embedding) AS similarity
+            FROM providers WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> :embedding LIMIT :limit
+        """)
+        result = await db.execute(eng_sql, {"embedding": embedding_str, "limit": limit})
         rows = result.all()
-        logger.info(f"[SEARCH] Vector search returned {len(rows)} results")
-
+        logger.info(f"[SEARCH] Vector eng-filter: {len(rows)} results")
         if not rows:
-            logger.warning("[SEARCH] No embeddings in database yet, using keyword fallback")
+            logger.warning("[SEARCH] eng=0, retrying without filter")
+            result = await db.execute(nofilt_sql, {"embedding": embedding_str, "limit": limit})
+            rows = result.all()
+            logger.info(f"[SEARCH] Vector no-filter: {len(rows)} results")
+        if not rows:
             return await keyword_fallback("Keyword search (no embeddings yet)", score=35.0)
+
 
         # Fetch full provider objects
         provider_ids = [row[0] for row in rows]
