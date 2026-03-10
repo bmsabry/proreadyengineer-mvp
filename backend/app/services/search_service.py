@@ -456,12 +456,12 @@ async def check_search_quota(
         if not ip_address:
             return {'allowed': True, 'remaining': 3, 'limit': 3, 'used': 0}
         try:
-            from app.models.search import IpUsageTracking
+            from app.models.search import IPUsageTracking
             month_str = now.strftime('%Y-%m')
             result = await db.execute(
-                select(IpUsageTracking)
-                .where(IpUsageTracking.ip_address == ip_address)
-                .where(IpUsageTracking.usage_month == month_str)
+                select(IPUsageTracking)
+                .where(IPUsageTracking.ip_address == ip_address)
+                .where(IPUsageTracking.usage_month == month_str)
             )
             record = result.scalar_one_or_none()
             used  = record.search_count if record else 0
@@ -500,19 +500,19 @@ async def increment_search_quota(
         if not ip_address:
             return
         try:
-            from app.models.search import IpUsageTracking
+            from app.models.search import IPUsageTracking
             month_str = now.strftime('%Y-%m')
             result = await db.execute(
-                select(IpUsageTracking)
-                .where(IpUsageTracking.ip_address == ip_address)
-                .where(IpUsageTracking.usage_month == month_str)
+                select(IPUsageTracking)
+                .where(IPUsageTracking.ip_address == ip_address)
+                .where(IPUsageTracking.usage_month == month_str)
             )
             record = result.scalar_one_or_none()
             if record:
                 record.search_count = (record.search_count or 0) + 1
                 record.updated_at   = now
             else:
-                db.add(IpUsageTracking(
+                db.add(IPUsageTracking(
                     ip_address=ip_address,
                     usage_month=month_str,
                     search_count=1,
