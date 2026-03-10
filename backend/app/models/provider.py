@@ -191,7 +191,7 @@ class Provider(Base):
     
     # Embedding Fields (Section 11.2)
     embedding: Mapped[Optional[Any]] = mapped_column(
-        Vector(1536), nullable=True
+        Vector(1024), nullable=True
     )
     embedding_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     embedding_generated_at: Mapped[Optional[datetime]] = mapped_column(

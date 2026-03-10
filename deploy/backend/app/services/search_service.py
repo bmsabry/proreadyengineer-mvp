@@ -30,6 +30,12 @@ class SearchService:
 
         self.client = AsyncOpenAI(**client_kwargs)
         self.embedding_model = settings.OPENAI_EMBEDDING_MODEL
+
+        # DeepInfra requires BAAI/bge-large-en-v1.5 (1024-dim), not text-embedding-3-small (OpenAI-only)
+        if settings.OPENAI_API_BASE and 'deepinfra' in settings.OPENAI_API_BASE.lower():
+            if self.embedding_model in ('text-embedding-3-small', 'text-embedding-ada-002', 'text-embedding-3-large'):
+                self.embedding_model = 'BAAI/bge-large-en-v1.5'
+                logger.info('[SEARCH SERVICE] DeepInfra detected: overriding embedding model to BAAI/bge-large-en-v1.5')
         self.llm_model = settings.OPENAI_LLM_MODEL
 
         logger.info(f"[SEARCH SERVICE] Initialized with embedding_model={self.embedding_model}, llm_model={self.llm_model}")
@@ -372,8 +378,8 @@ async def check_search_quota(db, user=None, ip_address=None):
         logger.info(f"[QUOTA CHECK] IP {ip_address}: used={tracking.search_count}, remaining={remaining}")
         return remaining > 0, remaining
 
-    logger.warning(f"[QUOTA CHECK] No user_id or ip_address provided")
-    return False, 0
+    logger.warning(f"[QUOTA CHECK] No user_id or ip_address provided - allowing search")
+    return True, 3  # Allow anonymous searches with default quota
 
 
 async def extract_structured_intent(query: str):
@@ -404,7 +410,7 @@ async def increment_search_quota(db, user_id=None, ip_address=None):
                     updated_at = NOW()
                 WHERE id = :user_id
             """),
-            {"user_id": user_id}
+            {"user_id": str(user_id)}
         )
         logger.info(f"[QUOTA] Incremented user {user_id} search count")
     elif ip_address:
@@ -444,10 +450,11 @@ async def search_providers(
 ) -> List[Any]:
     """
     Search providers using embeddings and return ranked results.
-
     Returns a list of objects with .provider, .score, and .explanation attributes.
+    Falls back to keyword search when no API key or no embeddings available.
     """
     from dataclasses import dataclass
+    from sqlalchemy import or_, and_
 
     @dataclass
     class SearchResultItem:
@@ -455,39 +462,70 @@ async def search_providers(
         score: float
         explanation: str
 
-    logger.info(f"[SEARCH] Starting search: query='{query[:100]}...', filters={filters}, limit={limit}")
+    logger.info(f"[SEARCH] Starting search: query='{query[:100]}'..., filters={filters}, limit={limit}")
 
-    # Check if API key is configured
-    if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY == "dummy-key":
-        logger.warning("[SEARCH] No API key configured, falling back to basic text search")
-        # Fallback: simple text search on description and specialty
-        from sqlalchemy import or_
+    async def keyword_fallback(reason: str, score: float = 50.0) -> List[SearchResultItem]:
+        """Keyword-based fallback search across multiple fields."""
+        logger.info(f"[SEARCH FALLBACK] Reason: {reason}")
+        terms = [t for t in query.lower().split() if len(t) > 2]
+        logger.info(f"[SEARCH FALLBACK] Search terms: {terms}")
 
-        search_terms = query.lower().split()
-        conditions = []
-        for term in search_terms[:5]:  # Limit to first 5 terms
-            if len(term) > 3:
-                conditions.append(Provider.business_description.ilike(f"%{term}%"))
-                conditions.append(Provider.primary_specialty.ilike(f"%{term}%"))
+        # Base filter: only engineering services
+        base_filter = Provider.is_engineering_service == 1
 
-        if conditions:
-            stmt = select(Provider).where(or_(*conditions)).limit(limit)
+        if terms:
+            field_conditions = []
+            for term in terms[:6]:  # Up to 6 terms
+                field_conditions.append(Provider.name.ilike(f"%{term}%"))
+                field_conditions.append(Provider.firm_name.ilike(f"%{term}%"))
+                field_conditions.append(Provider.business_description.ilike(f"%{term}%"))
+                field_conditions.append(Provider.primary_specialty.ilike(f"%{term}%"))
+                field_conditions.append(Provider.notable_clients.ilike(f"%{term}%"))
+
+            stmt = (
+                select(Provider)
+                .where(and_(base_filter, or_(*field_conditions)))
+                .order_by(Provider.business_evaluation_tier.asc().nullslast())
+                .limit(limit)
+            )
         else:
-            stmt = select(Provider).limit(limit)
+            # No terms: return top-tier engineering service providers
+            stmt = (
+                select(Provider)
+                .where(base_filter)
+                .order_by(Provider.business_evaluation_tier.asc().nullslast())
+                .limit(limit)
+            )
 
         result = await db.execute(stmt)
         providers = result.scalars().all()
+        logger.info(f"[SEARCH FALLBACK] Keyword search returned {len(providers)} providers")
 
-        logger.info(f"[SEARCH] Fallback search returned {len(providers)} providers")
+        if not providers:
+            # Last resort: return any engineering providers regardless of keyword match
+            logger.warning("[SEARCH FALLBACK] No keyword matches, returning top providers")
+            stmt = (
+                select(Provider)
+                .where(base_filter)
+                .order_by(Provider.business_evaluation_tier.asc().nullslast())
+                .limit(min(limit, 20))
+            )
+            result = await db.execute(stmt)
+            providers = result.scalars().all()
 
         return [
             SearchResultItem(
                 provider=p,
-                score=50.0,
-                explanation=f"Matched via keyword search for: {query[:50]}"
+                score=score,
+                explanation=f"{reason}: {query[:60]}"
             )
             for p in providers
         ]
+
+    # Check if API key is configured
+    if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY in ("dummy-key", "", None):
+        logger.info("[SEARCH] No AI key configured, using keyword fallback")
+        return await keyword_fallback("Keyword search (no AI key configured)", score=50.0)
 
     # Generate embedding for the query
     try:
@@ -496,94 +534,55 @@ async def search_providers(
         logger.info(f"[SEARCH] Generated embedding with {len(embedding)} dimensions")
     except Exception as e:
         logger.error(f"[SEARCH] Failed to generate embedding: {str(e)}")
-        # Fallback to basic search
-        stmt = select(Provider).limit(limit)
-        result = await db.execute(stmt)
-        providers = result.scalars().all()
-        return [
-            SearchResultItem(
-                provider=p,
-                score=30.0,
-                explanation="Fallback due to embedding error"
-            )
-            for p in providers
-        ]
+        return await keyword_fallback("Keyword search (embedding error)", score=40.0)
 
     # Perform vector similarity search using pgvector
     try:
-        # Convert embedding to string for SQL
-        embedding_str = f"[{','.join(str(x) for x in embedding)}]"
+        # Build embedding string in pgvector format [x1,x2,...]
+        embedding_values = ",".join(str(x) for x in embedding)
+        embedding_str = f"[{embedding_values}]"
 
-        # Use pgvector cosine similarity
         stmt = text("""
             SELECT id, 1 - (embedding <=> :embedding) as similarity
             FROM providers
             WHERE embedding IS NOT NULL
+              AND is_engineering_service = 1
             ORDER BY embedding <=> :embedding
             LIMIT :limit
         """)
 
-        result = await db.execute(stmt, {
-            "embedding": embedding_str,
-            "limit": limit
-        })
-
+        result = await db.execute(stmt, {"embedding": embedding_str, "limit": limit})
         rows = result.all()
         logger.info(f"[SEARCH] Vector search returned {len(rows)} results")
 
         if not rows:
-            # No embeddings yet, fall back to basic search
-            stmt = select(Provider).limit(limit)
-            result = await db.execute(stmt)
-            providers = result.scalars().all()
-            return [
-                SearchResultItem(
-                    provider=p,
-                    score=25.0,
-                    explanation="No embeddings available, showing available providers"
-                )
-                for p in providers
-            ]
+            logger.warning("[SEARCH] No embeddings in database yet, using keyword fallback")
+            return await keyword_fallback("Keyword search (no embeddings yet)", score=35.0)
 
-        # Get full provider objects
+        # Fetch full provider objects
         provider_ids = [row[0] for row in rows]
         stmt = select(Provider).where(Provider.id.in_(provider_ids))
         result = await db.execute(stmt)
-        providers = {p.id: p for p in result.scalars().all()}
+        providers_map = {p.id: p for p in result.scalars().all()}
 
-        # Build results with scores
         results = []
         for provider_id, similarity in rows:
-            if provider_id in providers:
-                provider = providers[provider_id]
-                # Convert similarity to 0-100 score
-                score = similarity * 100
+            if provider_id in providers_map:
+                provider = providers_map[provider_id]
+                score = max(0.0, min(100.0, float(similarity) * 100))
                 results.append(SearchResultItem(
                     provider=provider,
                     score=score,
-                    explanation=f"Vector similarity match (score: {score:.1f})"
+                    explanation=f"AI similarity match (score: {score:.1f})"
                 ))
 
-        # Sort by score descending
         results.sort(key=lambda x: x.score, reverse=True)
-
-        logger.info(f"[SEARCH] Returning {len(results)} ranked results")
+        logger.info(f"[SEARCH] Returning {len(results)} AI-ranked results")
         return results
 
     except Exception as e:
         logger.error(f"[SEARCH] Vector search failed: {str(e)}", exc_info=True)
-        # Fallback to basic search
-        stmt = select(Provider).limit(limit)
-        result = await db.execute(stmt)
-        providers = result.scalars().all()
-        return [
-            SearchResultItem(
-                provider=p,
-                score=20.0,
-                explanation="Fallback due to vector search error"
-            )
-            for p in providers
-        ]
+        return await keyword_fallback("Keyword search (vector error)", score=30.0)
 
 
 # Standalone wrapper function for direct imports

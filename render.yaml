@@ -5,7 +5,7 @@ services:
     env: python
     plan: free
     buildCommand: cd backend && pip install -r requirements.txt
-    startCommand: cd backend && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT
+    startCommand: cd backend && alembic upgrade head && python ../deploy/scripts/migrate_providers.py && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.0"
@@ -30,7 +30,7 @@ services:
       - key: OPENAI_LLM_MODEL
         value: "moonshotai/kimi-k2.5"
       - key: OPENAI_EMBEDDING_MODEL
-        value: "text-embedding-3-small"
+        value: "BAAI/bge-large-en-v1.5"
       - key: STRIPE_SECRET_KEY
         value: ""
       - key: STRIPE_PUBLISHABLE_KEY

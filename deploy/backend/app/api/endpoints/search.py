@@ -216,7 +216,7 @@ async def upload_complete(
 
 @router.get("/providers/{provider_id}/public", response_model=ProviderPublicResponse)
 async def get_provider_public(
-    provider_id: str,
+    provider_id: int,
     db: AsyncSession = Depends(get_db),
 ):
     """Get public provider profile."""

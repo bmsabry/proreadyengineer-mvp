@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlalchemy import (
     Boolean,
+    JSON,
+
     DateTime,
     ForeignKey,
     Integer,
@@ -189,7 +191,7 @@ class Provider(Base):
     
     # Embedding Fields (Section 11.2)
     embedding: Mapped[Optional[Any]] = mapped_column(
-        Vector(1536), nullable=True
+        Vector(1024), nullable=True
     )
     embedding_model: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     embedding_generated_at: Mapped[Optional[datetime]] = mapped_column(
@@ -197,12 +199,18 @@ class Provider(Base):
     )
     embedding_version: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
+
+    @property
+    def tier(self) -> "Optional[str]":
+        """Alias for business_evaluation_tier for compatibility with search service."""
+        return self.business_evaluation_tier
+
     # Timestamps (from companies - may be nullable for migrated data)
     created_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     
-    # Relationships
+        # Relationships
     claimed_by_user: Mapped[Optional["User"]] = relationship(
         "User", back_populates="claimed_providers"
     )
@@ -236,17 +244,6 @@ class Provider(Base):
     tier_evaluation_requests: Mapped[List["TierEvaluationRequest"]] = relationship(
         "TierEvaluationRequest", back_populates="provider"
     )
-
-    @property
-    def tier(self) -> Optional[str]:
-        """Alias for business_evaluation_tier used by search service and schemas."""
-        return self.business_evaluation_tier
-
-    @tier.setter
-    def tier(self, value: Optional[str]) -> None:
-        """Allow setting tier via alias."""
-        self.business_evaluation_tier = value
-
 
 class ProviderMembership(Base):
     """Maps users to providers with specific roles."""

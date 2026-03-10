@@ -7,28 +7,42 @@ Migrates 6,766 engineering providers from engineering_directory.db to PostgreSQL
 import asyncio
 import json
 import sys
+import os
 from datetime import datetime
 from decimal import Decimal
 
-# Add backend to path
-sys.path.insert(0, '/a0/usr/projects/website_for_engineering_directory/backend')
+# Add backend to Python path - works both locally and on Render
+script_dir = os.path.dirname(os.path.abspath(__file__))
+backend_dir = os.path.abspath(os.path.join(script_dir, '../../backend'))
+sys.path.insert(0, backend_dir)
+print(f"Backend path: {backend_dir}")
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from app.db.session import AsyncSessionLocal
 from app.models.provider import Provider
 import sqlite3
 
-# Source SQLite database
-# Detect environment and use correct path
-import os
-if os.path.exists('/opt/render/project/src/engineering_directory.db'):
-    SQLITE_DB = '/opt/render/project/src/engineering_directory.db'
-elif os.path.exists('/a0/usr/projects/engineering_services_directory_v2/engineering_directory.db'):
-    SQLITE_DB = '/a0/usr/projects/engineering_services_directory_v2/engineering_directory.db'
-else:
-    # Try current directory
-    SQLITE_DB = 'engineering_directory.db'  # Should be in same folder on Render
+
+def find_sqlite_db():
+    """Find the engineering_directory.db file."""
+    candidates = [
+        # Render deployment: project root
+        '/opt/render/project/src/engineering_directory.db',
+        # Local dev
+        '/a0/usr/projects/website_for_engineering_directory/engineering_directory.db',
+        # Relative to script location (../../engineering_directory.db from deploy/scripts/)
+        os.path.abspath(os.path.join(script_dir, '../../engineering_directory.db')),
+        # Current working directory
+        os.path.join(os.getcwd(), 'engineering_directory.db'),
+        # Parent of cwd
+        os.path.join(os.path.dirname(os.getcwd()), 'engineering_directory.db'),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            print(f"Found SQLite DB at: {path}")
+            return path
+    raise FileNotFoundError(f"Cannot find engineering_directory.db. Tried: {candidates}")
 
 
 def parse_json_field(value):
@@ -38,6 +52,9 @@ def parse_json_field(value):
     try:
         return json.loads(value)
     except:
+        # Handle string lists like '["item1", "item2"]' or plain strings
+        if isinstance(value, str) and value.strip():
+            return [value]  # Wrap single string in list
         return None
 
 
@@ -55,6 +72,8 @@ async def migrate_data():
     print("=" * 60)
     print("SQLite to PostgreSQL Migration")
     print("=" * 60)
+
+    SQLITE_DB = find_sqlite_db()
     print(f"Source: {SQLITE_DB}")
 
     # Connect to SQLite
@@ -65,7 +84,12 @@ async def migrate_data():
     # Count total rows
     sqlite_cursor.execute("SELECT COUNT(*) FROM companies")
     total_rows = sqlite_cursor.fetchone()[0]
-    print(f"📊 Found {total_rows} companies in SQLite")
+    print(f"Found {total_rows} companies in SQLite")
+
+    if total_rows == 0:
+        print("ERROR: No companies found in SQLite database!")
+        sqlite_conn.close()
+        return 0, 1
 
     # Fetch all companies
     sqlite_cursor.execute("SELECT * FROM companies")
@@ -75,84 +99,96 @@ async def migrate_data():
     sqlite_cursor.execute("PRAGMA table_info(companies)")
     columns_info = sqlite_cursor.fetchall()
     column_names = [c[1] for c in columns_info]
-    print(f"📋 Columns: {len(column_names)}")
+    print(f"Columns: {len(column_names)}")
 
     async with AsyncSessionLocal() as session:
         # Check existing providers
         result = await session.execute(select(func.count()).select_from(Provider))
         existing = result.scalar()
-        print(f"📊 Existing providers in PostgreSQL: {existing}")
+        print(f"Existing providers in PostgreSQL: {existing}")
 
-        if existing > 0:
-            print("\n⚠️  Providers already exist. Skipping migration.")
-            print("   To re-migrate, delete existing providers first.")
-            return 0, 0
+        if existing >= total_rows * 0.5:  # If more than 50% already migrated, skip
+            print(f"\nProviders already migrated ({existing}/{total_rows}). Skipping.")
+            print("To re-migrate, delete existing providers first.")
+            sqlite_conn.close()
+            return existing, 0
+
+        # Clear any partial migration
+        if 0 < existing < total_rows * 0.5:
+            print(f"Partial migration detected ({existing} records). Clearing and restarting...")
+            await session.execute(text("DELETE FROM providers"))
+            await session.commit()
 
         # Insert providers
-        batch_size = 50
+        batch_size = 100
         inserted = 0
         errors = []
 
-        print(f"\n🚀 Migrating {total_rows} providers...")
+        print(f"\nMigrating {total_rows} providers...")
 
         for i, row in enumerate(companies):
             try:
+                row_dict = dict(row)
+
+                # Ensure name and firm_name are never NULL
+                name = row_dict.get('name') or row_dict.get('firm_name') or f'Provider {row_dict.get("id", i)}'
+
                 # Map SQLite row to Provider model
                 provider = Provider(
-                    id=row['id'],  # Keep same ID
-                    name=row['name'] or row['firm_name'] or 'Unknown',
-                    firm_name=row['firm_name'],
-                    website=row['website'],
-                    phone=row['phone'],
-                    address=row['address'],
-                    city=row['city'],
-                    state=row['state'],
-                    postal_code=row['postal_code'],
-                    rating=parse_decimal(row['rating']),
-                    review_count=int(row['review_count']) if row['review_count'] else 0,
-                    place_id=row['place_id'],
-                    search_query=row['search_query'],
-                    search_city=row['search_city'],
-                    is_engineering_service=1 if row['is_engineering_service'] else 0,
-                    is_mechanical_focus=1 if row['is_mechanical_focus'] else 0,
-                    classification_confidence=row['classification_confidence'],
-                    classification_reasoning=row['classification_reasoning'],
-                    primary_specialty=row['primary_specialty'],
-                    secondary_specialties=parse_json_field(row['secondary_specialties']),
-                    homepage_crawl_status=row['homepage_crawl_status'],
-                    homepage_file=row['homepage_file'],
-                    homepage_content_size=row['homepage_content_size'],
-                    deep_crawl_status=row['deep_crawl_status'],
-                    deep_crawl_page_count=row['deep_crawl_page_count'],
-                    deep_crawl_content_size=row['deep_crawl_content_size'],
-                    business_description=row['business_description'],
-                    capabilities=parse_json_field(row['capabilities']),
-                    specialties=parse_json_field(row['specialties']),
-                    software_tools=parse_json_field(row['software_tools']),
-                    notable_clients=row['notable_clients'],
-                    email_addresses=parse_json_field(row['email_addresses']),
-                    certifications=parse_json_field(row['certifications']),
-                    equipment=parse_json_field(row['equipment']),
-                    business_evaluation_tier=row['business_evaluation_tier'],
-                    business_evaluation_years_in_business=row['business_evaluation_years_in_business'],
-                    business_evaluation_employee_count=row['business_evaluation_employee_count'],
-                    proven_experience_project_count=row['proven_experience_project_count'],
-                    proven_experience_case_studies=parse_json_field(row['proven_experience_case_studies']),
-                    proven_experience_industries_served=parse_json_field(row['proven_experience_industries_served']),
-                    proven_experience_years_in_business=row['proven_experience_years_in_business'],
-                    proven_experience_notable_projects=parse_json_field(row['proven_experience_notable_projects']),
-                    online_presence_youtube_channel=row['online_presence_youtube_channel'],
-                    online_presence_linkedin_url=row['online_presence_linkedin_url'],
-                    online_presence_yelp_url=row['online_presence_yelp_url'],
-                    online_presence_review_count=row['online_presence_review_count'],
-                    online_presence_average_rating=parse_decimal(row['online_presence_average_rating']),
-                    online_presence_reputation_summary=row['online_presence_reputation_summary'],
-                    team_members=parse_json_field(row['team_members']),
-                    team_summary=row['team_summary'],
-                    projects=parse_json_field(row['projects']),
-                    created_at=datetime.fromisoformat(row['created_at']) if row['created_at'] else datetime.utcnow(),
-                    updated_at=datetime.fromisoformat(row['updated_at']) if row['updated_at'] else datetime.utcnow(),
-                    # MVP fields
+                    id=row_dict.get('id'),
+                    name=name,
+                    firm_name=row_dict.get('firm_name'),
+                    website=row_dict.get('website'),
+                    phone=row_dict.get('phone'),
+                    address=row_dict.get('address'),
+                    city=row_dict.get('city'),
+                    state=row_dict.get('state'),
+                    postal_code=row_dict.get('postal_code'),
+                    rating=parse_decimal(row_dict.get('rating')),
+                    review_count=int(row_dict['review_count']) if row_dict.get('review_count') else 0,
+                    place_id=row_dict.get('place_id'),
+                    search_query=row_dict.get('search_query'),
+                    search_city=row_dict.get('search_city'),
+                    is_engineering_service=1 if row_dict.get('is_engineering_service') else 0,
+                    is_mechanical_focus=1 if row_dict.get('is_mechanical_focus') else 0,
+                    classification_confidence=row_dict.get('classification_confidence'),
+                    classification_reasoning=row_dict.get('classification_reasoning'),
+                    primary_specialty=row_dict.get('primary_specialty'),
+                    secondary_specialties=parse_json_field(row_dict.get('secondary_specialties')),
+                    homepage_crawl_status=row_dict.get('homepage_crawl_status'),
+                    homepage_file=row_dict.get('homepage_file'),
+                    homepage_content_size=row_dict.get('homepage_content_size'),
+                    deep_crawl_status=row_dict.get('deep_crawl_status'),
+                    deep_crawl_page_count=row_dict.get('deep_crawl_page_count'),
+                    deep_crawl_content_size=row_dict.get('deep_crawl_content_size'),
+                    business_description=row_dict.get('business_description'),
+                    capabilities=parse_json_field(row_dict.get('capabilities')),
+                    specialties=parse_json_field(row_dict.get('specialties')),
+                    software_tools=parse_json_field(row_dict.get('software_tools')),
+                    notable_clients=row_dict.get('notable_clients'),
+                    email_addresses=parse_json_field(row_dict.get('email_addresses')),
+                    certifications=parse_json_field(row_dict.get('certifications')),
+                    equipment=parse_json_field(row_dict.get('equipment')),
+                    business_evaluation_tier=row_dict.get('business_evaluation_tier'),
+                    business_evaluation_years_in_business=row_dict.get('business_evaluation_years_in_business'),
+                    business_evaluation_employee_count=row_dict.get('business_evaluation_employee_count'),
+                    proven_experience_project_count=row_dict.get('proven_experience_project_count'),
+                    proven_experience_case_studies=parse_json_field(row_dict.get('proven_experience_case_studies')),
+                    proven_experience_industries_served=parse_json_field(row_dict.get('proven_experience_industries_served')),
+                    proven_experience_years_in_business=row_dict.get('proven_experience_years_in_business'),
+                    proven_experience_notable_projects=parse_json_field(row_dict.get('proven_experience_notable_projects')),
+                    online_presence_youtube_channel=row_dict.get('online_presence_youtube_channel'),
+                    online_presence_linkedin_url=row_dict.get('online_presence_linkedin_url'),
+                    online_presence_yelp_url=row_dict.get('online_presence_yelp_url'),
+                    online_presence_review_count=row_dict.get('online_presence_review_count'),
+                    online_presence_average_rating=parse_decimal(row_dict.get('online_presence_average_rating')),
+                    online_presence_reputation_summary=row_dict.get('online_presence_reputation_summary'),
+                    team_members=parse_json_field(row_dict.get('team_members')),
+                    team_summary=row_dict.get('team_summary'),
+                    projects=parse_json_field(row_dict.get('projects')),
+                    created_at=datetime.fromisoformat(row_dict['created_at']) if row_dict.get('created_at') else datetime.utcnow(),
+                    updated_at=datetime.fromisoformat(row_dict['updated_at']) if row_dict.get('updated_at') else datetime.utcnow(),
+                    # MVP fields - not in SQLite source
                     claim_status=None,
                     claimed_by_user_id=None,
                 )
@@ -165,9 +201,9 @@ async def migrate_data():
                     print(f"   Progress: {inserted}/{total_rows} ({inserted/total_rows*100:.1f}%)")
 
             except Exception as e:
-                errors.append(f"Row {i+1} (ID {row.get('id', '?')}): {str(e)[:100]}")
+                errors.append(f"Row {i+1} (ID {row_dict.get('id', '?')}): {str(e)[:100]}")
                 if len(errors) > 5:
-                    print(f"   ⚠️  Too many errors, stopping...")
+                    print(f"   Too many errors, stopping...")
                     break
 
         # Final commit
@@ -178,9 +214,9 @@ async def migrate_data():
         print("\n" + "=" * 60)
         print("Migration Complete!")
         print("=" * 60)
-        print(f"✓ Inserted: {inserted} providers")
+        print(f"Inserted: {inserted} providers")
         if errors:
-            print(f"✗ Errors: {len(errors)}")
+            print(f"Errors: {len(errors)}")
             print("\nFirst errors:")
             for err in errors[:3]:
                 print(f"   {err}")
@@ -192,5 +228,5 @@ async def migrate_data():
 
 if __name__ == "__main__":
     inserted, errors = asyncio.run(migrate_data())
-    print(f"\n🎉 Migration finished!")
+    print(f"\nMigration finished!")
     sys.exit(0 if errors == 0 else 1)

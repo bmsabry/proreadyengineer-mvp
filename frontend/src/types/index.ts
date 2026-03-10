@@ -41,7 +41,7 @@ export interface PasswordResetConfirm {
 
 // Provider Types
 export interface Provider {
-  id: string;
+  id: number;  // Provider IDs are integers from backend
   name: string;
   tier: 'A' | 'B' | 'C' | 'D' | 'E';
   website?: string;
@@ -56,7 +56,7 @@ export interface Provider {
   capabilities?: string[];
   specialties?: string[];
   software_tools?: string[];
-  notable_clients?: string[];
+  notable_clients?: string; // TEXT column in DB, not array
   certifications?: string[];
   email_addresses?: string[];
   is_engineering_service?: boolean;
@@ -131,14 +131,17 @@ export interface SearchLLMOutput {
 }
 
 export interface SearchResult {
+  // Actual fields returned by backend /api/v1/search/query
   provider: Provider;
-  rank_position: number;
-  composite_score: number;
-  specialty_score: number;
-  capabilities_score: number;
-  tier_score: number;
+  score: number;              // Primary match score (0-100)
+  explanation: string;        // Human-readable match explanation
+  // Legacy / optional fields (kept for compatibility)
+  rank_position?: number;
+  composite_score?: number;
+  specialty_score?: number;
+  capabilities_score?: number;
+  tier_score?: number;
   scoring_inputs?: Record<string, unknown>;
-  explanation?: string;
 }
 
 export interface SearchQueryRequest {
@@ -146,10 +149,13 @@ export interface SearchQueryRequest {
 }
 
 export interface SearchQueryResponse {
-  search_id: string;
-  query: string;
+  // Matches backend SearchResponse schema
   results: SearchResult[];
   total_matches: number;
+  search_quota_remaining: number;
+  // Optional legacy fields
+  search_id?: string;
+  query?: string;
   fallback_reason?: string;
 }
 

@@ -34,25 +34,46 @@ TierEvaluationStatus = Literal["pending", "approved", "rejected", "cancelled"]
 # ---------------------------------------------------------------------------
 
 class ProviderPublicResponse(BaseSchema):
-    """Minimal provider profile for search results.
+    """Public provider profile for search results and provider detail pages.
 
-    BUG-1 FIX: BaseSchema NOT ResponseSchema -
-      Provider.id is INTEGER; Provider has no updated_at column.
+    Uses BaseSchema (not ResponseSchema) because:
+    - Provider.id is INTEGER (not UUID)
+    - Provider has no updated_at column
+    All fields except id are Optional to handle data quality variation in migrated records.
     """
     id: int
     name: Optional[str] = None
-    firm_name: str
+    firm_name: Optional[str] = None  # Optional: some migrated records may be null
     primary_specialty: Optional[str] = None
     secondary_specialties: Optional[List[str]] = None
     business_description: Optional[str] = None
     capabilities: Optional[List[str]] = None
-    notable_clients: Optional[str] = None  # TEXT column not list
+    specialties: Optional[List[str]] = None
+    notable_clients: Optional[str] = None
     software_tools: Optional[List[str]] = None
     certifications: Optional[List[str]] = None
-    tier: Optional[str] = None  # @property on Provider
+    equipment: Optional[List[str]] = None
+    tier: Optional[str] = None  # @property alias for business_evaluation_tier
     city: Optional[str] = None
     state: Optional[str] = None
     website: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    # Classification flags (needed for search UI badges)
+    is_engineering_service: Optional[int] = None
+    is_mechanical_focus: Optional[int] = None
+    # Business evaluation
+    business_evaluation_tier: Optional[str] = None
+    business_evaluation_years_in_business: Optional[int] = None
+    business_evaluation_employee_count: Optional[str] = None
+    # Online presence
+    online_presence_linkedin_url: Optional[str] = None
+    online_presence_youtube_channel: Optional[str] = None
+    # Ratings
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
+    # Claim status
+    claim_status: Optional[str] = None
 
 
 class ProviderSearchResult(BaseSchema):
