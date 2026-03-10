@@ -71,3 +71,4 @@ logs/
 
 # Keep provider database for Render migration
 !engineering_directory.db
+frontend/tsconfig.tsbuildinfo
