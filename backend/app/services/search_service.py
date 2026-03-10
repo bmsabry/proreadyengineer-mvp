@@ -516,14 +516,14 @@ async def search_providers(
 
         # SOFT FILTER: eng first, relax if 0 results
         eng_sql = text("""
-            SELECT id, 1 - (embedding <=> :embedding) AS similarity
+            SELECT id, 1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
             FROM providers WHERE embedding IS NOT NULL AND is_engineering_service = 1
-            ORDER BY embedding <=> :embedding LIMIT :limit
+            ORDER BY embedding <=> CAST(:embedding AS vector) LIMIT :limit
         """)
         nofilt_sql = text("""
-            SELECT id, 1 - (embedding <=> :embedding) AS similarity
+            SELECT id, 1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
             FROM providers WHERE embedding IS NOT NULL
-            ORDER BY embedding <=> :embedding LIMIT :limit
+            ORDER BY embedding <=> CAST(:embedding AS vector) LIMIT :limit
         """)
         result = await db.execute(eng_sql, {"embedding": embedding_str, "limit": limit})
         rows = result.all()
@@ -560,6 +560,10 @@ async def search_providers(
 
     except Exception as e:
         logger.error(f"[SEARCH] Vector search failed: {str(e)}", exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         return await keyword_fallback("Keyword search (vector error)", score=30.0)
 
 

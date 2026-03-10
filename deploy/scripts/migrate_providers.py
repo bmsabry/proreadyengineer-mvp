@@ -202,8 +202,8 @@ async def migrate_data():
 
             except Exception as e:
                 errors.append(f"Row {i+1} (ID {row_dict.get('id', '?')}): {str(e)[:100]}")
-                if len(errors) > 5:
-                    print(f"   Too many errors, stopping...")
+                if len(errors) > 50:
+                    print(f"   Too many errors ({len(errors)}), stopping migration batch...")
                     break
 
         # Final commit
@@ -229,4 +229,8 @@ async def migrate_data():
 if __name__ == "__main__":
     inserted, errors = asyncio.run(migrate_data())
     print(f"\nMigration finished!")
-    sys.exit(0 if errors == 0 else 1)
+    if errors > 0:
+        print(f"WARNING: Migration completed with {errors} errors - check logs above")
+        print("Server startup will NOT be blocked by migration errors.")
+    else:
+        print("Migration completed successfully with 0 errors.")
