@@ -10,7 +10,7 @@ from typing import Optional
 from app.api.deps import get_db, get_current_user_optional, get_client_ip
 from app.schemas.search import SearchRequest, SearchResponse, SearchResult
 from app.schemas.provider import ProviderPublicResponse
-from app.services.search_service import search_providers, check_search_quota
+from app.services.search_service import search_providers, check_search_quota, increment_search_quota
 from app.services.file_service import generate_upload_url
 from app.models.user import User
 from app.models.provider import Provider
@@ -87,6 +87,18 @@ async def search_query(
         result_count = len(results)
         logger.info(f"[SEARCH] Search completed: {result_count} results found")
 
+        # Increment quota AFTER successful search
+        try:
+            await increment_search_quota(
+                db,
+                user_id=user_id,
+                ip_address=ip
+            )
+            logger.info(f"[SEARCH] Quota incremented for user_id={user_id}, ip={ip}")
+        except Exception as e:
+            # Non-fatal: log the error but don't block results from being returned
+            logger.error(f"[SEARCH] Failed to increment quota: {str(e)}", exc_info=True)
+
         # Clear last error on success
         _last_search_error = {"error": None, "timestamp": None, "query": data.query}
 
@@ -97,7 +109,7 @@ async def search_query(
                 explanation=r.explanation
             ) for r in results[:5]],
             total_matches=len(results),
-            search_quota_remaining=remaining - 1 if remaining > 0 else 0
+            search_quota_remaining=max(0, remaining - 1)
         )
 
     except HTTPException:
