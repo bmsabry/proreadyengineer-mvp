@@ -165,6 +165,40 @@ def _expand_keywords(keywords):
             result.append(kl)
     return result
 
+# Engineering keyword → specialty mapping for fallback inference
+_KEYWORD_SPECIALTY_MAP = [
+    (['gas turbine', 'combustion', 'turbomachinery', 'turbofan', 'jet engine', 'compressor turbine'], 'Gas Turbine / Thermal Engineering'),
+    (['cfd', 'computational fluid', 'fluent', 'openfoam', 'star ccm', 'flow simulation', 'cfx'], 'Computational Fluid Dynamics'),
+    (['fea', 'finite element', 'structural analysis', 'stress analysis', 'ansys', 'abaqus', 'nastran'], 'Structural / FEA Engineering'),
+    (['thermal', 'heat transfer', 'thermodynamics', 'heat exchanger', 'cooling', 'thermal fluid'], 'Thermal/Fluids Engineering'),
+    (['aerospace', 'propulsion', 'rocket', 'missile', 'aircraft', 'satellite'], 'Aerospace Engineering'),
+    (['fatigue', 'fracture', 'damage tolerance', 'crack propagation', 'life prediction'], 'Structural Fatigue Analysis'),
+    (['pressure vessel', 'asme', 'boiler', 'vessel design', 'api 660', 'tema'], 'Pressure Vessel / Process Engineering'),
+    (['vibration', 'modal analysis', 'dynamics', 'resonance', 'acoustic', 'noise'], 'Vibration / Dynamics Engineering'),
+    (['machine learning', 'ai', 'data analytics', 'physics informed', 'neural network'], 'Engineering AI / Data Analytics'),
+    (['controls', 'control systems', 'pid', 'automation', 'scada', 'plc'], 'Controls Engineering'),
+    (['piping', 'pipeline', 'pipe stress', 'flow assurance'], 'Piping / Pipeline Engineering'),
+    (['failure analysis', 'root cause', 'forensic', 'corrosion', 'metallurgy'], 'Failure Analysis'),
+    (['electrical', 'power systems', 'circuit', 'pcb', 'embedded'], 'Electrical Engineering'),
+    (['civil', 'structural', 'construction', 'geotechnical', 'foundation'], 'Civil / Structural Engineering'),
+    (['manufacturing', 'machining', 'casting', 'forging', 'welding', 'cnc'], 'Manufacturing Engineering'),
+]
+
+
+def _infer_specialty_from_keywords(keywords: List[str]) -> str:
+    """Infer engineering specialty from keywords when LLM returns empty specialty."""
+    if not keywords:
+        return ''
+    kws_text = ' '.join(k.lower() for k in keywords)
+    best_match = ''
+    best_hits = 0
+    for specialty_keywords, specialty_name in _KEYWORD_SPECIALTY_MAP:
+        hits = sum(1 for sk in specialty_keywords if sk in kws_text)
+        if hits > best_hits:
+            best_hits = hits
+            best_match = specialty_name
+    return best_match if best_hits > 0 else 
+
 
 
 def _simple_keywords(query: str) -> List[str]:
@@ -185,7 +219,7 @@ async def extract_structured_intent(
     """Step 2: LLM structured intent. Falls back to keywords on any failure."""
     if not _has_api_key():
         logger.info('[INTENT] No API key - using keyword extraction')
-        return {**_DEFAULT_INTENT, 'inferred_keywords': _simple_keywords(query)}
+        _kws = _simple_keywords(query); return {**_DEFAULT_INTENT, 'inferred_keywords': _kws, 'inferred_specialty': _infer_specialty_from_keywords(_expand_keywords(_kws) or _kws)}
 
     norm = _normalize_query(query)
     combined = norm
@@ -230,6 +264,11 @@ async def extract_structured_intent(
         intent = json.loads(raw)
         for k, v in _DEFAULT_INTENT.items():
             intent.setdefault(k, v)
+        # Post-process: infer specialty from keywords if LLM returned empty
+        if not intent.get('inferred_specialty') and intent.get('inferred_keywords'):
+            inferred = _infer_specialty_from_keywords(intent['inferred_keywords'])
+            if inferred:
+                intent['inferred_specialty'] = inferred
         logger.info(
             '[INTENT] specialty=%s kw=%s',
             str(intent.get('inferred_specialty', ''))[:60],
@@ -241,7 +280,7 @@ async def extract_structured_intent(
     except Exception as exc:
         logger.warning(f'[INTENT] LLM error ({exc}) - using keyword fallback')
 
-    return {**_DEFAULT_INTENT, 'inferred_keywords': _simple_keywords(query)}
+    _kws = _simple_keywords(query); return {**_DEFAULT_INTENT, 'inferred_keywords': _kws, 'inferred_specialty': _infer_specialty_from_keywords(_expand_keywords(_kws) or _kws)}
 
 
 async def generate_embedding(text_input: str) -> List[float]:
@@ -290,8 +329,13 @@ def _specialty_score(provider, intent: Dict[str, Any]) -> float:
     """Specialty Match 0-25 pts."""
     inferred   = _safe_str(intent.get('inferred_specialty', '')).lower()
     cap_needed = [c.lower() for c in _safe_list(intent.get('capabilities_needed', []))]
+    # Fallback: use inferred_keywords as specialty proxy if both are empty
     if not inferred and not cap_needed:
-        return 0.0
+        kw_list = _safe_list(intent.get('inferred_keywords', []))
+        if kw_list:
+            inferred = ' '.join(kw_list[:10]).lower()
+        else:
+            return 0.0
     primary   = _safe_str(getattr(provider, 'primary_specialty', '')).lower()
     secondary = ' '.join(_safe_list(getattr(provider, 'secondary_specialties', []))).lower()
     combined  = primary + ' ' + secondary
