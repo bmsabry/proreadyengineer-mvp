@@ -20,7 +20,21 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from pgvector.sqlalchemy import Vector
+# Conditional Vector import: use pgvector for PostgreSQL, Text for SQLite
+try:
+    from pgvector.sqlalchemy import Vector as _PgVector
+    _VECTOR_TYPE = _PgVector
+except ImportError:
+    from sqlalchemy import Text as _VECTOR_TYPE  # type: ignore
+
+# Runtime check for SQLite
+import os as _os
+_IS_SQLITE = 'sqlite' in _os.environ.get('DATABASE_URL', '').lower()
+
+if _IS_SQLITE:
+    from sqlalchemy import Text as Vector  # type: ignore[assignment]
+else:
+    Vector = _VECTOR_TYPE  # type: ignore[assignment]
 
 from app.models.base import Base
 from app.models.enums import ClaimStatus, MembershipRole, MembershipStatus

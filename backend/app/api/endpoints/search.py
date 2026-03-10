@@ -31,7 +31,7 @@ from app.services.search_service import (
     search_providers,
 )
 
-router = APIRouter()
+router = APIRouter(prefix="/search")
 logger = logging.getLogger(__name__)
 
 # In-memory debug store (lightweight, resets on restart)

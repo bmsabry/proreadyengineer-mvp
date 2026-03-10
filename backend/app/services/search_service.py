@@ -387,14 +387,14 @@ async def increment_search_quota(db, user_id=None, ip_address=None):
 
     if user_id:
         from app.models.user import User
+        from sqlalchemy import update as sa_update
         await db.execute(
-            text("""
-                UPDATE users 
-                SET monthly_search_count = monthly_search_count + 1,
-                    updated_at = NOW()
-                WHERE id = :user_id
-            """),
-            {"user_id": str(user_id)}
+            sa_update(User)
+            .where(User.id == user_id)
+            .values(
+                monthly_search_count=User.monthly_search_count + 1,
+                updated_at=datetime.utcnow()
+            )
         )
         logger.info(f"[QUOTA] Incremented user {user_id} search count")
     elif ip_address:
@@ -449,12 +449,11 @@ async def search_providers(
     logger.info(f"[SEARCH] Starting search: query='{query[:100]}'..., filters={filters}, limit={limit}")
 
     async def keyword_fallback(reason: str, score: float = 50.0) -> List[SearchResultItem]:
-        """Keyword-based fallback search across multiple fields."""
+        """Keyword-based fallback search with per-provider relevance scoring."""
         logger.info(f"[SEARCH FALLBACK] Reason: {reason}")
-        terms = [t for t in query.lower().split() if len(t) > 2]
+        terms = [t.lower() for t in query.lower().split() if len(t) > 2]
         logger.info(f"[SEARCH FALLBACK] Search terms: {terms}")
 
-        # SOFT FILTER: try eng filter first, relax if 0 results
         eng_filter = Provider.is_engineering_service == 1
 
         def _build_kw_stmt(apply_eng: bool):
@@ -465,36 +464,87 @@ async def search_providers(
                 conds.append(Provider.business_description.ilike(f"%{term}%"))
                 conds.append(Provider.primary_specialty.ilike(f"%{term}%"))
                 conds.append(Provider.notable_clients.ilike(f"%{term}%"))
-            q = select(Provider).order_by(Provider.business_evaluation_tier.asc().nullslast()).limit(limit)
-            if conds and apply_eng: return q.where(and_(eng_filter, or_(*conds)))
-            if conds: return q.where(or_(*conds))
-            if apply_eng: return q.where(eng_filter)
+            # Wider candidate pool for Python-side re-ranking
+            q = (select(Provider)
+                 .order_by(Provider.business_evaluation_tier.asc().nullslast())
+                 .limit(limit * 4))
+            if conds and apply_eng:
+                return q.where(and_(eng_filter, or_(*conds)))
+            if conds:
+                return q.where(or_(*conds))
+            if apply_eng:
+                return q.where(eng_filter)
             return q
 
+        def _relevance_score(p: Provider) -> float:
+            """Weighted term-match: name/firm 3x, specialty 2x, desc/caps 1x."""
+            if not terms:
+                return 20.0
+            weighted_hits = 0
+            name_text = ((p.name or "") + " " + (p.firm_name or "")).lower()
+            spec_text  = (p.primary_specialty or "").lower()
+            desc_text  = (p.business_description or "").lower()
+            if p.capabilities:
+                cap_text = (
+                    " ".join(p.capabilities).lower()
+                    if isinstance(p.capabilities, list)
+                    else str(p.capabilities).lower()
+                )
+            else:
+                cap_text = ""
+            for term in terms:
+                if term in name_text:  weighted_hits += 3  # name match
+                if term in spec_text:  weighted_hits += 2  # specialty match
+                if term in desc_text:  weighted_hits += 1  # description match
+                if term in cap_text:   weighted_hits += 1  # capabilities match
+            return min(90.0, 20.0 + weighted_hits * 10)
+
+        # --- First pass: eng-filter + keyword match ---
         result = await db.execute(_build_kw_stmt(True))
         providers = result.scalars().all()
         logger.info(f"[SEARCH FALLBACK] kw eng-filter: {len(providers)} providers")
+
+        # --- Second pass: no eng-filter ---
         if not providers:
             logger.warning("[SEARCH FALLBACK] eng=0, retrying without filter")
             result = await db.execute(_build_kw_stmt(False))
             providers = result.scalars().all()
             logger.info(f"[SEARCH FALLBACK] kw no-filter: {len(providers)} providers")
+
+        # --- Last resort: return top-tier providers ---
         if not providers:
             result = await db.execute(
-                select(Provider).order_by(Provider.business_evaluation_tier.asc().nullslast()).limit(min(limit, 20))
+                select(Provider)
+                .order_by(Provider.business_evaluation_tier.asc().nullslast())
+                .limit(min(limit, 20))
             )
             providers = result.scalars().all()
+            logger.info(f"[SEARCH FALLBACK] tier-only fallback: {len(providers)} providers")
+            return [
+                SearchResultItem(
+                    provider=p,
+                    score=20.0,
+                    explanation=f"{reason} (no keyword match – tier fallback)",
+                )
+                for p in providers[:5]
+            ]
 
-        return [
-            SearchResultItem(
+        # --- Score every candidate, sort descending ---
+        scored: List[SearchResultItem] = []
+        for p in providers:
+            s = _relevance_score(p)
+            scored.append(SearchResultItem(
                 provider=p,
-                score=score,
-                explanation=f"{reason}: {query[:60]}"
-            )
-            for p in providers
-        ]
+                score=s,
+                explanation=f"{reason} (keyword relevance: {s:.0f}/90)",
+            ))
 
-    # Check if API key is configured
+        matching = [r for r in scored if r.score > 20.0] or scored
+        matching.sort(key=lambda x: x.score, reverse=True)
+        top_scores = [r.score for r in matching[:5]]
+        logger.info(f"[SEARCH FALLBACK] top-5 relevance scores: {top_scores}")
+        return matching[:5]
+
     if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY in ("dummy-key", "", None):
         logger.info("[SEARCH] No AI key configured, using keyword fallback")
         return await keyword_fallback("Keyword search (no AI key configured)", score=50.0)
