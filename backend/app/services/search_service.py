@@ -112,6 +112,61 @@ _DEFAULT_INTENT: Dict[str, Any] = {
 }
 
 
+# --- Engineering synonym/expansion map ----------------------------------
+_SYNONYMS = {
+    "cfd":              ["computational fluid dynamics", "fluid simulation", "flow simulation",
+                         "fluent", "openfoam", "star ccm", "cfx", "flow analysis"],
+    "combustor":        ["combustion", "burner", "combustion chamber", "gas turbine combustion",
+                         "flame", "ignition", "combustor design", "annular combustor"],
+    "combustion":       ["combustor", "burner", "combustion chamber", "ignition", "flame",
+                         "gas turbine combustion"],
+    "gas turbine":      ["turbomachinery", "combustion turbine", "turbine engine",
+                         "jet engine", "turbofan", "gas turbine combustion", "compressor"],
+    "turbine":          ["turbomachinery", "gas turbine", "steam turbine", "compressor"],
+    "fea":              ["finite element", "finite element analysis", "structural analysis",
+                         "ansys", "abaqus", "nastran", "stress analysis"],
+    "structural":       ["fea", "finite element", "stress analysis", "fatigue", "fracture"],
+    "thermal":          ["heat transfer", "thermodynamics", "thermal analysis", "heat exchanger",
+                         "cooling", "thermal fluid", "hvac"],
+    "vibration":        ["modal analysis", "dynamics", "resonance", "acoustic", "noise"],
+    "aerodynamics":     ["cfd", "fluid dynamics", "airflow", "drag", "lift", "wind tunnel"],
+    "fatigue":          ["stress analysis", "fracture mechanics", "crack propagation",
+                         "damage tolerance", "life prediction"],
+    "failure analysis": ["root cause", "forensic engineering", "fracture", "corrosion"],
+    "pressure vessel":  ["asme", "vessel design", "boiler", "code stamping"],
+    "piping":           ["pipeline", "pipe stress", "flow assurance"],
+    "machine learning": ["ai", "artificial intelligence", "deep learning", "neural network",
+                         "data analytics", "physics informed"],
+    "ai":               ["machine learning", "deep learning", "data analytics", "physics informed"],
+    "nde":              ["non destructive", "inspection", "testing", "ultrasonic", "radiography"],
+    "controls":         ["control systems", "pid", "plc", "scada", "automation"],
+    "acoustics":        ["vibration", "noise", "sound"],
+    "hvac":             ["mechanical", "thermal", "heat transfer", "cooling", "ventilation"],
+}
+
+
+def _expand_keywords(keywords):
+    """Expand keywords using synonym map, returning deduplicated extended list."""
+    expanded = list(keywords)
+    for kw in keywords:
+        kl = kw.lower()
+        if kl in _SYNONYMS:
+            expanded.extend(_SYNONYMS[kl])
+        for syn_key, syn_vals in _SYNONYMS.items():
+            if syn_key != kl and (syn_key in kl or kl in syn_key):
+                expanded.extend(syn_vals)
+                expanded.append(syn_key)
+    seen = set()
+    result = []
+    for k in expanded:
+        kl = k.lower().strip()
+        if kl and kl not in seen:
+            seen.add(kl)
+            result.append(kl)
+    return result
+
+
+
 def _simple_keywords(query: str) -> List[str]:
     STOP = {
         'the', 'a', 'an', 'and', 'or', 'for', 'of', 'in', 'on', 'at', 'to', 'with',
@@ -276,13 +331,17 @@ def _capabilities_score_keyword(provider, intent: Dict[str, Any]) -> float:
     desc_text = _safe_str(getattr(provider, 'business_description', '')).lower()
     cap_text  = ' '.join(_safe_list(getattr(provider, 'capabilities', []))).lower()
     spec_text = ' '.join(_safe_list(getattr(provider, 'specialties', []))).lower()
+    team_text = str(getattr(provider, "team_members", "") or "").lower()
+    proj_text = str(getattr(provider, "proven_experience_notable_projects", "") or "").lower()
     raw = 0.0
     for kw in keywords:
         if kw in name_text: raw += 5.0
         if kw in cap_text:  raw += 3.0
         if kw in spec_text: raw += 3.0
-        if kw in desc_text: raw += 2.0
-    max_raw = len(keywords) * 13.0
+        if kw in desc_text:  raw += 2.0
+        if kw in team_text:  raw += 4.0  # team member expertise
+        if kw in proj_text:  raw += 2.0
+    max_raw = len(keywords) * 21.0  # 5+3+3+2+4+2+2
     if max_raw == 0:
         return 10.0
     return min(50.0, (raw / max_raw) * 50.0)
@@ -443,32 +502,137 @@ async def increment_search_quota(
         await db.rollback()
 
 
+async def _keyword_candidate_query(
+    db,
+    keywords,
+    base_filters,
+    limit,
+):
+    """Build keyword ILIKE SQL across ALL text fields including JSON arrays.
+    Returns providers sorted by number of keyword-field matches.
+    """
+    from sqlalchemy import text as sa_text
+
+    if not keywords:
+        return []
+
+    # Use top keywords to avoid SQL explosion (synonyms can make list long)
+    top_kws = keywords[:15]
+
+    # Build WHERE conditions: any keyword in any searchable field
+    or_conditions = []
+    for kw in top_kws:
+        kw_safe = kw.replace("'", "''")  # SQL-safe single quote escape
+        for field in [
+            "LOWER(COALESCE(p.name, ''))",
+            "LOWER(COALESCE(p.firm_name, ''))",
+            "LOWER(COALESCE(p.business_description, ''))",
+            "LOWER(COALESCE(p.primary_specialty, ''))",
+            "LOWER(COALESCE(CAST(p.capabilities AS TEXT), ''))",
+            "LOWER(COALESCE(CAST(p.specialties AS TEXT), ''))",
+            "LOWER(COALESCE(CAST(p.secondary_specialties AS TEXT), ''))",
+            "LOWER(COALESCE(CAST(p.software_tools AS TEXT), ''))",
+            "LOWER(COALESCE(CAST(p.team_members AS TEXT), ''))",
+            "LOWER(COALESCE(p.notable_clients, ''))",
+            "LOWER(COALESCE(p.proven_experience_notable_projects, ''))",
+        ]:
+            or_conditions.append(f"{field} LIKE '%{kw_safe}%'")
+
+    # Build relevance score: count how many keyword+field combos match
+    score_cases = []
+    for kw in top_kws[:6]:  # Limit score cases to top 6 for SQL clarity
+        kw_safe = kw.replace("'", "''")
+        for field in [
+            "LOWER(COALESCE(p.name, ''))",
+            "LOWER(COALESCE(p.business_description, ''))",
+            "LOWER(COALESCE(CAST(p.capabilities AS TEXT), ''))",
+            "LOWER(COALESCE(CAST(p.team_members AS TEXT), ''))",
+            "LOWER(COALESCE(p.primary_specialty, ''))",
+        ]:
+            score_cases.append(
+                f"CASE WHEN {field} LIKE '%{kw_safe}%' THEN 1 ELSE 0 END"
+            )
+
+    relevance_expr = " + ".join(score_cases) if score_cases else "0"
+    where_clause = ""
+    all_conditions = list(base_filters)
+    all_conditions.append("(" + " OR ".join(or_conditions) + ")")
+    where_clause = "WHERE " + " AND ".join(all_conditions)
+
+    sql_str = f"""
+        SELECT p.*, ({relevance_expr}) AS relevance_score
+        FROM providers p
+        {where_clause}
+        ORDER BY relevance_score DESC
+        LIMIT {limit}
+    """
+
+    try:
+        result = await db.execute(sa_text(sql_str))
+        rows = result.mappings().all()
+        return rows
+    except Exception as exc:
+        logger.warning(f'[SEARCH] keyword SQL failed ({exc}), trying simplified query')
+        # Simplified fallback: search only business_description and name
+        simple_conditions = list(base_filters)
+        simple_or = []
+        for kw in top_kws[:5]:
+            kw_safe = kw.replace("'", "''")
+            simple_or.append(f"LOWER(COALESCE(p.business_description, '')) LIKE '%{kw_safe}%'")
+            simple_or.append(f"LOWER(COALESCE(p.name, '')) LIKE '%{kw_safe}%'")
+            simple_or.append(f"LOWER(COALESCE(CAST(p.capabilities AS TEXT), '')) LIKE '%{kw_safe}%'")
+        simple_conditions.append("(" + " OR ".join(simple_or) + ")")
+        simple_where = "WHERE " + " AND ".join(simple_conditions)
+        simple_sql = sa_text(f"SELECT p.* FROM providers p {simple_where} LIMIT {limit}")
+        result = await db.execute(simple_sql)
+        return result.mappings().all()
+
+
+async def _all_providers_by_tier(db, base_filters, limit):
+    """Fallback: return all providers ordered by tier quality."""
+    from sqlalchemy import text as sa_text
+    where_clause = ("WHERE " + " AND ".join(base_filters)) if base_filters else ""
+    sql = sa_text(f"""
+        SELECT p.* FROM providers p
+        {where_clause}
+        ORDER BY
+            CASE p.business_evaluation_tier
+                WHEN 'A' THEN 1 WHEN 'B' THEN 2 WHEN 'C' THEN 3
+                WHEN 'D' THEN 4 WHEN 'E' THEN 5 ELSE 6
+            END ASC
+        LIMIT {limit}
+    """)
+    result = await db.execute(sql)
+    return result.mappings().all()
+
+
 async def _fetch_candidates(
-    db: AsyncSession,
-    intent: Dict[str, Any],
-    filters: dict,
-    query_vec: Optional[List[float]],
-    limit: int = 50,
-) -> tuple:
-    """Steps 3, 5: hard filters + pgvector pre-filter. Returns (rows, used_vector, fallback_reason)."""
-    from sqlalchemy import text
-    fallback_reason: Optional[str] = None
+    db,
+    intent,
+    filters,
+    query_vec,
+    limit = 50,
+):
+    """Steps 3+5: hard filters + pgvector or keyword pre-filter.
+    Returns (rows, used_vector, fallback_reason).
+
+    KEY FIX: When no embeddings, uses full keyword SQL search across ALL text
+    fields (including JSON arrays cast to text) so providers deep in the
+    database are found by relevance, not just the first 50 rows by ID order.
+    """
+    from sqlalchemy import text as sa_text
+    import json as _json
+    fallback_reason = None
 
     base_filters = []
     if intent.get('requires_engineering', 1) == 1:
         base_filters.append('is_engineering_service = 1')
 
-    software_mentioned = [s.lower() for s in _safe_list(intent.get('software_mentioned', []))]
-    software_filter_active = bool(software_mentioned)
-
-    async def _run_query(extra_where: str = '', vector_col: str = '') -> list:
-        where_parts = list(base_filters)
-        if extra_where:
-            where_parts.append(extra_where)
-        where_clause = ('WHERE ' + ' AND '.join(where_parts)) if where_parts else ''
-
-        if vector_col:
-            sql = text(f"""
+    # ── Vector path ──────────────────────────────────────────────────────────
+    if query_vec:
+        try:
+            where_clause = ('WHERE ' + ' AND '.join(base_filters)) if base_filters else ''
+            sql = sa_text(f"""
                 SELECT p.*,
                        1 - (p.embedding <=> CAST(:vec AS vector)) AS cosine_similarity
                 FROM providers p
@@ -476,34 +640,48 @@ async def _fetch_candidates(
                 ORDER BY cosine_similarity DESC
                 LIMIT :lim
             """)
-            import json as _json
-            result = await db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': limit})
-        else:
-            sql = text(f"SELECT p.* FROM providers p {where_clause} LIMIT :lim")
-            result = await db.execute(sql, {'lim': limit})
-        return result.mappings().all()
-
-    used_vector = False
-    rows = []
-
-    if query_vec:
-        try:
-            rows = await _run_query(vector_col='embedding')
-            used_vector = True
-            logger.info(f'[SEARCH] pgvector pre-filter returned {len(rows)} candidates')
+            result = await db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': max(limit, 100)})
+            rows = result.mappings().all()
+            logger.info(f'[SEARCH] pgvector returned {len(rows)} candidates')
+            return rows, True, None
         except Exception as exc:
-            logger.warning(f'[SEARCH] pgvector failed ({exc}), falling back to text query')
-            used_vector = False
+            logger.warning(f'[SEARCH] pgvector failed ({exc}), falling back to keyword SQL')
+            fallback_reason = f'pgvector_error: {type(exc).__name__}'
 
-    if not used_vector:
+    # ── Keyword SQL path (no embeddings or pgvector failed) ───────────────────
+    # Extract + expand keywords from intent
+    raw_kws = [
+        *_safe_list(intent.get('inferred_keywords', [])),
+        *_safe_list(intent.get('capabilities_needed', [])),
+    ]
+    spec = intent.get('inferred_specialty', '')
+    if spec:
+        raw_kws.append(spec)
+    if not raw_kws:
+        raw_kws = _simple_keywords(filters.get('raw_query', ''))
+
+    expanded = _expand_keywords(raw_kws) if raw_kws else []
+    logger.info(f'[SEARCH] keyword search with {len(expanded)} terms (raw: {raw_kws[:3]})')
+
+    try:
+        rows = await _keyword_candidate_query(db, expanded, base_filters, max(limit, 150))
+        logger.info(f'[SEARCH] keyword SQL returned {len(rows)} candidates')
+
+        if not rows:
+            logger.warning('[SEARCH] No keyword matches, returning providers by tier')
+            fallback_reason = fallback_reason or 'no_keyword_match'
+            rows = await _all_providers_by_tier(db, base_filters, max(limit, 100))
+
+        return rows, False, fallback_reason
+    except Exception as exc:
+        logger.error(f'[SEARCH] Keyword query failed: {exc}')
         try:
-            rows = await _run_query()
-            logger.info(f'[SEARCH] text/filter query returned {len(rows)} candidates')
-        except Exception as exc:
-            logger.error(f'[SEARCH] Candidate query failed: {exc}')
-            rows = []
+            rows = await _all_providers_by_tier(db, base_filters, max(limit, 50))
+            return rows, False, f'keyword_error:{type(exc).__name__}'
+        except Exception as exc2:
+            logger.error(f'[SEARCH] All fallbacks failed: {exc2}')
+            return [], False, 'query_failed'
 
-    return rows, used_vector, fallback_reason
 
 
 class _ProviderProxy:
