@@ -92,7 +92,7 @@ async def search_query(
 
         return SearchResponse(
             results=[SearchResult(
-                provider=ProviderPublicResponse.from_orm(r.provider),
+                provider=ProviderPublicResponse.model_validate(r.provider),
                 score=r.score,
                 explanation=r.explanation
             ) for r in results[:5]],
@@ -217,7 +217,7 @@ async def get_provider_public(
     if not provider:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider not found")
 
-    return ProviderPublicResponse.from_orm(provider)
+    return ProviderPublicResponse.model_validate(provider)
 
 
 @router.post("/test-quota")

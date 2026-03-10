@@ -46,17 +46,39 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # ---------------------------------------------------------------------------
     # CORS middleware
-    origins = [
-        "http://localhost:3000",  # Next.js dev server
+    # Development always allows localhost. Production allows known origins plus
+    # any Render.com preview / deploy URLs.
+    # ---------------------------------------------------------------------------
+    dev_origins = [
+        "http://localhost:3000",
         "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
     ]
+
+    prod_origins = [
+        "https://proreadyengineer.com",
+        "https://www.proreadyengineer.com",
+        # Render.com deployment URLs - add your actual Render URLs here
+        "https://proreadyengineer-frontend.onrender.com",
+        "https://proreadyengineer-backend.onrender.com",
+    ]
+
+    # Allow additional origins from env var (comma-separated)
+    extra_origins_raw = getattr(settings, "EXTRA_CORS_ORIGINS", "") or ""
+    extra_origins = [o.strip() for o in extra_origins_raw.split(",") if o.strip()]
+
     if settings.is_production:
-        origins = ["https://proreadyengineer.com", "https://www.proreadyengineer.com"]
+        origins = prod_origins + extra_origins
+    else:
+        origins = dev_origins + extra_origins
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
+        allow_origin_regex=r"https://.*\.onrender\.com",  # all Render preview URLs
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -65,90 +87,69 @@ def create_application() -> FastAPI:
     # Gzip compression
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-    # =============================================================================
+    # ===========================================================================
     # API Routers - All routes under /api/v1/ prefix
-    # =============================================================================
+    # ===========================================================================
 
-    # Auth: 8 routes
-    # - POST /auth/register, /auth/login, /auth/refresh
-    # - POST /auth/logout, /auth/logout-all
-    # - POST /auth/password/forgot, /auth/password/reset
-    # - GET /auth/me
+    # Auth routes: /api/v1/auth/*
     app.include_router(
         auth_router,
         prefix="/api/v1/auth",
         tags=["Authentication"],
     )
 
-    # Search & Discovery: 5 routes
-    # - POST /search/query, /search/upload/initiate, /search/upload/complete
-    # - GET /providers/{id}/public
-    # - POST /providers/claim-search
+    # Search & Discovery routes: /api/v1/search/*, /api/v1/providers/*
     app.include_router(
         search_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
         tags=["Search & Discovery"],
     )
 
-    # Providers: 10 routes
-    # - POST /provider-claims, GET /provider-claims/me
-    # - GET /admin/provider-claims, POST /admin/provider-claims/{id}/approve|reject
-    # - GET /provider/profile, POST /provider/profile, PATCH /provider/profile
-    # - POST /provider/profile/request-rank-up, GET /provider/memberships
+    # Provider management routes: /api/v1/provider/*, /api/v1/provider-claims/*
     app.include_router(
         providers_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
+        tags=["Providers"],
     )
 
-    # RFQs: 13 routes
-    # Customer: POST /rfqs, GET /rfqs/{id}, POST /rfqs/{id}/files/initiate|complete
-    #           POST /rfqs/{id}/nda/checkout, GET /rfqs/{id}/status, POST /rfqs/{id}/submit
-    # Provider: GET /provider/rfqs/teasers, GET /provider/rfqs/{id}/teaser
-    #           POST /provider/rfqs/{id}/unlock/checkout, GET /provider/rfqs/{id}/unlock/status
-    #           GET /provider/rfqs/{id}/files, POST /provider/rfqs/{id}/quote
+    # RFQ routes: /api/v1/rfqs/*, /api/v1/provider/rfqs/*
     app.include_router(
         rfqs_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
+        tags=["RFQs"],
     )
 
-    # Quotes: 4 routes
-    # - GET /customer/rfqs/{id}/quotes, POST /customer/quotes/{id}/accept
-    # - POST /provider/quotes/{id}/withdraw, GET /provider/quotes/me
+    # Quote routes: /api/v1/customer/*, /api/v1/provider/quotes/*
     app.include_router(
         quotes_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
+        tags=["Quotes"],
     )
 
-    # Payments & Billing: 4 routes
-    # - GET /billing/portal
-    # - POST /webhooks/stripe, /webhooks/paypal, /webhooks/signrequest
+    # Payment & Webhook routes: /api/v1/billing/*, /api/v1/webhooks/*
     app.include_router(
         payments_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
+        tags=["Payments & Billing"],
     )
 
-    # Advertising: 7 routes
-    # - GET /ads/software-providers, GET /ads/featured-firms
-    # - POST /ads/checkout, GET /advertiser/ads/me
-    # - POST /advertiser/ads/{id}/asset/initiate|complete, PATCH /advertiser/ads/{id}
+    # Advertising routes: /api/v1/ads/*, /api/v1/advertiser/*
     app.include_router(
         ads_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
+        tags=["Advertising"],
     )
 
-    # Admin: 12 routes
-    # - GET /admin/rfqs, GET /admin/rfqs/{id}, POST /admin/rfqs/{id}/override-status
-    # - GET /admin/payments, GET /admin/webhooks, POST /admin/webhooks/{id}/replay
-    # - GET /admin/tier-requests, POST /admin/tier-requests/{id}/approve|reject
-    # - GET /admin/ads, POST /admin/ads/{id}/pause, POST /admin/users/{id}/suspend
+    # Admin routes: /api/v1/admin/*
     app.include_router(
         admin_router,
-        prefix="/api/v1/auth",
+        prefix="/api/v1",
+        tags=["Admin"],
     )
 
-    # =============================================================================
+    # ===========================================================================
     # Health & Root Endpoints
-    # =============================================================================
+    # ===========================================================================
 
     @app.get("/health", tags=["health"])
     async def health_check():
@@ -164,7 +165,6 @@ def create_application() -> FastAPI:
             "environment": settings.ENVIRONMENT,
             "docs": "/docs" if not settings.is_production else None,
             "api_version": "v1",
-            "total_endpoints": 63,
         }
 
     return app
