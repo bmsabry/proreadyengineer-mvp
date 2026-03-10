@@ -172,11 +172,14 @@ async def run(args: argparse.Namespace) -> None:
                     p.primary_specialty or "",
                     p.business_description or "",
                 ]
-                if p.capabilities:
-                    if isinstance(p.capabilities, list):
-                        parts.append(" ".join(p.capabilities))
-                    else:
-                        parts.append(str(p.capabilities))
+                # Include specialties, capabilities, and software_tools in embedding
+                # This enables semantic matching on all four dimensions
+                for field_val in [p.specialties, p.capabilities, p.software_tools]:
+                    if field_val:
+                        if isinstance(field_val, list):
+                            parts.append(" ".join(str(x) for x in field_val if x))
+                        else:
+                            parts.append(str(field_val))
                 combined = " ".join(filter(None, parts)).strip()
                 if not combined:
                     log.warning("Provider " + str(p.id) + " has no text content, skipping.")
@@ -230,7 +233,7 @@ async def run(args: argparse.Namespace) -> None:
                             embedding=embedding,
                             embedding_model=args.model,
                             embedding_generated_at=datetime.utcnow(),
-                            embedding_version="1",
+                            embedding_version="2",  # v2: includes specialties, capabilities, software_tools
                         )
                     )
                 except Exception as exc:
