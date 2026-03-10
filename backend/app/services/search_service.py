@@ -197,7 +197,7 @@ def _infer_specialty_from_keywords(keywords: List[str]) -> str:
         if hits > best_hits:
             best_hits = hits
             best_match = specialty_name
-    return best_match if best_hits > 0 else 
+    return best_match if best_hits > 0 else '' 
 
 
 
