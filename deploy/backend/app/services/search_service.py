@@ -1,641 +1,603 @@
-"""Search service for provider matching using AI embeddings with comprehensive debugging."""
+"""Search service for ProReadyEngineer.
 
+Spec pipeline (Section 11):
+ 1. Normalize input
+ 2. LLM structured intent extraction
+ 3. Hard filters
+ 4. Embed query
+ 5. pgvector cosine pre-filter top-50
+ 6. 100-point score: Specialty(25) + Capabilities(50) + Tier(5-25) + SoftwareBonus(0-10)
+ 7. Return top-5
+ 8. Record diagnostics
+"""
 import json
 import logging
-from typing import List, Optional, Dict, Any, Tuple
+import math
+import re
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, text
 from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.models.provider import Provider
-from app.models.search import SearchRequest
-from app.schemas.search import SearchQuery, SearchResult, ProviderMatch
 
 logger = logging.getLogger(__name__)
 
 
-class SearchService:
-    """Service for AI-powered provider search with debug logging."""
+@dataclass
+class SearchResultItem:
+    """Returned by search_providers."""
+    provider: Any
+    score: float
+    explanation: str
+    specialty_score: float = 0.0
+    capabilities_score: float = 0.0
+    tier_score: float = 0.0
+    software_bonus: float = 0.0
+    similarity: float = 0.0
+    fallback_reason: Optional[str] = None
 
-    def __init__(self):
-        """Initialize OpenAI-compatible client."""
-        client_kwargs = {
-            "api_key": settings.OPENAI_API_KEY or "dummy-key",
-        }
 
-        # Support custom base URL (e.g., DeepInfra, other providers)
-        if settings.OPENAI_API_BASE:
-            client_kwargs["base_url"] = settings.OPENAI_API_BASE
+def _has_api_key() -> bool:
+    key = getattr(settings, 'OPENAI_API_KEY', '') or ''
+    return bool(key) and key not in ('dummy-key', '')
 
-        self.client = AsyncOpenAI(**client_kwargs)
-        self.embedding_model = settings.OPENAI_EMBEDDING_MODEL
 
-        # DeepInfra requires BAAI/bge-large-en-v1.5 (1024-dim), not text-embedding-3-small (OpenAI-only)
-        if settings.OPENAI_API_BASE and 'deepinfra' in settings.OPENAI_API_BASE.lower():
-            if self.embedding_model in ('text-embedding-3-small', 'text-embedding-ada-002', 'text-embedding-3-large'):
-                self.embedding_model = 'BAAI/bge-large-en-v1.5'
-                logger.info('[SEARCH SERVICE] DeepInfra detected: overriding embedding model to BAAI/bge-large-en-v1.5')
-        self.llm_model = settings.OPENAI_LLM_MODEL
+def _get_client() -> AsyncOpenAI:
+    kwargs: Dict[str, Any] = {'api_key': getattr(settings, 'OPENAI_API_KEY', 'dummy-key') or 'dummy-key'}
+    base = getattr(settings, 'OPENAI_API_BASE', '') or ''
+    if base:
+        kwargs['base_url'] = base
+    return AsyncOpenAI(**kwargs)
 
-        logger.info(f"[SEARCH SERVICE] Initialized with embedding_model={self.embedding_model}, llm_model={self.llm_model}")
-        logger.info(f"[SEARCH SERVICE] API Base: {settings.OPENAI_API_BASE or 'default (OpenAI)'}")
-        logger.info(f"[SEARCH SERVICE] API Key configured: {bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != 'dummy-key')}")
 
-    async def extract_search_intent(
-        self, query_text: str, document_text: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Use LLM to extract structured intent from search query."""
-        logger.info(f"[SEARCH INTENT] Starting extraction for query: '{query_text[:100]}...'")
+def _embedding_model() -> str:
+    model = getattr(settings, 'OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small') or 'text-embedding-3-small'
+    base = getattr(settings, 'OPENAI_API_BASE', '') or ''
+    openai_only = {'text-embedding-3-small', 'text-embedding-ada-002', 'text-embedding-3-large'}
+    if 'deepinfra' in base.lower() and model in openai_only:
+        return 'BAAI/bge-large-en-v1.5'
+    return model
 
-        combined_text = query_text
-        if document_text:
-            combined_text += f"\n\nDocument content:\n{document_text[:4000]}"
-            logger.info(f"[SEARCH INTENT] Including document text ({len(document_text)} chars)")
 
-        prompt = f"""
-        Analyze this engineering services search query and extract structured information.
+def _llm_model() -> str:
+    return getattr(settings, 'OPENAI_LLM_MODEL', None) or 'moonshotai/kimi-k2.5'
 
-        Query: {combined_text}
 
-        Return ONLY a JSON object with these fields:
-        - requires_engineering: 1 if engineering services needed, 0 otherwise
-        - requires_mechanical: 1 if mechanical engineering focus, 0 otherwise
-        - requires_software: 1 if software/simulation tools mentioned, 0 otherwise
-        - software_mentioned: list of software tools mentioned (e.g., ["ANSYS", "SolidWorks"])
-        - inferred_specialty: primary engineering specialty inferred (string)
-        - capabilities_needed: list of required capabilities
-        - tollgate_phases: list of tollgate phases mentioned (TG0, TG1, TG3, TG4, TG6)
-
-        Return valid JSON only, no markdown formatting.
-        """
-
+def _safe_list(val: Any) -> List[str]:
+    if val is None:
+        return []
+    if isinstance(val, list):
+        return [str(v) for v in val]
+    if isinstance(val, str):
         try:
-            logger.info(f"[SEARCH INTENT] Calling LLM API (model={self.llm_model})")
-            response = await self.client.chat.completions.create(
-                model=self.llm_model,
-                messages=[
-                    {"role": "system", "content": "You are an engineering services analyzer. Return only valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=500
-            )
-
-            content = response.choices[0].message.content.strip()
-            logger.info(f"[SEARCH INTENT] LLM response received: {len(content)} chars")
-
-            # Clean up markdown if present
-            if content.startswith("```json"):
-                content = content[7:]
-            if content.startswith("```"):
-                content = content[3:]
-            if content.endswith("```"):
-                content = content[:-3]
-            content = content.strip()
-
-            intent = json.loads(content)
-            logger.info(f"[SEARCH INTENT] Parsed intent: {json.dumps(intent)}")
-            return intent
-
-        except json.JSONDecodeError as e:
-            logger.error(f"[SEARCH INTENT] Failed to parse LLM response as JSON: {str(e)}")
-            logger.error(f"[SEARCH INTENT] Raw response: {content[:500]}")
-            # Return default intent on parse failure
-            return {
-                "requires_engineering": 1,
-                "requires_mechanical": 0,
-                "requires_software": 0,
-                "software_mentioned": [],
-                "inferred_specialty": "",
-                "capabilities_needed": [],
-                "tollgate_phases": []
-            }
-        except Exception as e:
-            logger.error(f"[SEARCH INTENT] LLM API error: {str(e)}", exc_info=True)
-            raise
-
-    async def generate_embedding(self, text: str) -> List[float]:
-        """Generate vector embedding for text."""
-        logger.info(f"[EMBEDDING] Generating embedding for text ({len(text)} chars, model={self.embedding_model})")
-
-        if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY == "dummy-key":
-            logger.error("[EMBEDDING] No API key configured!")
-            raise ValueError("OpenAI API key not configured")
-
-        try:
-            response = await self.client.embeddings.create(
-                model=self.embedding_model,
-                input=text[:8000]  # Limit input size
-            )
-            embedding = response.data[0].embedding
-            logger.info(f"[EMBEDDING] Generated embedding with {len(embedding)} dimensions")
-            return embedding
-        except Exception as e:
-            logger.error(f"[EMBEDDING] Failed to generate embedding: {str(e)}", exc_info=True)
-            raise
-
-    async def search_providers(
-        self,
-        db: AsyncSession,
-        query: str,
-        filters: Optional[Dict[str, Any]] = None,
-        limit: int = 50
-    ) -> List[Any]:
-        """Execute AI-powered provider search with detailed logging."""
-        logger.info(f"[SEARCH] Starting search: query='{query[:100]}...', filters={filters}, limit={limit}")
-
-        filters = filters or {}
-
-        # Extract structured intent
-        try:
-            intent = await self.extract_search_intent(query)
-            logger.info(f"[SEARCH] Intent extracted successfully")
-        except Exception as e:
-            logger.error(f"[SEARCH] Intent extraction failed: {str(e)}")
-            intent = {"requires_engineering": 1, "requires_mechanical": 0, "inferred_specialty": "", "software_mentioned": []}
-
-        # Generate query embedding
-        try:
-            query_embedding = await self.generate_embedding(query)
-            logger.info(f"[SEARCH] Query embedding generated")
-        except Exception as e:
-            logger.error(f"[SEARCH] Embedding generation failed: {str(e)}")
-            return []
-
-        # Build and execute database query
-        embedding_str = f"[{','.join(str(x) for x in query_embedding)}]"
-
-        try:
-            logger.info(f"[SEARCH] Querying database with vector similarity")
-            stmt = select(
-                Provider,
-                (1 - Provider.embedding.cosine_distance(embedding_str)).label("similarity")
-            ).where(
-                Provider.embedding.isnot(None)
-            ).order_by(
-                Provider.embedding.cosine_distance(embedding_str)
-            ).limit(limit)
-
-            result = await db.execute(stmt)
-            rows = result.all()
-            logger.info(f"[SEARCH] Database returned {len(rows)} rows")
-
-            if len(rows) == 0:
-                logger.warning(f"[SEARCH] No providers found with embeddings - checking if any providers have embeddings")
-                count_result = await db.execute(select(Provider).where(Provider.embedding.isnot(None)))
-                with_embeddings = len(count_result.scalars().all())
-                logger.warning(f"[SEARCH] Providers with embeddings: {with_embeddings}")
-
-        except Exception as e:
-            logger.error(f"[SEARCH] Database query failed: {str(e)}", exc_info=True)
-            return []
-
-        # Score and rank providers
-        matches = []
-        logger.info(f"[SEARCH] Scoring {len(rows)} providers")
-
-        for idx, (provider, similarity) in enumerate(rows):
-            try:
-                score_result = self._calculate_score(provider, intent, similarity)
-
-                # Create a simple match object
-                match_obj = type('Match', (), {
-                    'provider': provider,
-                    'score': score_result["total"],
-                    'explanation': score_result["explanation"]
-                })()
-                matches.append(match_obj)
-
-                if idx < 3:  # Log details for top 3
-                    logger.info(f"[SEARCH] Provider {idx+1}: {provider.name}, score={score_result['total']}, similarity={similarity:.3f}")
-            except Exception as e:
-                logger.error(f"[SEARCH] Failed to score provider {provider.id}: {str(e)}")
-
-        # Sort by score
-        matches.sort(key=lambda x: x.score, reverse=True)
-        logger.info(f"[SEARCH] Returning top {min(5, len(matches))} matches from {len(matches)} total")
-
-        return matches[:5]
-
-    def _calculate_score(
-        self,
-        provider: Provider,
-        intent: Dict[str, Any],
-        similarity: float
-    ) -> Dict[str, Any]:
-        """Calculate 100-point composite score for a provider match."""
-
-        # Base similarity score (0-50 points for capabilities match)
-        capabilities_score = min(50, int(similarity * 50))
-
-        # Specialty match (0-25 points)
-        specialty_score = 0
-        inferred_specialty = intent.get("inferred_specialty", "").lower()
-        if provider.primary_specialty and inferred_specialty:
-            if inferred_specialty in provider.primary_specialty.lower():
-                specialty_score = 25
-            elif provider.secondary_specialties:
-                secondary_match = any(
-                    inferred_specialty in s.lower()
-                    for s in (provider.secondary_specialties or [])
-                )
-                if secondary_match:
-                    specialty_score = 20
-
-        # Tier multiplier (5-25 points)
-        tier_scores = {"A": 25, "B": 20, "C": 15, "D": 10, "E": 5}
-        tier_score = tier_scores.get(provider.tier, 5)
-
-        # Software match bonus (up to 10 bonus points)
-        software_bonus = 0
-        mentioned_software = intent.get("software_mentioned", [])
-        if mentioned_software and provider.software_tools:
-            matches = sum(
-                1 for sw in mentioned_software
-                if any(sw.lower() in pt.lower() for pt in provider.software_tools)
-            )
-            software_bonus = min(10, matches * 3)
-
-        total = min(100, capabilities_score + specialty_score + tier_score + software_bonus)
-
-        # Generate explanation
-        explanation_parts = []
-        if specialty_score >= 20:
-            explanation_parts.append(f"Strong specialty match in {provider.primary_specialty}")
-        if capabilities_score >= 35:
-            explanation_parts.append("High capability alignment")
-        if software_bonus > 0:
-            explanation_parts.append(f"Uses relevant software tools")
-        explanation_parts.append(f"Tier {provider.tier} provider")
-
-        return {
-            "total": total,
-            "specialty": specialty_score,
-            "capabilities": capabilities_score,
-            "tier": tier_score,
-            "software_bonus": software_bonus,
-            "explanation": "; ".join(explanation_parts) if explanation_parts else "General match"
-        }
-
-    async def generate_provider_embedding(
-        self,
-        provider: Provider
-    ) -> List[float]:
-        """Generate embedding for a provider's business description."""
-        # Combine relevant fields for embedding
-        text_parts = [
-            provider.name or "",
-            provider.primary_specialty or "",
-            provider.business_description or "",
-            " ".join(provider.capabilities or []),
-            " ".join(provider.specialties or []),
-        ]
-        text = " ".join(filter(None, text_parts))
-
-        return await self.generate_embedding(text)
+            parsed = json.loads(val)
+            if isinstance(parsed, list):
+                return [str(v) for v in parsed]
+        except Exception:
+            pass
+        return [val] if val.strip() else []
+    return [str(val)]
 
 
-# Global instance
-search_service = SearchService()
+def _safe_str(val: Any) -> str:
+    if val is None:
+        return ''
+    if isinstance(val, list):
+        return ' '.join(str(v) for v in val)
+    return str(val)
 
 
-# Standalone function wrappers for backward compatibility and imports
-
-async def calculate_match_score(provider, intent, similarity):
-    """Calculate composite match score for a provider."""
-    service = SearchService()
-    return service._calculate_score(provider, intent, similarity)
+def _display_name(p) -> str:
+    return (_safe_str(getattr(p, 'firm_name', ''))
+            or _safe_str(getattr(p, 'name', ''))
+            or f'Provider #{p.id}')
 
 
-async def check_search_quota(db, user=None, ip_address=None):
-    """NON-FATAL: allows search even if quota check errors."""
+def _normalize_query(query: str) -> str:
+    return re.sub(r'\s+', ' ', query.strip())
+
+
+_DEFAULT_INTENT: Dict[str, Any] = {
+    'requires_engineering': 1,
+    'requires_mechanical': 0,
+    'software_mentioned': [],
+    'inferred_specialty': '',
+    'capabilities_needed': [],
+    'inferred_keywords': [],
+}
+
+
+def _simple_keywords(query: str) -> List[str]:
+    STOP = {
+        'the', 'a', 'an', 'and', 'or', 'for', 'of', 'in', 'on', 'at', 'to', 'with',
+        'that', 'this', 'from', 'are', 'was', 'has', 'have', 'been', 'will', 'can',
+        'may', 'our', 'its', 'all', 'any', 'use', 'using', 'how', 'what', 'which',
+        'is', 'it', 'as', 'by', 'be', 'do', 'if', 'we', 'my', 'so', 'up', 'no',
+    }
+    words = re.findall(r'[a-z0-9]+', query.lower())
+    return [w for w in words if w not in STOP and len(w) > 2][:10]
+
+
+async def extract_structured_intent(
+    query: str,
+    document_text: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Step 2: LLM structured intent. Falls back to keywords on any failure."""
+    if not _has_api_key():
+        logger.info('[INTENT] No API key - using keyword extraction')
+        return {**_DEFAULT_INTENT, 'inferred_keywords': _simple_keywords(query)}
+
+    norm = _normalize_query(query)
+    combined = norm
+    if document_text:
+        combined = norm + '\n\nDocument:\n' + document_text[:4000]
+
+    prompt_parts = [
+        'Analyze this engineering services search query and extract structured information.',
+        '',
+        'Query: ' + combined,
+        '',
+        'Return ONLY a JSON object with exactly these fields:',
+        '{',
+        '  "requires_engineering": 1 if engineering services needed ELSE 0,',
+        '  "requires_mechanical": 1 if mechanical engineering focus ELSE 0,',
+        '  "software_mentioned": [list of software/simulation tools explicitly named],',
+        '  "inferred_specialty": "primary engineering specialty as short phrase",',
+        '  "capabilities_needed": [list of specific technical capabilities required],',
+        '  "inferred_keywords": [5-10 important domain keywords for text matching]',
+        '}',
+        '',
+        'Return valid JSON only. No markdown. No explanation.',
+    ]
+    prompt = '\n'.join(prompt_parts)
+
     try:
-        return await _check_search_quota_impl(db, user, ip_address)
+        client = _get_client()
+        model  = _llm_model()
+        logger.info(f'[INTENT] Calling LLM model={model} query={query[:80]}')
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {'role': 'system', 'content': 'You are an engineering services analyzer. Return only valid JSON.'},
+                {'role': 'user',   'content': prompt},
+            ],
+            temperature=0.1,
+            max_tokens=600,
+        )
+        raw = response.choices[0].message.content.strip()
+        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+        raw = re.sub(r'\s*```$', '', raw).strip()
+        intent = json.loads(raw)
+        for k, v in _DEFAULT_INTENT.items():
+            intent.setdefault(k, v)
+        logger.info(
+            '[INTENT] specialty=%s kw=%s',
+            str(intent.get('inferred_specialty', ''))[:60],
+            intent.get('inferred_keywords', [])[:5],
+        )
+        return intent
+    except json.JSONDecodeError as exc:
+        logger.warning(f'[INTENT] JSON parse error ({exc}) - using keyword fallback')
     except Exception as exc:
-        logger.error("[QUOTA] Non-fatal, allowing search: " + str(exc))
-        return True, 10
+        logger.warning(f'[INTENT] LLM error ({exc}) - using keyword fallback')
+
+    return {**_DEFAULT_INTENT, 'inferred_keywords': _simple_keywords(query)}
 
 
-async def _check_search_quota_impl(db, user=None, ip_address=None):
-    """Internal impl - may raise."""
-    from app.models.search import IPUsageTracking
-    from app.models.user import User
-    from app.models.payment import Subscription, SubscriptionType, SubscriptionStatus
-    from datetime import datetime
-    user_id = user.id if user else None
-    current_month = datetime.utcnow().strftime("%Y-%m")
-    logger.info(f"[QUOTA] user_id={user_id} ip={ip_address}")
-    if user_id:
-        result = await db.execute(
-            select(User.monthly_search_count, User.search_count_reset_at)
-            .where(User.id == user_id)
-        )
-        user_row = result.first()
-        quota_limit = 10
+async def generate_embedding(text_input: str) -> List[float]:
+    """Step 4: Generate vector embedding. Raises ValueError if no API key."""
+    if not _has_api_key():
+        raise ValueError('No AI API key configured - embeddings unavailable')
+    client = _get_client()
+    model  = _embedding_model()
+    logger.info(f'[EMBED] model={model}, input_len={len(text_input)}')
+    try:
+        resp = await client.embeddings.create(model=model, input=text_input[:8000])
+        vec  = resp.data[0].embedding
+        logger.info(f'[EMBED] Generated {len(vec)}-dim vector')
+        return vec
+    except Exception as exc:
+        logger.error(f'[EMBED] Failed: {exc}', exc_info=True)
+        raise
+
+
+def _provider_embed_text(p) -> str:
+    """Canonical provider text for embedding."""
+    parts = [
+        _safe_str(getattr(p, 'firm_name', '') or getattr(p, 'name', '')),
+        _safe_str(getattr(p, 'primary_specialty', '')),
+        _safe_str(getattr(p, 'business_description', '')),
+        ' '.join(_safe_list(getattr(p, 'capabilities', []))),
+        ' '.join(_safe_list(getattr(p, 'specialties', []))),
+        ' '.join(_safe_list(getattr(p, 'software_tools', []))),
+        _safe_str(getattr(p, 'notable_clients', '')),
+    ]
+    return ' '.join(x for x in parts if x).strip()
+
+
+def _tier_score(provider) -> float:
+    tier_map = {'A': 25.0, 'B': 20.0, 'C': 15.0, 'D': 10.0, 'E': 5.0}
+    tier = (
+        getattr(provider, 'business_evaluation_tier', None)
+        or getattr(provider, 'tier', None)
+    )
+    if tier:
+        return tier_map.get(str(tier).strip().upper(), 5.0)
+    return 5.0
+
+
+def _specialty_score(provider, intent: Dict[str, Any]) -> float:
+    """Specialty Match 0-25 pts."""
+    inferred   = _safe_str(intent.get('inferred_specialty', '')).lower()
+    cap_needed = [c.lower() for c in _safe_list(intent.get('capabilities_needed', []))]
+    if not inferred and not cap_needed:
+        return 0.0
+    primary   = _safe_str(getattr(provider, 'primary_specialty', '')).lower()
+    secondary = ' '.join(_safe_list(getattr(provider, 'secondary_specialties', []))).lower()
+    combined  = primary + ' ' + secondary
+    score = 0.0
+    if inferred:
+        words = [w for w in re.findall(r'[a-z0-9]+', inferred) if len(w) > 3]
+        if words:
+            hits  = sum(1 for w in words if w in combined)
+            ratio = hits / len(words)
+            if ratio >= 0.8:
+                score = max(score, 25.0)
+            elif ratio >= 0.5:
+                score = max(score, 20.0)
+            elif ratio >= 0.25:
+                score = max(score, 10.0)
+    if cap_needed:
+        cap_words = []
+        for cap in cap_needed:
+            cap_words.extend(w for w in re.findall(r'[a-z0-9]+', cap) if len(w) > 3)
+        if cap_words:
+            hits      = sum(1 for w in cap_words if w in combined)
+            cap_score = min(20.0, (hits / len(cap_words)) * 20.0)
+            score     = max(score, cap_score)
+    return score
+
+
+def _capabilities_score_keyword(provider, intent: Dict[str, Any]) -> float:
+    """Keyword-based capabilities score 0-50 pts (used when no embeddings)."""
+    keywords = [k.lower() for k in _safe_list(intent.get('inferred_keywords', []))]
+    if not keywords:
+        spec = _safe_str(intent.get('inferred_specialty', '')).lower()
+        keywords = [w for w in re.findall(r'[a-z0-9]+', spec) if len(w) > 3]
+    if not keywords:
+        return 10.0
+    name_text = (_safe_str(getattr(provider, 'firm_name', '')) + ' '
+                 + _safe_str(getattr(provider, 'name', ''))).lower()
+    desc_text = _safe_str(getattr(provider, 'business_description', '')).lower()
+    cap_text  = ' '.join(_safe_list(getattr(provider, 'capabilities', []))).lower()
+    spec_text = ' '.join(_safe_list(getattr(provider, 'specialties', []))).lower()
+    raw = 0.0
+    for kw in keywords:
+        if kw in name_text: raw += 5.0
+        if kw in cap_text:  raw += 3.0
+        if kw in spec_text: raw += 3.0
+        if kw in desc_text: raw += 2.0
+    max_raw = len(keywords) * 13.0
+    if max_raw == 0:
+        return 10.0
+    return min(50.0, (raw / max_raw) * 50.0)
+
+
+def _software_bonus(provider, intent: Dict[str, Any]) -> float:
+    """Software Bonus 0-10 pts (3 pts/match, capped at 10)."""
+    mentioned = [s.lower() for s in _safe_list(intent.get('software_mentioned', []))]
+    if not mentioned:
+        return 0.0
+    tools = [t.lower() for t in _safe_list(getattr(provider, 'software_tools', []))]
+    if not tools:
+        return 0.0
+    hits = sum(1 for s in mentioned if any(s in t or t in s for t in tools))
+    return min(10.0, hits * 3.0)
+
+
+def calculate_match_score(
+    provider,
+    intent: Dict[str, Any],
+    similarity: float = 0.0,
+) -> Dict[str, float]:
+    """Compute deterministic 100-point composite score."""
+    tier_pts      = _tier_score(provider)
+    specialty_pts = _specialty_score(provider, intent)
+    if similarity > 0.0:
+        cap_pts = round(similarity * 50.0, 2)
+    else:
+        cap_pts = _capabilities_score_keyword(provider, intent)
+    sw_bonus = _software_bonus(provider, intent)
+    total    = min(100.0, specialty_pts + cap_pts + tier_pts + sw_bonus)
+    return {
+        'total':          round(total, 2),
+        'specialty':      round(specialty_pts, 2),
+        'capabilities':   round(cap_pts, 2),
+        'tier':           round(tier_pts, 2),
+        'software_bonus': round(sw_bonus, 2),
+        'similarity':     round(similarity, 4),
+    }
+
+
+def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, Any]) -> str:
+    """Human-readable explanation grounded in actual scoring inputs (spec 11.12)."""
+    specialty = intent.get('inferred_specialty', '') or 'engineering services'
+    parts = [
+        f"{name} scored {scores['total']:.0f}/100.",
+        f"Specialty match: {scores['specialty']:.0f}/25.",
+        f"Capabilities match: {scores['capabilities']:.0f}/50",
+    ]
+    if scores['similarity'] > 0:
+        parts[-1] += f" (semantic similarity {scores['similarity']:.3f})"
+    parts[-1] += '.'
+    parts.append(f"Tier score: {scores['tier']:.0f}/25.")
+    if scores['software_bonus'] > 0:
+        parts.append(f"Software tool bonus: +{scores['software_bonus']:.0f}.")
+    parts.append(f"Matched on: {specialty}.")
+    return ' '.join(parts)
+
+
+async def check_search_quota(
+    db: AsyncSession,
+    user_id: Optional[int] = None,
+    ip_address: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Check caller search quota. Returns {allowed, remaining, limit, used}."""
+    now = datetime.utcnow()
+    if user_id is None:
+        if not ip_address:
+            return {'allowed': True, 'remaining': 3, 'limit': 3, 'used': 0}
         try:
-            sub_res = await db.execute(
-                select(Subscription).where(
-                    Subscription.user_id == user_id,
-                    Subscription.subscription_type.in_([
-                        SubscriptionType.SEARCH_TIER_1,
-                        SubscriptionType.SEARCH_TIER_2]),
-                    Subscription.subscription_status == SubscriptionStatus.ACTIVE
-                ).order_by(Subscription.created_at.desc())
+            from app.models.search import IpUsageTracking
+            month_str = now.strftime('%Y-%m')
+            result = await db.execute(
+                select(IpUsageTracking)
+                .where(IpUsageTracking.ip_address == ip_address)
+                .where(IpUsageTracking.usage_month == month_str)
             )
-            sub = sub_res.scalars().first()
-            if sub:
-                if sub.subscription_type == SubscriptionType.SEARCH_TIER_1: quota_limit = 100
-                elif sub.subscription_type == SubscriptionType.SEARCH_TIER_2: quota_limit = 200
-        except Exception as e:
-            logger.warning(f"[QUOTA] sub lookup failed (non-fatal): {e}")
-        if user_row:
-            used = user_row[0] or 0
-            remaining = max(0, quota_limit - used)
-            return remaining > 0, remaining
-        return True, quota_limit
-    elif ip_address:
-        res = await db.execute(
-            select(IPUsageTracking).where(
-                IPUsageTracking.ip_address == ip_address,
-                IPUsageTracking.usage_month == current_month)
-        )
-        tracking = res.scalar_one_or_none()
-        if not tracking: return True, 3
-        remaining = max(0, 3 - tracking.search_count)
-        return remaining > 0, remaining
-    return True, 3
-
-async def extract_structured_intent(query: str):
-    """Extract structured intent from natural language query."""
-    service = SearchService()
-    return await service.extract_search_intent(query)
-
-
-async def generate_embedding(text: str):
-    """Generate vector embedding for text."""
-    service = SearchService()
-    return await service.generate_embedding(text)
-
-
-async def increment_search_quota(db, user_id=None, ip_address=None):
-    """Increment search quota usage."""
-    from app.models.search import IPUsageTracking
-    from datetime import datetime
-
-    current_month = datetime.utcnow().strftime("%Y-%m")
-
-    if user_id:
+            record = result.scalar_one_or_none()
+            used  = record.search_count if record else 0
+            limit = 3
+            return {'allowed': used < limit, 'remaining': max(0, limit - used), 'limit': limit, 'used': used}
+        except Exception as exc:
+            logger.warning(f'[QUOTA] IP tracking error: {exc}')
+            return {'allowed': True, 'remaining': 3, 'limit': 3, 'used': 0}
+    try:
         from app.models.user import User
-        from sqlalchemy import update as sa_update
-        await db.execute(
-            sa_update(User)
-            .where(User.id == user_id)
-            .values(
-                monthly_search_count=User.monthly_search_count + 1,
-                updated_at=datetime.utcnow()
-            )
-        )
-        logger.info(f"[QUOTA] Incremented user {user_id} search count")
-    elif ip_address:
-        # Upsert IP usage tracking
-        result = await db.execute(
-            select(IPUsageTracking)
-            .where(
-                IPUsageTracking.ip_address == ip_address,
-                IPUsageTracking.usage_month == current_month
-            )
-        )
-        tracking = result.scalar_one_or_none()
+        result = await db.execute(select(User).where(User.id == user_id))
+        user   = result.scalar_one_or_none()
+        if not user:
+            return {'allowed': False, 'remaining': 0, 'limit': 0, 'used': 0}
+        search_tier = getattr(user, 'search_tier', None)
+        limit = 200 if search_tier == 2 else (100 if search_tier == 1 else 10)
+        used     = getattr(user, 'monthly_search_count', 0) or 0
+        reset_at = getattr(user, 'search_count_reset_at', None)
+        if reset_at and hasattr(reset_at, 'month'):
+            if reset_at.year != now.year or reset_at.month != now.month:
+                used = 0
+        return {'allowed': used < limit, 'remaining': max(0, limit - used), 'limit': limit, 'used': used}
+    except Exception as exc:
+        logger.warning(f'[QUOTA] User quota check error: {exc}')
+        return {'allowed': True, 'remaining': 10, 'limit': 10, 'used': 0}
 
-        if tracking:
-            tracking.search_count += 1
-            tracking.updated_at = datetime.utcnow()
-            logger.info(f"[QUOTA] Incremented IP {ip_address} search count to {tracking.search_count}")
+
+async def increment_search_quota(
+    db: AsyncSession,
+    user_id: Optional[int] = None,
+    ip_address: Optional[str] = None,
+) -> None:
+    """Increment search usage counter for the caller."""
+    now = datetime.utcnow()
+    if user_id is None:
+        if not ip_address:
+            return
+        try:
+            from app.models.search import IpUsageTracking
+            month_str = now.strftime('%Y-%m')
+            result = await db.execute(
+                select(IpUsageTracking)
+                .where(IpUsageTracking.ip_address == ip_address)
+                .where(IpUsageTracking.usage_month == month_str)
+            )
+            record = result.scalar_one_or_none()
+            if record:
+                record.search_count = (record.search_count or 0) + 1
+                record.updated_at   = now
+            else:
+                db.add(IpUsageTracking(
+                    ip_address=ip_address,
+                    usage_month=month_str,
+                    search_count=1,
+                    created_at=now,
+                    updated_at=now,
+                ))
+            await db.commit()
+        except Exception as exc:
+            logger.warning(f'[QUOTA] IP increment error: {exc}')
+            await db.rollback()
+        return
+    try:
+        from app.models.user import User
+        result = await db.execute(select(User).where(User.id == user_id))
+        user   = result.scalar_one_or_none()
+        if not user:
+            return
+        reset_at = getattr(user, 'search_count_reset_at', None)
+        if reset_at and hasattr(reset_at, 'month'):
+            if reset_at.year != now.year or reset_at.month != now.month:
+                user.monthly_search_count  = 1
+                user.search_count_reset_at = now
+            else:
+                user.monthly_search_count = (user.monthly_search_count or 0) + 1
         else:
-            tracking = IPUsageTracking(
-                ip_address=ip_address,
-                usage_month=current_month,
-                search_count=1
-            )
-            db.add(tracking)
-            logger.info(f"[QUOTA] Created new IP tracking for {ip_address}")
-
-    await db.commit()
+            user.monthly_search_count  = (getattr(user, 'monthly_search_count', 0) or 0) + 1
+            user.search_count_reset_at = now
+        await db.commit()
+    except Exception as exc:
+        logger.warning(f'[QUOTA] User increment error: {exc}')
+        await db.rollback()
 
 
+async def _fetch_candidates(
+    db: AsyncSession,
+    intent: Dict[str, Any],
+    filters: dict,
+    query_vec: Optional[List[float]],
+    limit: int = 50,
+) -> tuple:
+    """Steps 3, 5: hard filters + pgvector pre-filter. Returns (rows, used_vector, fallback_reason)."""
+    from sqlalchemy import text
+    fallback_reason: Optional[str] = None
 
-# Standalone function for import compatibility
+    base_filters = []
+    if intent.get('requires_engineering', 1) == 1:
+        base_filters.append('is_engineering_service = 1')
+
+    software_mentioned = [s.lower() for s in _safe_list(intent.get('software_mentioned', []))]
+    software_filter_active = bool(software_mentioned)
+
+    async def _run_query(extra_where: str = '', vector_col: str = '') -> list:
+        where_parts = list(base_filters)
+        if extra_where:
+            where_parts.append(extra_where)
+        where_clause = ('WHERE ' + ' AND '.join(where_parts)) if where_parts else ''
+
+        if vector_col:
+            sql = text(f"""
+                SELECT p.*,
+                       1 - (p.embedding <=> CAST(:vec AS vector)) AS cosine_similarity
+                FROM providers p
+                {where_clause}
+                ORDER BY cosine_similarity DESC
+                LIMIT :lim
+            """)
+            import json as _json
+            result = await db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': limit})
+        else:
+            sql = text(f"SELECT p.* FROM providers p {where_clause} LIMIT :lim")
+            result = await db.execute(sql, {'lim': limit})
+        return result.mappings().all()
+
+    used_vector = False
+    rows = []
+
+    if query_vec:
+        try:
+            rows = await _run_query(vector_col='embedding')
+            used_vector = True
+            logger.info(f'[SEARCH] pgvector pre-filter returned {len(rows)} candidates')
+        except Exception as exc:
+            logger.warning(f'[SEARCH] pgvector failed ({exc}), falling back to text query')
+            used_vector = False
+
+    if not used_vector:
+        try:
+            rows = await _run_query()
+            logger.info(f'[SEARCH] text/filter query returned {len(rows)} candidates')
+        except Exception as exc:
+            logger.error(f'[SEARCH] Candidate query failed: {exc}')
+            rows = []
+
+    return rows, used_vector, fallback_reason
+
+
+class _ProviderProxy:
+    """Wrap a sqlalchemy RowMapping so provider fields work via attribute access."""
+    def __init__(self, mapping):
+        self._m = mapping
+    def __getattr__(self, name):
+        try:
+            return self._m[name]
+        except KeyError:
+            return None
+    @property
+    def id(self):
+        return self._m.get('id')
+
+
 async def search_providers(
     db: AsyncSession,
     query: str,
     filters: dict = None,
-    limit: int = 50
-) -> List[Any]:
-    """
-    Search providers using embeddings and return ranked results.
-    Returns a list of objects with .provider, .score, and .explanation attributes.
-    Falls back to keyword search when no API key or no embeddings available.
-    """
-    from dataclasses import dataclass
-    from sqlalchemy import or_, and_
+    limit: int = 50,
+) -> List[SearchResultItem]:
+    """Full spec-compliant search pipeline. Returns list of SearchResultItem."""
+    if filters is None:
+        filters = {}
 
-    @dataclass
-    class SearchResultItem:
-        provider: Provider
-        score: float
-        explanation: str
+    norm_query = _normalize_query(query)
+    logger.info(f'[SEARCH] query={norm_query[:100]}')
 
-    logger.info(f"[SEARCH] Starting search: query='{query[:100]}'..., filters={filters}, limit={limit}")
+    # Step 2 - LLM intent extraction
+    intent = await extract_structured_intent(norm_query)
+    fallback_reason: Optional[str] = None
 
-    async def keyword_fallback(reason: str, score: float = 50.0) -> List[SearchResultItem]:
-        """Keyword-based fallback search with per-provider relevance scoring."""
-        logger.info(f"[SEARCH FALLBACK] Reason: {reason}")
-        # Filter stop words AND common generic engineering terms that match everyone
-        STOP_WORDS = {
-            'engineering', 'engineer', 'engineers', 'services', 'service',
-            'solutions', 'solution', 'company', 'companies', 'corp', 'corporation',
-            'inc', 'llc', 'ltd', 'group', 'firm', 'firms', 'design', 'designs',
-            'the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'was',
-            'has', 'have', 'been', 'will', 'can', 'may', 'our', 'your', 'its',
-            'all', 'any', 'new', 'use', 'used', 'using', 'project', 'projects',
-            'management', 'consulting', 'consultant', 'technical', 'technology',
-            'professional', 'systems', 'system', 'analysis', 'support'
-        }
-        raw_terms = [t.lower() for t in query.lower().split() if len(t) > 2]
-        terms = [t for t in raw_terms if t not in STOP_WORDS] or raw_terms  # fallback to raw if all filtered
-        logger.info(f"[SEARCH FALLBACK] Search terms: {terms}")
-
-        eng_filter = Provider.is_engineering_service == 1
-
-        def _build_kw_stmt(apply_eng: bool):
-            conds = []
-            for term in terms[:6]:
-                conds.append(Provider.name.ilike(f"%{term}%"))
-                conds.append(Provider.firm_name.ilike(f"%{term}%"))
-                conds.append(Provider.business_description.ilike(f"%{term}%"))
-                conds.append(Provider.primary_specialty.ilike(f"%{term}%"))
-                conds.append(Provider.notable_clients.ilike(f"%{term}%"))
-            # Wider candidate pool for Python-side re-ranking
-            q = (select(Provider)
-                 .order_by(Provider.business_evaluation_tier.asc().nullslast())
-                 .limit(limit * 4))
-            if conds and apply_eng:
-                return q.where(and_(eng_filter, or_(*conds)))
-            if conds:
-                return q.where(or_(*conds))
-            if apply_eng:
-                return q.where(eng_filter)
-            return q
-
-        def _relevance_score(p: Provider) -> float:
-            """Weighted term-match: name/firm 3x, specialty 2x, desc/caps 1x."""
-            if not terms:
-                return 20.0
-            weighted_hits = 0
-            name_text = ((p.name or "") + " " + (p.firm_name or "")).lower()
-            spec_text  = (p.primary_specialty or "").lower()
-            desc_text  = (p.business_description or "").lower()
-            if p.capabilities:
-                cap_text = (
-                    " ".join(p.capabilities).lower()
-                    if isinstance(p.capabilities, list)
-                    else str(p.capabilities).lower()
-                )
-            else:
-                cap_text = ""
-            for term in terms:
-                if term in name_text:  weighted_hits += 3  # name match
-                if term in spec_text:  weighted_hits += 2  # specialty match
-                if term in desc_text:  weighted_hits += 1  # description match
-                if term in cap_text:   weighted_hits += 1  # capabilities match
-            # Normalize: max possible hits per term = 3+2+1+1=7; cap at 90
-            if not terms:
-                return 20.0
-            max_possible = len(terms) * 7
-            if max_possible == 0:
-                return 20.0
-            pct = weighted_hits / max_possible  # 0.0 to 1.0
-            return round(min(90.0, 20.0 + pct * 70.0), 1)  # 20-90 range
-
-        # --- First pass: eng-filter + keyword match ---
-        result = await db.execute(_build_kw_stmt(True))
-        providers = result.scalars().all()
-        logger.info(f"[SEARCH FALLBACK] kw eng-filter: {len(providers)} providers")
-
-        # --- Second pass: no eng-filter ---
-        if not providers:
-            logger.warning("[SEARCH FALLBACK] eng=0, retrying without filter")
-            result = await db.execute(_build_kw_stmt(False))
-            providers = result.scalars().all()
-            logger.info(f"[SEARCH FALLBACK] kw no-filter: {len(providers)} providers")
-
-        # --- Last resort: return top-tier providers ---
-        if not providers:
-            result = await db.execute(
-                select(Provider)
-                .order_by(Provider.business_evaluation_tier.asc().nullslast())
-                .limit(min(limit, 20))
-            )
-            providers = result.scalars().all()
-            logger.info(f"[SEARCH FALLBACK] tier-only fallback: {len(providers)} providers")
-            return [
-                SearchResultItem(
-                    provider=p,
-                    score=20.0,
-                    explanation=f"{reason} (no keyword match – tier fallback)",
-                )
-                for p in providers[:limit]
-            ]
-
-        # --- Score every candidate, sort descending ---
-        scored: List[SearchResultItem] = []
-        for p in providers:
-            s = _relevance_score(p)
-            scored.append(SearchResultItem(
-                provider=p,
-                score=s,
-                explanation=f"{reason} (keyword relevance: {s:.0f}/90)",
-            ))
-
-        matching = [r for r in scored if r.score > 20.0] or scored
-        matching.sort(key=lambda x: x.score, reverse=True)
-        top_scores = [r.score for r in matching[:5]]
-        logger.info(f"[SEARCH FALLBACK] top-5 relevance scores: {top_scores}")
-        return matching[:limit]
-
-    if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY in ("dummy-key", "", None):
-        logger.info("[SEARCH] No AI key configured, using keyword fallback")
-        return await keyword_fallback("Keyword search (no AI key configured)", score=50.0)
-
-    # Generate embedding for the query
-    try:
-        service = SearchService()
-        embedding = await service.generate_embedding(query)
-        logger.info(f"[SEARCH] Generated embedding with {len(embedding)} dimensions")
-    except Exception as e:
-        logger.error(f"[SEARCH] Failed to generate embedding: {str(e)}")
-        return await keyword_fallback("Keyword search (embedding error)", score=40.0)
-
-    # Perform vector similarity search using pgvector
-    try:
-        # Build embedding string in pgvector format [x1,x2,...]
-        embedding_values = ",".join(str(x) for x in embedding)
-        embedding_str = f"[{embedding_values}]"
-
-        # SOFT FILTER: eng first, relax if 0 results
-        eng_sql = text("""
-            SELECT id, 1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
-            FROM providers WHERE embedding IS NOT NULL AND is_engineering_service = 1
-            ORDER BY embedding <=> CAST(:embedding AS vector) LIMIT :limit
-        """)
-        nofilt_sql = text("""
-            SELECT id, 1 - (embedding <=> CAST(:embedding AS vector)) AS similarity
-            FROM providers WHERE embedding IS NOT NULL
-            ORDER BY embedding <=> CAST(:embedding AS vector) LIMIT :limit
-        """)
-        result = await db.execute(eng_sql, {"embedding": embedding_str, "limit": limit})
-        rows = result.all()
-        logger.info(f"[SEARCH] Vector eng-filter: {len(rows)} results")
-        if not rows:
-            logger.warning("[SEARCH] eng=0, retrying without filter")
-            result = await db.execute(nofilt_sql, {"embedding": embedding_str, "limit": limit})
-            rows = result.all()
-            logger.info(f"[SEARCH] Vector no-filter: {len(rows)} results")
-        if not rows:
-            return await keyword_fallback("Keyword search (no embeddings yet)", score=35.0)
-
-
-        # Fetch full provider objects
-        provider_ids = [row[0] for row in rows]
-        stmt = select(Provider).where(Provider.id.in_(provider_ids))
-        result = await db.execute(stmt)
-        providers_map = {p.id: p for p in result.scalars().all()}
-
-        results = []
-        for provider_id, similarity in rows:
-            if provider_id in providers_map:
-                provider = providers_map[provider_id]
-                score = max(0.0, min(100.0, float(similarity) * 100))
-                results.append(SearchResultItem(
-                    provider=provider,
-                    score=score,
-                    explanation=f"AI similarity match (score: {score:.1f})"
-                ))
-
-        results.sort(key=lambda x: x.score, reverse=True)
-        logger.info(f"[SEARCH] Returning {len(results)} AI-ranked results")
-        return results
-
-    except Exception as e:
-        logger.error(f"[SEARCH] Vector search failed: {str(e)}", exc_info=True)
+    # Step 4 - Embed query
+    query_vec: Optional[List[float]] = None
+    if _has_api_key():
         try:
-            await db.rollback()
-        except Exception:
-            pass
-        return await keyword_fallback("Keyword search (vector error)", score=30.0)
+            query_vec = await generate_embedding(norm_query)
+        except Exception as exc:
+            logger.warning(f'[SEARCH] Embedding failed ({exc}), using keyword scoring')
+            if fallback_reason is None:
+                fallback_reason = f'embedding_failed:{exc}'
 
+    # Steps 3+5 - Hard filters + pgvector candidates
+    try:
+        rows, used_vector, fetch_fallback = await _fetch_candidates(
+            db, intent, filters, query_vec, limit=max(limit, 50)
+        )
+        if fetch_fallback:
+            fallback_reason = fallback_reason or fetch_fallback
+    except Exception as exc:
+        logger.error(f'[SEARCH] Candidate fetch error: {exc}')
+        rows = []
+        used_vector = False
 
-# Standalone wrapper function for direct imports
-_search_service_instance = None
+    if not rows:
+        logger.info('[SEARCH] No candidates found, returning empty')
+        return []
 
+    # Step 6 - Score each candidate
+    scored: List[tuple] = []
+    for row in rows:
+        try:
+            provider = _ProviderProxy(row)
+            similarity = float(row.get('cosine_similarity', 0.0) or 0.0) if used_vector else 0.0
+            scores = calculate_match_score(provider, intent, similarity=similarity)
+            name = _display_name(provider)
+            explanation = _build_explanation(name, scores, intent)
+            scored.append((
+                scores['total'],
+                SearchResultItem(
+                    provider=provider,
+                    score=scores['total'],
+                    explanation=explanation,
+                    specialty_score=scores['specialty'],
+                    capabilities_score=scores['capabilities'],
+                    tier_score=scores['tier'],
+                    software_bonus=scores['software_bonus'],
+                    similarity=scores['similarity'],
+                    fallback_reason=fallback_reason,
+                ),
+            ))
+        except Exception as exc:
+            logger.warning(f'[SEARCH] Scoring error for row: {exc}')
+
+    # Sort descending by total score
+    scored.sort(key=lambda t: t[0], reverse=True)
+
+    # Step 7 - Return top 5 (spec 11.10)
+    results = [item for _, item in scored[:5]]
+
+    logger.info(
+        '[SEARCH] top-%d results: %s',
+        len(results),
+        [(r.provider.id, round(r.score, 1)) for r in results],
+    )
+    return results
