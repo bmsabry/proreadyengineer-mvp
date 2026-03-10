@@ -451,7 +451,19 @@ async def search_providers(
     async def keyword_fallback(reason: str, score: float = 50.0) -> List[SearchResultItem]:
         """Keyword-based fallback search with per-provider relevance scoring."""
         logger.info(f"[SEARCH FALLBACK] Reason: {reason}")
-        terms = [t.lower() for t in query.lower().split() if len(t) > 2]
+        # Filter stop words AND common generic engineering terms that match everyone
+        STOP_WORDS = {
+            'engineering', 'engineer', 'engineers', 'services', 'service',
+            'solutions', 'solution', 'company', 'companies', 'corp', 'corporation',
+            'inc', 'llc', 'ltd', 'group', 'firm', 'firms', 'design', 'designs',
+            'the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'was',
+            'has', 'have', 'been', 'will', 'can', 'may', 'our', 'your', 'its',
+            'all', 'any', 'new', 'use', 'used', 'using', 'project', 'projects',
+            'management', 'consulting', 'consultant', 'technical', 'technology',
+            'professional', 'systems', 'system', 'analysis', 'support'
+        }
+        raw_terms = [t.lower() for t in query.lower().split() if len(t) > 2]
+        terms = [t for t in raw_terms if t not in STOP_WORDS] or raw_terms  # fallback to raw if all filtered
         logger.info(f"[SEARCH FALLBACK] Search terms: {terms}")
 
         eng_filter = Provider.is_engineering_service == 1
@@ -497,7 +509,14 @@ async def search_providers(
                 if term in spec_text:  weighted_hits += 2  # specialty match
                 if term in desc_text:  weighted_hits += 1  # description match
                 if term in cap_text:   weighted_hits += 1  # capabilities match
-            return min(90.0, 20.0 + weighted_hits * 10)
+            # Normalize: max possible hits per term = 3+2+1+1=7; cap at 90
+            if not terms:
+                return 20.0
+            max_possible = len(terms) * 7
+            if max_possible == 0:
+                return 20.0
+            pct = weighted_hits / max_possible  # 0.0 to 1.0
+            return round(min(90.0, 20.0 + pct * 70.0), 1)  # 20-90 range
 
         # --- First pass: eng-filter + keyword match ---
         result = await db.execute(_build_kw_stmt(True))
@@ -526,7 +545,7 @@ async def search_providers(
                     score=20.0,
                     explanation=f"{reason} (no keyword match – tier fallback)",
                 )
-                for p in providers[:5]
+                for p in providers[:limit]
             ]
 
         # --- Score every candidate, sort descending ---
@@ -543,7 +562,7 @@ async def search_providers(
         matching.sort(key=lambda x: x.score, reverse=True)
         top_scores = [r.score for r in matching[:5]]
         logger.info(f"[SEARCH FALLBACK] top-5 relevance scores: {top_scores}")
-        return matching[:5]
+        return matching[:limit]
 
     if not settings.OPENAI_API_KEY or settings.OPENAI_API_KEY in ("dummy-key", "", None):
         logger.info("[SEARCH] No AI key configured, using keyword fallback")
