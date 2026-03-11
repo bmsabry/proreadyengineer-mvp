@@ -309,7 +309,6 @@ def _provider_embed_text(p) -> str:
         ' '.join(_safe_list(getattr(p, 'capabilities', []))),
         ' '.join(_safe_list(getattr(p, 'specialties', []))),
         ' '.join(_safe_list(getattr(p, 'software_tools', []))),
-        _safe_str(getattr(p, 'notable_clients', '')),
     ]
     return ' '.join(x for x in parts if x).strip()
 
@@ -577,7 +576,6 @@ async def _keyword_candidate_query(
             "LOWER(COALESCE(CAST(p.secondary_specialties AS TEXT), ''))",
             "LOWER(COALESCE(CAST(p.software_tools AS TEXT), ''))",
             "LOWER(COALESCE(CAST(p.team_members AS TEXT), ''))",
-            "LOWER(COALESCE(p.notable_clients, ''))",
             "LOWER(COALESCE(p.proven_experience_notable_projects, ''))",
         ]:
             or_conditions.append(f"{field} LIKE '%{kw_safe}%'")
