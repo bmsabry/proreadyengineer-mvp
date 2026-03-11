@@ -1,36 +1,50 @@
-'use client';
+"use client";
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRequireAuth } from '@/hooks/useAuth';
-import { api } from '@/lib/api';
-import { RFQ } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, getRFQStatusBadgeColor } from '@/lib/utils';
-import { PlusCircle, FileText, MessageSquare } from 'lucide-react';
+import { PlusCircle, FileText, MessageSquare, Activity } from 'lucide-react';
+
+interface CustomerRFQ {
+  id: string;
+  project_description: string;
+  rfq_status: string;
+  urgency: string | null;
+  nda_required: boolean;
+  quote_count: number;
+  is_closed: boolean;
+  created_at: string | null;
+  submitted_at: string | null;
+}
 
 export default function CustomerDashboard() {
-  const { user, isLoading: authLoading } = useRequireAuth(['customer']);
-  const [rfqs, setRfqs] = useState<RFQ[]>([]);
+  const { user, isLoading: authLoading } = useRequireAuth(["customer"]);
+  const [rfqs, setRfqs] = useState<CustomerRFQ[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!user) return;
     const fetchRFQs = async () => {
       try {
-        const response = await api.admin.listRFQs({ page: 1, page_size: 10 });
-        setRfqs(response.data.items);
-      } catch (error) {
-        console.error('Failed to fetch RFQs:', error);
+        const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+        const res = await fetch(`${apiBase}/rfqs/customer/my-rfqs`, {
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!res.ok) throw new Error(`Failed to fetch RFQs (${res.status})`);
+        setRfqs(await res.json());
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Failed to load your RFQs");
       } finally {
         setIsLoading(false);
       }
     };
-    
-    if (user) {
-      fetchRFQs();
-    }
+    fetchRFQs();
   }, [user]);
 
   if (authLoading || isLoading) {
@@ -58,6 +72,10 @@ export default function CustomerDashboard() {
         </Link>
       </div>
 
+      {error && (
+        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      )}
+
       <div className="grid gap-6">
         <Card>
           <CardHeader>
@@ -65,9 +83,7 @@ export default function CustomerDashboard() {
               <FileText className="h-5 w-5" />
               Your RFQs
             </CardTitle>
-            <CardDescription>
-              Track the status of your request for quotes
-            </CardDescription>
+            <CardDescription>Track the status of your request for quotes</CardDescription>
           </CardHeader>
           <CardContent>
             {rfqs.length === 0 ? (
@@ -80,32 +96,50 @@ export default function CustomerDashboard() {
             ) : (
               <div className="space-y-4">
                 {rfqs.map((rfq) => (
-                  <Link key={rfq.id} href={`/customer/rfq/${rfq.id}`}>
-                    <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
-                      <CardContent className="p-4">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <h3 className="font-semibold">{rfq.project_description.slice(0, 100)}...</h3>
-                            <p className="text-sm text-muted-foreground">
-                              Created {formatDate(rfq.created_at)} • Urgency: {rfq.urgency}
-                            </p>
-                          </div>
-                          <Badge className={getRFQStatusBadgeColor(rfq.rfq_status)}>
-                            {rfq.rfq_status.replace(/_/g, ' ')}
-                          </Badge>
+                  <Card key={rfq.id} className="hover:bg-muted/50 transition-colors">
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start gap-4">
+                        <div className="flex-1 min-w-0">
+                          <Link href={`/customer/rfq/${rfq.id}`}>
+                            <h3 className="font-semibold hover:text-blue-600 transition-colors">
+                              {rfq.project_description.slice(0, 120)}
+                              {rfq.project_description.length > 120 ? "..." : ""}
+                            </h3>
+                          </Link>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {rfq.created_at ? formatDate(rfq.created_at) : "Unknown date"}
+                            {rfq.urgency ? ` · Urgency: ${rfq.urgency}` : ""}
+                          </p>
                         </div>
-                        <div className="flex items-center gap-4 mt-4 text-sm">
-                          <span className="flex items-center gap-1">
-                            <MessageSquare className="h-4 w-4" />
-                            {rfq.quote_count} quotes
-                          </span>
-                          {rfq.nda_required && (
-                            <Badge variant="outline">NDA Required</Badge>
-                          )}
+                        <Badge className={getRFQStatusBadgeColor(rfq.rfq_status)}>
+                          {rfq.rfq_status.replace(/_/g, " ")}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 mt-3">
+                        <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                          <MessageSquare className="h-4 w-4" />
+                          {rfq.quote_count} quote{rfq.quote_count !== 1 ? "s" : ""}
+                        </span>
+                        {rfq.nda_required && (
+                          <Badge variant="outline" className="text-xs">NDA Required</Badge>
+                        )}
+                        <div className="ml-auto flex items-center gap-2">
+                          <Link href={`/customer/rfq/${rfq.id}`}>
+                            <Button variant="outline" size="sm">
+                              <FileText className="mr-1 h-3 w-3" />
+                              Details
+                            </Button>
+                          </Link>
+                          <Link href={`/customer/rfq/${rfq.id}/tracking`}>
+                            <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50">
+                              <Activity className="mr-1 h-3 w-3" />
+                              Track Dispatch
+                            </Button>
+                          </Link>
                         </div>
-                      </CardContent>
-                    </Card>
-                  </Link>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
             )}

@@ -18,6 +18,9 @@ export interface RegisterRequest {
   email: string;
   password: string;
   roles?: ('customer' | 'provider' | 'advertiser')[];
+  full_name?: string;
+  company_name?: string;
+  phone?: string;
 }
 
 export interface LoginRequest {
@@ -423,3 +426,10 @@ export interface ApiError {
   code?: string;
   field?: string;
 }
+
+// ── Customer RFQ listing & tracking ──────────────────────────────────────────
+export interface CustomerRFQSummary { id: string; project_description: string; rfq_status: string; urgency: string; nda_required: boolean; quote_count: number; is_closed: boolean; created_at: string|null; submitted_at: string|null; }
+export interface DispatchedProvider { provider_id: number; provider_name: string; city: string|null; state: string|null; tier: string|null; dispatch_status: string; teaser_email_sent_at: string|null; batch_id: string|null; }
+export interface RFQDispatchBatchDetail { id: string; batch_number: number; status: string; scheduled_for: string|null; dispatched_at: string|null; providers_contacted: DispatchedProvider[]; }
+export interface TrackingQuote { id: string; provider_id: number; quote_status: string; rough_price_min: number|null; rough_price_max: number|null; currency: string|null; turnaround_estimate_text: string|null; submitted_at: string|null; }
+export interface RFQTrackingData { rfq: CustomerRFQSummary; total_matches: number; total_dispatched: number; quotes_received: number; batches: RFQDispatchBatchDetail[]; quotes: TrackingQuote[]; }

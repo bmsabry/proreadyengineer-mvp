@@ -402,3 +402,25 @@ export const api = {
 };
 
 export default api;
+
+// ── Customer RFQ API helpers ─────────────────────────────────────────────────
+import type { CustomerRFQSummary, RFQTrackingData } from '@/types';
+
+export const customerRfqApi = {
+  getMyRfqs: async (): Promise<CustomerRFQSummary[]> => {
+    const res = await fetch(`${API_URL}/rfqs/customer/my-rfqs`, {
+      method: 'GET', credentials: 'include',
+      headers: { 'Content-Type': 'application/json',  },
+    });
+    if (!res.ok) throw new Error(`getMyRfqs failed: ${res.status}`);
+    return res.json();
+  },
+  getRfqTracking: async (rfqId: string): Promise<RFQTrackingData> => {
+    const res = await fetch(`${API_URL}/rfqs/customer/rfqs/${rfqId}/tracking`, {
+      method: 'GET', credentials: 'include',
+      headers: { 'Content-Type': 'application/json',  },
+    });
+    if (!res.ok) throw new Error(`getRfqTracking failed: ${res.status}`);
+    return res.json();
+  },
+};
