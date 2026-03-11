@@ -302,6 +302,16 @@ async def generate_embedding(text_input: str) -> List[float]:
 
 def _provider_embed_text(p) -> str:
     """Canonical provider text for embedding."""
+    # Extract notable projects as a condensed text (first 500 chars of each, joined)
+    notable_raw = getattr(p, 'proven_experience_notable_projects', None) or []
+    if isinstance(notable_raw, str):
+        import json
+        try:
+            notable_raw = json.loads(notable_raw)
+        except Exception:
+            notable_raw = [notable_raw]
+    notable_text = ' '.join(str(n)[:200] for n in (notable_raw or []))[:1000]
+
     parts = [
         _safe_str(getattr(p, 'firm_name', '') or getattr(p, 'name', '')),
         _safe_str(getattr(p, 'primary_specialty', '')),
@@ -309,6 +319,7 @@ def _provider_embed_text(p) -> str:
         ' '.join(_safe_list(getattr(p, 'capabilities', []))),
         ' '.join(_safe_list(getattr(p, 'specialties', []))),
         ' '.join(_safe_list(getattr(p, 'software_tools', []))),
+        notable_text,
     ]
     return ' '.join(x for x in parts if x).strip()
 
@@ -401,6 +412,62 @@ def _software_bonus(provider, intent: Dict[str, Any]) -> float:
     hits = sum(1 for s in mentioned if any(s in t or t in s for t in tools))
     return min(10.0, hits * 3.0)
 
+
+def _score_notable_projects(provider, intent: dict, raw_query: str = '') -> float:
+    """Notable Projects Bonus 0-15 pts.
+
+    Awards points when provider's proven_experience_notable_projects
+    descriptions contain keywords from the search query.
+    """
+    import json
+    notable_raw = getattr(provider, 'proven_experience_notable_projects', None) or []
+    if isinstance(notable_raw, str):
+        try:
+            notable_raw = json.loads(notable_raw)
+        except Exception:
+            notable_raw = [notable_raw]
+    if not notable_raw:
+        return 0.0
+
+    # Build a combined text of all project descriptions
+    projects_text = ' '.join(str(n) for n in notable_raw).lower()
+
+    # Collect keywords from intent + raw query
+    stop = {'and', 'the', 'for', 'with', 'that', 'this', 'from', 'have',
+            'will', 'what', 'can', 'are', 'was', 'but', 'not', 'our',
+            'your', 'their', 'more', 'also', 'data', 'system', 'used'}
+    kw_set = set()
+    q = raw_query.lower() if raw_query else ''
+    for w in re.findall(r'[a-z0-9]+', q):
+        if len(w) > 3 and w not in stop:
+            kw_set.add(w)
+    for kw in _safe_list(intent.get('inferred_keywords', [])):
+        for w in re.findall(r'[a-z0-9]+', kw.lower()):
+            if len(w) > 3 and w not in stop:
+                kw_set.add(w)
+    spec = _safe_str(intent.get('inferred_specialty', '')).lower()
+    for w in re.findall(r'[a-z0-9]+', spec):
+        if len(w) > 3 and w not in stop:
+            kw_set.add(w)
+    for cap in _safe_list(intent.get('capabilities_needed', [])):
+        for w in re.findall(r'[a-z0-9]+', cap.lower()):
+            if len(w) > 3 and w not in stop:
+                kw_set.add(w)
+
+    if not kw_set:
+        return 0.0
+
+    hits = sum(1 for w in kw_set if w in projects_text)
+    ratio = hits / len(kw_set)
+    if ratio >= 0.5:
+        return 15.0
+    elif ratio >= 0.3:
+        return 10.0
+    elif ratio >= 0.15:
+        return 5.0
+    elif hits > 0:
+        return 3.0
+    return 0.0
 
 
 def _project_types_bonus(provider, intent: Dict[str, Any], raw_query: str = '') -> float:
@@ -519,6 +586,7 @@ def calculate_match_score(
     provider,
     intent: Dict[str, Any],
     similarity: float = 0.0,
+    raw_query: str = '',
 ) -> Dict[str, float]:
     """Compute deterministic 100-point composite score."""
     tier_pts      = _tier_score(provider)
@@ -527,17 +595,19 @@ def calculate_match_score(
         cap_pts = round(similarity * 50.0, 2)
     else:
         cap_pts = _capabilities_score_keyword(provider, intent)
-    sw_bonus   = _software_bonus(provider, intent)
-    proj_bonus = _project_types_bonus(provider, intent, raw_query)
-    total    = min(100.0, specialty_pts + cap_pts + tier_pts + sw_bonus + proj_bonus)
+    sw_bonus       = _software_bonus(provider, intent)
+    proj_bonus     = _project_types_bonus(provider, intent, raw_query)
+    notable_bonus  = _score_notable_projects(provider, intent, raw_query)
+    total    = min(100.0, specialty_pts + cap_pts + tier_pts + sw_bonus + proj_bonus + notable_bonus)
     return {
-        'total':          round(total, 2),
-        'specialty':      round(specialty_pts, 2),
-        'capabilities':   round(cap_pts, 2),
-        'tier':           round(tier_pts, 2),
-        'software_bonus': round(sw_bonus, 2),
-        'proj_bonus':     round(proj_bonus, 2),
-        'similarity':     round(similarity, 4),
+        'total':           round(total, 2),
+        'specialty':       round(specialty_pts, 2),
+        'capabilities':    round(cap_pts, 2),
+        'tier':            round(tier_pts, 2),
+        'software_bonus':  round(sw_bonus, 2),
+        'proj_bonus':      round(proj_bonus, 2),
+        'notable_bonus':   round(notable_bonus, 2),
+        'similarity':      round(similarity, 4),
     }
 
 
@@ -555,6 +625,8 @@ def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, An
     parts.append(f"Tier score: {scores['tier']:.0f}/25.")
     if scores.get('proj_bonus', 0) > 0:
         parts.append(f"Project types match bonus: +{scores['proj_bonus']:.0f}.")
+    if scores.get('notable_bonus', 0) > 0:
+        parts.append(f"Notable projects match: +{scores['notable_bonus']:.0f}.")
     if scores['software_bonus'] > 0:
         parts.append(f"Software tool bonus: +{scores['software_bonus']:.0f}.")
     parts.append(f"Matched on: {specialty}.")
