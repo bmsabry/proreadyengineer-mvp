@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRedirectIfAuthenticated } from '@/hooks/useAuth';
@@ -11,19 +11,36 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { toast } from 'sonner';
 
 export default function LoginPage() {
-  const { login, isLoading } = useAuth();
+  const { login } = useAuth();
   useRedirectIfAuthenticated();
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [slowWarning, setSlowWarning] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isSubmitting) {
+      timer = setTimeout(() => setSlowWarning(true), 8000);
+    } else {
+      setSlowWarning(false);
+    }
+    return () => clearTimeout(timer);
+  }, [isSubmitting]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
     try {
       await login(email, password);
       toast.success('Logged in successfully');
-    } catch (error) {
-      toast.error('Invalid email or password');
+    } catch (error: any) {
+      const msg = error?.response?.data?.detail || error?.message || 'Invalid email or password';
+      toast.error(msg);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -47,6 +64,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={isSubmitting}
               />
             </div>
             <div className="space-y-2">
@@ -57,12 +75,18 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                disabled={isSubmitting}
               />
             </div>
+            {slowWarning && (
+              <p className="text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
+                ⏳ Server is waking up (free tier) — this can take up to 60 seconds on first request. Please wait...
+              </p>
+            )}
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? 'Signing in...' : 'Sign in'}
+            <Button type="submit" className="w-full" disabled={isSubmitting}>
+              {isSubmitting ? 'Signing in...' : 'Sign in'}
             </Button>
             <div className="flex justify-between w-full text-sm">
               <Link href="/forgot-password" className="text-primary hover:underline">
