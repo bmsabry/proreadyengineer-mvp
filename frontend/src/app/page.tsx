@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,7 +13,9 @@ import { Search, Users, Building2, Megaphone } from 'lucide-react';
 
 function Footer() {
   const { setShowSetup, missingServices } = useConfig();
-  const needsConfig = missingServices.length > 0;
+  const { hasRole } = useAuth();
+  // SECURITY: Only admins can see the Configure APIs button
+  const needsConfig = hasRole('admin') && missingServices.length > 0;
 
   return (
     <footer className="border-t py-6">

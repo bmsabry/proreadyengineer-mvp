@@ -113,12 +113,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   const isConfigured = missingServices.length === 0;
 
-  // Show setup on first load if not fully configured
-  useEffect(() => {
-    if (isLoaded && !isConfigured && !localStorage.getItem('proready_setup_dismissed')) {
-      setShowSetup(true);
-    }
-  }, [isLoaded, isConfigured]);
+  // NOTE: Setup wizard is NOT auto-shown on load.
+  // It can only be triggered by admin users via the admin settings page
+  // or the footer button (which is also admin-gated).
+  // This prevents the wizard from appearing to anonymous/non-admin users.
 
   return (
     <ConfigContext.Provider
