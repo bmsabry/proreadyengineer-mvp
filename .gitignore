@@ -72,3 +72,7 @@ logs/
 # Keep provider database for Render migration
 !engineering_directory.db
 frontend/tsconfig.tsbuildinfo
+
+# Agent memory files
+.a0proj/memory/index.faiss
+.a0proj/memory/index.pkl
