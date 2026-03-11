@@ -402,6 +402,119 @@ def _software_bonus(provider, intent: Dict[str, Any]) -> float:
     return min(10.0, hits * 3.0)
 
 
+
+def _project_types_bonus(provider, intent: Dict[str, Any], raw_query: str = '') -> float:
+    """Project Types Bonus 0-15 pts.
+
+    Awards points when the provider's proven_experience_industries_served
+    contains industry/project types semantically related to the search query.
+    Uses a keyword-to-industry mapping for broader semantic matching.
+    """
+    industries_raw = getattr(provider, 'proven_experience_industries_served', None)
+    industries = _safe_list(industries_raw)
+    if not industries:
+        return 0.0
+
+    industries_lower = [str(i).lower().strip() for i in industries]
+
+    # Build combined query signal from intent + raw query
+    query_signals: List[str] = []
+    raw_q = raw_query.lower() if raw_query else ''
+    if raw_q:
+        query_signals.extend(re.findall(r'[a-z0-9]+', raw_q))
+    for kw in _safe_list(intent.get('inferred_keywords', [])):
+        query_signals.extend(re.findall(r'[a-z0-9]+', kw.lower()))
+    specialty = _safe_str(intent.get('inferred_specialty', '')).lower()
+    if specialty:
+        query_signals.extend(re.findall(r'[a-z0-9]+', specialty))
+    for cap in _safe_list(intent.get('capabilities_needed', [])):
+        query_signals.extend(re.findall(r'[a-z0-9]+', cap.lower()))
+
+    stop = {'and', 'the', 'for', 'with', 'that', 'this', 'from', 'have',
+            'will', 'what', 'can', 'are', 'was', 'but', 'not', 'our',
+            'your', 'their', 'more', 'also'}
+    query_signal_set = {w for w in query_signals if len(w) > 2 and w not in stop}
+
+    if not query_signal_set:
+        return 0.0
+
+    INDUSTRY_KEYWORDS: Dict[str, List[str]] = {
+        'energy'            : ['energy', 'power', 'turbine', 'generator', 'electric',
+                               'solar', 'wind', 'nuclear', 'fuel', 'combustion',
+                               'thermal', 'heat', 'gas', 'oil'],
+        'oil and gas'       : ['oil', 'gas', 'petroleum', 'refinery', 'pipeline',
+                               'drilling', 'upstream', 'downstream', 'offshore',
+                               'wellhead', 'compressor'],
+        'oil & gas'         : ['oil', 'gas', 'petroleum', 'refinery', 'pipeline',
+                               'drilling', 'upstream', 'downstream', 'offshore',
+                               'wellhead', 'compressor'],
+        'aerospace'         : ['aerospace', 'aircraft', 'aviation', 'flight',
+                               'propulsion', 'aerodynamic', 'rocket', 'satellite',
+                               'hypersonic', 'cfd', 'airfoil', 'turbine'],
+        'defense'           : ['defense', 'military', 'weapon', 'armor', 'ballistic',
+                               'missile', 'naval', 'combat', 'structural', 'blast'],
+        'automotive'        : ['automotive', 'vehicle', 'car', 'truck', 'engine',
+                               'transmission', 'suspension', 'brake', 'powertrain', 'crash'],
+        'manufacturing'     : ['manufacturing', 'fabrication', 'machining', 'assembly',
+                               'tooling', 'production', 'quality', 'process',
+                               'automation', 'robot'],
+        'construction'      : ['construction', 'building', 'structural', 'civil',
+                               'foundation', 'bridge', 'concrete', 'steel',
+                               'seismic', 'load'],
+        'marine'            : ['marine', 'ship', 'boat', 'offshore', 'underwater',
+                               'subsea', 'hull', 'propeller', 'wave', 'hydrodynamic'],
+        'medical'           : ['medical', 'biomedical', 'device', 'implant', 'surgical',
+                               'orthopedic', 'prosthetic', 'fda', 'biomechanical'],
+        'semiconductor'     : ['semiconductor', 'microelectronics', 'chip', 'wafer',
+                               'thermal', 'cooling', 'packaging', 'electronics', 'pcb'],
+        'chemical'          : ['chemical', 'process', 'reaction', 'catalyst',
+                               'distillation', 'polymer', 'material', 'corrosion',
+                               'fluid', 'pressure'],
+        'nuclear'           : ['nuclear', 'reactor', 'radiation', 'fission', 'fusion',
+                               'shielding', 'criticality', 'coolant', 'thermal'],
+        'mining'            : ['mining', 'excavation', 'ore', 'mineral', 'rock',
+                               'geotechnical', 'blasting', 'equipment', 'underground'],
+        'robotics'          : ['robot', 'automation', 'control', 'actuator', 'sensor',
+                               'mechatronics', 'machine', 'manipulator', 'kinematics'],
+        'power generation'  : ['power', 'generation', 'turbine', 'generator', 'grid',
+                               'plant', 'steam', 'thermal', 'cycle', 'boiler', 'combustion'],
+        'hvac'              : ['hvac', 'heating', 'cooling', 'ventilation', 'air',
+                               'thermal', 'refrigeration', 'heat', 'chiller', 'duct'],
+        'infrastructure'    : ['infrastructure', 'bridge', 'road', 'highway', 'rail',
+                               'transit', 'utility', 'water', 'pipeline', 'structural'],
+        'data center'       : ['data', 'center', 'server', 'cooling', 'thermal',
+                               'power', 'rack', 'airflow', 'cfd', 'efficiency'],
+        'renewable energy'  : ['renewable', 'solar', 'wind', 'hydro', 'geothermal',
+                               'energy', 'sustainable', 'clean', 'green', 'storage'],
+        'food and beverage'  : ['food', 'beverage', 'processing', 'sanitary', 'fda',
+                               'packaging', 'conveyor', 'thermal', 'sterilization'],
+        'pharmaceutical'    : ['pharmaceutical', 'drug', 'fda', 'gmp', 'cleanroom',
+                               'bioprocess', 'sterile', 'mixing', 'filtration'],
+    }
+
+    best_score = 0.0
+
+    for industry in industries_lower:
+        ind_words = {w for w in re.findall(r'[a-z0-9]+', industry) if len(w) > 2}
+        direct_overlap = ind_words & query_signal_set
+        if direct_overlap:
+            ratio = len(direct_overlap) / max(len(ind_words), 1)
+            score = min(15.0, 15.0 * min(1.0, ratio * 1.5))
+            best_score = max(best_score, score)
+            continue
+
+        for ind_key, related_kws in INDUSTRY_KEYWORDS.items():
+            ind_key_words = {w for w in re.findall(r'[a-z0-9]+', ind_key) if len(w) > 2}
+            if ind_key_words & ind_words:
+                related_hits = sum(1 for kw in related_kws if kw in query_signal_set)
+                if related_hits > 0:
+                    ratio = related_hits / len(related_kws)
+                    score = min(15.0, ratio * 80.0)
+                    best_score = max(best_score, score)
+
+    return round(min(15.0, best_score), 2)
+
+
 def calculate_match_score(
     provider,
     intent: Dict[str, Any],
@@ -414,14 +527,16 @@ def calculate_match_score(
         cap_pts = round(similarity * 50.0, 2)
     else:
         cap_pts = _capabilities_score_keyword(provider, intent)
-    sw_bonus = _software_bonus(provider, intent)
-    total    = min(100.0, specialty_pts + cap_pts + tier_pts + sw_bonus)
+    sw_bonus   = _software_bonus(provider, intent)
+    proj_bonus = _project_types_bonus(provider, intent, raw_query)
+    total    = min(100.0, specialty_pts + cap_pts + tier_pts + sw_bonus + proj_bonus)
     return {
         'total':          round(total, 2),
         'specialty':      round(specialty_pts, 2),
         'capabilities':   round(cap_pts, 2),
         'tier':           round(tier_pts, 2),
         'software_bonus': round(sw_bonus, 2),
+        'proj_bonus':     round(proj_bonus, 2),
         'similarity':     round(similarity, 4),
     }
 
@@ -438,6 +553,8 @@ def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, An
         parts[-1] += f" (semantic similarity {scores['similarity']:.3f})"
     parts[-1] += '.'
     parts.append(f"Tier score: {scores['tier']:.0f}/25.")
+    if scores.get('proj_bonus', 0) > 0:
+        parts.append(f"Project types match bonus: +{scores['proj_bonus']:.0f}.")
     if scores['software_bonus'] > 0:
         parts.append(f"Software tool bonus: +{scores['software_bonus']:.0f}.")
     parts.append(f"Matched on: {specialty}.")
@@ -789,7 +906,7 @@ async def search_providers(
         try:
             provider = _ProviderProxy(row)
             similarity = float(row.get('cosine_similarity', 0.0) or 0.0) if used_vector else 0.0
-            scores = calculate_match_score(provider, intent, similarity=similarity)
+            scores = calculate_match_score(provider, intent, similarity=similarity, raw_query=query)
             name = _display_name(provider)
             explanation = _build_explanation(name, scores, intent)
             scored.append((
