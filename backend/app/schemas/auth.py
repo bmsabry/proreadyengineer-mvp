@@ -22,6 +22,7 @@ class UserLoginRequest(BaseSchema):
     """User login request."""
     email: EmailStr
     password: str
+    remember_me: bool = False
 
 
 class TokenPairResponse(BaseSchema):

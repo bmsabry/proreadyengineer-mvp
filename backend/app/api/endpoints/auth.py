@@ -36,6 +36,7 @@ router = APIRouter()
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     request: Request,
+    response: Response,
     data: UserRegisterRequest,
     db: AsyncSession = Depends(get_db),
 ):
@@ -55,6 +56,13 @@ async def register(
         db, user.id, refresh_token,
         get_client_ip(request), request.headers.get("user-agent", "")
     )
+
+    from app.core.config import settings
+    is_production = settings.is_production
+    cookie_secure = is_production
+    cookie_samesite = "none" if is_production else "lax"
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=900)
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=604800)
 
     return RegisterResponse(
         user=user,
@@ -86,9 +94,15 @@ async def login(
         get_client_ip(request), request.headers.get("user-agent", "")
     )
 
-    # Use secure=False for testing; in production, use secure=True
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=False, samesite="lax", max_age=900)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=False, samesite="lax", max_age=604800)
+    # Environment-aware cookie settings for cross-origin support
+    from app.core.config import settings
+    is_production = settings.is_production
+    cookie_secure = is_production  # True in production (HTTPS), False in dev
+    cookie_samesite = "none" if is_production else "lax"  # none required for cross-origin
+    refresh_max_age = 2592000 if data.remember_me else 604800  # 30 days or 7 days
+
+    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=900)
+    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=refresh_max_age)
 
     from app.schemas.user import UserResponse
     user_response = UserResponse(
@@ -116,6 +130,7 @@ async def login(
 @router.post("/refresh", response_model=TokenPairResponse)
 async def refresh_token(
     request: Request,
+    response: Response,
     data: Optional[RefreshTokenRequest] = None,
     db: AsyncSession = Depends(get_db),
 ):
@@ -173,8 +188,17 @@ async def refresh_token(
         last_login_at=getattr(user, 'last_login_at', None),
     )
 
-    response = TokenPairResponse(access_token=new_access, refresh_token=new_refresh, user=user_response)
-    return response
+    # Set updated cookies with environment-aware settings
+    from app.core.config import settings
+    is_production = settings.is_production
+    cookie_secure = is_production
+    cookie_samesite = "none" if is_production else "lax"
+    # Preserve remember_me by checking existing cookie max-age (keep 30 days if previously set)
+    response.set_cookie(key="access_token", value=new_access, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=900)
+    response.set_cookie(key="refresh_token", value=new_refresh, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=2592000)  # 30 days
+
+    token_response = TokenPairResponse(access_token=new_access, refresh_token=new_refresh, user=user_response)
+    return token_response
 
 
 @router.post("/logout")
