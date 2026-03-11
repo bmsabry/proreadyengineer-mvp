@@ -184,6 +184,8 @@ async def register_user(
         password_hash=hash_password(data.password),
         first_name=data.first_name,
         last_name=data.last_name,
+        full_name=data.full_name,
+        business_name=data.business_name,
         roles=["customer"],  # Default role
     )
 

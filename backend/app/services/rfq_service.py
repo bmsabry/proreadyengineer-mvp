@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -90,142 +90,69 @@ async def get_rfq(db: AsyncSession, rfq_id: uuid.UUID) -> Optional[RFQ]:
 async def submit_rfq(
     db: AsyncSession,
     rfq_id: uuid.UUID,
-    search_service: Any,  # Import would cause circular dependency
 ) -> None:
-    """Submit RFQ and initiate matching and dispatch.
-
-    Args:
-        db: Database session.
-        rfq_id: RFQ UUID.
-        search_service: Search service module for generating matches.
-
-    Raises:
-        ValueError: If RFQ not found or already submitted.
-    """
+    """Submit RFQ: run full search, store ALL matches, schedule dispatch."""
     rfq = await get_rfq(db, rfq_id)
     if not rfq:
         raise ValueError("RFQ not found")
-
     if rfq.rfq_status != RfqStatus.DRAFT:
         raise ValueError("RFQ is not in draft status")
 
-    # Check NDA flow if required
+    # Check NDA flow
     if rfq.nda_required:
         rfq.rfq_status = RfqStatus.AWAITING_NDA_PAYMENT
         await db.commit()
         return
 
-    # Move to dispatch-ready status
     rfq.rfq_status = RfqStatus.OPEN_FOR_DISPATCH
     rfq.submitted_at = datetime.utcnow()
 
-    # Generate matches using search service
-    from app.services.search_service import calculate_match_score, search_providers
-
-    # Search for matching providers
-    filters = {
-        "is_mechanical_focus": 1,  # Default for engineering searches
-    }
-
+    # Run full AI search - NO LIMIT, get ALL relevant providers
+    from app.services.search_service import search_providers
     match_results = await search_providers(
         db,
         query=rfq.project_description,
-        filters=filters,
-        limit=50,
+        filters={},
+        limit=9999,
     )
 
-    # Create RFQMatch records
+    # Store ALL ranked matches
     for idx, result in enumerate(match_results, 1):
         provider = result["provider"]
-
         rfq_match = RFQMatch(
             rfq_id=rfq.id,
             provider_id=provider.id,
             rank_position=idx,
             composite_score=result["composite_score"],
-            specialty_score=result["specialty_score"],
-            capabilities_score=result["capabilities_score"],
-            tier_score=result["tier_score"],
-            scoring_inputs=result["scoring_inputs"],
+            specialty_score=result.get("specialty_score", 0),
+            capabilities_score=result.get("capabilities_score", 0),
+            tier_score=result.get("tier_score", 0),
+            scoring_inputs=result.get("scoring_inputs", {}),
         )
         db.add(rfq_match)
 
     await db.commit()
 
-    # Queue first dispatch batch (in background task)
-    await create_dispatch_batch(db, rfq_id, batch_number=1)
+    # Dispatch Batch 1 immediately
+    await dispatch_next_batch(db, rfq_id)
 
 
-async def create_dispatch_batch(
+async def dispatch_next_batch(
     db: AsyncSession,
     rfq_id: uuid.UUID,
-    batch_number: int,
-) -> RFQDispatchBatch:
-    """Create a scheduled dispatch batch.
+) -> list:
+    """Dispatch the next 5 un-dispatched providers for an RFQ.
 
-    Args:
-        db: Database session.
-        rfq_id: RFQ UUID.
-        batch_number: Batch sequence number (1-indexed).
-
-    Returns:
-        RFQDispatchBatch: Created batch record.
-    """
-    # Schedule batch based on interval
-    hours_delay = (batch_number - 1) * settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS
-    scheduled_for = datetime.utcnow() + timedelta(hours=hours_delay)
-
-    batch = RFQDispatchBatch(
-        rfq_id=rfq_id,
-        batch_number=batch_number,
-        scheduled_for=scheduled_for,
-        status="pending",
-    )
-
-    db.add(batch)
-    await db.commit()
-    await db.refresh(batch)
-
-    return batch
-
-
-async def dispatch_teaser_batch(
-    db: AsyncSession,
-    rfq_id: uuid.UUID,
-    batch_number: int,
-    email_service: Any,  # Avoid circular import
-) -> list[RFQDispatch]:
-    """Dispatch teaser emails for a batch.
-
-    Args:
-        db: Database session.
-        rfq_id: RFQ UUID.
-        batch_number: Batch number to dispatch.
-        email_service: Email service for sending teasers.
-
-    Returns:
-        list[RFQDispatch]: Created dispatch records.
+    Called at submit time for Batch 1, then every 24h if quote_count < 5.
     """
     from app.models import DispatchStatus
 
-    # Get batch
-    result = await db.execute(
-        select(RFQDispatchBatch).where(
-            RFQDispatchBatch.rfq_id == rfq_id,
-            RFQDispatchBatch.batch_number == batch_number,
-        )
-    )
-    batch = result.scalar_one_or_none()
-
-    if not batch or batch.dispatched_at:
-        return []
-
-    # Get RFQ with matches
-    rfq = await get_rfq(db, rfq_id)
+    # Check RFQ is still open
+    rfq = await db.get(RFQ, rfq_id)
     if not rfq or rfq.is_closed or rfq.quote_count >= settings.RFQ_MAX_QUOTES:
         return []
 
-    # Get matches not yet dispatched, ordered by rank
+    # Get next 5 un-dispatched matches ordered by rank
     result = await db.execute(
         select(RFQMatch)
         .where(
@@ -233,44 +160,90 @@ async def dispatch_teaser_batch(
             RFQMatch.is_dispatched == False,
         )
         .order_by(RFQMatch.rank_position)
-        .limit(settings.RFQ_DISPATCH_BATCH_SIZE)
+        .limit(5)
     )
     matches = result.scalars().all()
 
-    dispatches = []
+    if not matches:
+        # All providers contacted and still < 5 quotes - close as no-selection
+        rfq.rfq_status = RfqStatus.CLOSED_NO_SELECTION
+        rfq.is_closed = True
+        rfq.closed_at = datetime.utcnow()
+        await db.commit()
+        return []
+
+    # Determine current batch number
+    batch_result = await db.execute(
+        select(func.count()).where(RFQDispatchBatch.rfq_id == rfq_id)
+    )
+    batch_count = batch_result.scalar() or 0
+    batch_number = batch_count + 1
+
+    # Create batch record
+    batch = RFQDispatchBatch(
+        rfq_id=rfq_id,
+        batch_number=batch_number,
+        scheduled_for=datetime.utcnow(),
+        dispatched_at=datetime.utcnow(),
+        status="dispatched",
+    )
+    db.add(batch)
+    await db.flush()
+
+    dispatched = []
     for match in matches:
-        # Get provider email addresses
         provider = await db.get(Provider, match.provider_id)
-        if not provider or not provider.email_addresses:
+        if not provider:
             continue
 
-        # Create dispatch record
+        email_target = None
+        if provider.email_addresses:
+            if isinstance(provider.email_addresses, list) and provider.email_addresses:
+                email_target = provider.email_addresses[0]
+            elif isinstance(provider.email_addresses, str) and provider.email_addresses:
+                email_target = provider.email_addresses
+
         dispatch = RFQDispatch(
             rfq_id=rfq_id,
             provider_id=match.provider_id,
             batch_id=batch.id,
-            dispatch_status=DispatchStatus.PENDING,
-            email_target=provider.email_addresses[0] if provider.email_addresses else None,
+            dispatch_status=DispatchStatus.SENT if email_target else DispatchStatus.FAILED,
+            email_target=email_target,
+            teaser_email_sent_at=datetime.utcnow() if email_target else None,
         )
         db.add(dispatch)
-        dispatches.append(dispatch)
 
-        # Mark match as dispatched
         match.is_dispatched = True
         match.dispatched_at = datetime.utcnow()
 
-    # Update batch
-    batch.dispatched_at = datetime.utcnow()
-    batch.status = "dispatched"
+        if email_target:
+            try:
+                from app.services.email_service import send_teaser_email
+                rfq_data = {
+                    "rfq_id": str(rfq_id),
+                    "urgency": rfq.urgency,
+                    "tollgate_phases": rfq.tollgate_phases or [],
+                    "project_description": (
+                        rfq.project_description[:200] + "..."
+                        if len(rfq.project_description) > 200
+                        else rfq.project_description
+                    ),
+                    "nda_required": rfq.nda_required,
+                    "batch_number": batch_number,
+                }
+                await send_teaser_email(email_target, rfq_data)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).error(
+                    "Failed to send teaser email to %s: %s", email_target, exc
+                )
 
+        dispatched.append(dispatch)
+
+    # Advance RFQ status to accepting unlocks
+    rfq.rfq_status = RfqStatus.OPEN_FOR_UNLOCK
     await db.commit()
-
-    # Send emails asynchronously (via Celery)
-    for dispatch in dispatches:
-        # This would queue Celery task in production
-        pass
-
-    return dispatches
+    return dispatched
 
 
 async def get_rfq_matches(

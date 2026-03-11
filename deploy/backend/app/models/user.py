@@ -42,6 +42,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     first_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    full_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    business_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     roles: Mapped[List[str]] = mapped_column(
         JSON, nullable=False, default=list
     )

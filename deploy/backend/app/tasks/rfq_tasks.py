@@ -1,47 +1,44 @@
 """RFQ background tasks."""
-
 import asyncio
-from datetime import datetime
-
 from app.core.celery import celery_app
 from app.db.session import AsyncSessionLocal
-from app.services.rfq_service import dispatch_teaser_batch
 
 
 @celery_app.task(bind=True, max_retries=3)
-def dispatch_rfq_batch_task(self, rfq_id: str, batch_number: int):
-    """Dispatch RFQ teaser batch to providers."""
+def dispatch_rfq_batch_task(self, rfq_id: str):
+    """Dispatch next batch for an RFQ if quote_count < 5."""
     async def _dispatch():
+        from app.services.rfq_service import dispatch_next_batch
+        import uuid
         async with AsyncSessionLocal() as db:
-            await dispatch_teaser_batch(db, rfq_id, batch_number)
+            await dispatch_next_batch(db, uuid.UUID(rfq_id))
 
     try:
         asyncio.run(_dispatch())
     except Exception as exc:
-        raise self.retry(exc=exc, countdown=60)
+        raise self.retry(exc=exc, countdown=300)
 
 
 @celery_app.task(bind=True)
-def process_pending_dispatches_task(self):
-    """Process all pending RFQ dispatches (scheduled every 15 min)."""
-    async def _process():
+def check_and_dispatch_rfqs_task(self):
+    """Every 24h: for each open RFQ with quote_count < 5, dispatch next batch."""
+    async def _check():
         from sqlalchemy import select
-        from app.models.rfq import RFQDispatchBatch
-
+        from app.models.rfq import RFQ, RfqStatus
         async with AsyncSessionLocal() as db:
-            now = datetime.utcnow()
             result = await db.execute(
-                select(RFQDispatchBatch).where(
-                    RFQDispatchBatch.scheduled_for <= now,
-                    RFQDispatchBatch.status == "pending"
+                select(RFQ).where(
+                    RFQ.is_closed == False,
+                    RFQ.rfq_status.in_([
+                        RfqStatus.OPEN_FOR_DISPATCH,
+                        RfqStatus.OPEN_FOR_UNLOCK,
+                        RfqStatus.DISPATCHING,
+                    ])
                 )
             )
-            batches = result.scalars().all()
+            rfqs = result.scalars().all()
+            for rfq in rfqs:
+                if rfq.quote_count < 5:
+                    dispatch_rfq_batch_task.delay(str(rfq.id))
 
-            for batch in batches:
-                dispatch_rfq_batch_task.delay(str(batch.rfq_id), batch.batch_number)
-                batch.status = "dispatched"
-
-            await db.commit()
-
-    asyncio.run(_process())
+    asyncio.run(_check())

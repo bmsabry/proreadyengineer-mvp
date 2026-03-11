@@ -54,6 +54,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.rfq_tasks.process_pending_dispatches",
         "schedule": 900.0,  # 15 minutes
     },
+    'check-and-dispatch-rfqs-every-24h': {
+        'task': 'app.tasks.rfq_tasks.check_and_dispatch_rfqs_task',
+        'schedule': 86400.0,  # 24 hours in seconds
+    },
 }
 
 

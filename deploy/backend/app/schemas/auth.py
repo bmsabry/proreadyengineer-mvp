@@ -16,6 +16,8 @@ class UserRegisterRequest(BaseSchema):
     password: str = Field(..., min_length=8, max_length=128)
     first_name: Optional[str] = Field(None, max_length=100)
     last_name: Optional[str] = Field(None, max_length=100)
+    full_name: Optional[str] = None
+    business_name: Optional[str] = None
 
 
 class UserLoginRequest(BaseSchema):
@@ -86,6 +88,8 @@ class AuthMeResponse(ResponseSchema):
     email: str
     first_name: Optional[str]
     last_name: Optional[str]
+    full_name: Optional[str] = None
+    business_name: Optional[str] = None
     roles: list[str]
     is_super_admin: bool
     can_review_claims: bool

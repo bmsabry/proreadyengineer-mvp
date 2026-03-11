@@ -43,6 +43,8 @@ class UserResponse(BaseSchema):
     email: str
     first_name: Optional[str]
     last_name: Optional[str]
+    full_name: Optional[str] = None
+    business_name: Optional[str] = None
     roles: list[str]
     is_super_admin: bool = False
     can_review_claims: bool = False
