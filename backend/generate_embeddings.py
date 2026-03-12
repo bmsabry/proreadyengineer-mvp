@@ -172,12 +172,31 @@ async def run(args: argparse.Namespace) -> None:
                     p.primary_specialty or "",
                     p.business_description or "",
                 ]
-                # Include specialties, capabilities, and software_tools in embedding
-                # This enables semantic matching on all four dimensions
+                # v3: Include specialties, capabilities, software_tools, notable_projects, case_studies
                 for field_val in [p.specialties, p.capabilities, p.software_tools]:
                     if field_val:
                         if isinstance(field_val, list):
                             parts.append(" ".join(str(x) for x in field_val if x))
+                        else:
+                            parts.append(str(field_val))
+                # Add proven experience: notable projects and case studies
+                for field_val in [p.proven_experience_notable_projects, p.proven_experience_case_studies]:
+                    if field_val:
+                        if isinstance(field_val, list):
+                            # Each item may be a dict with 'title', 'description', etc.
+                            items_text = []
+                            for item in field_val:
+                                if isinstance(item, dict):
+                                    text_parts = []
+                                    for key in ['title', 'description', 'summary', 'industry', 'scope']:
+                                        if item.get(key):
+                                            text_parts.append(str(item[key]))
+                                    items_text.append(" ".join(text_parts))
+                                else:
+                                    items_text.append(str(item))
+                            parts.append(" ".join(items_text))
+                        elif isinstance(field_val, dict):
+                            parts.append(str(field_val))
                         else:
                             parts.append(str(field_val))
                 combined = " ".join(filter(None, parts)).strip()
@@ -233,7 +252,7 @@ async def run(args: argparse.Namespace) -> None:
                             embedding=embedding,
                             embedding_model=args.model,
                             embedding_generated_at=datetime.utcnow(),
-                            embedding_version="2",  # v2: includes specialties, capabilities, software_tools
+                            embedding_version="3",  # v3: includes specialties, capabilities, software_tools, notable_projects, case_studies
                         )
                     )
                 except Exception as exc:
