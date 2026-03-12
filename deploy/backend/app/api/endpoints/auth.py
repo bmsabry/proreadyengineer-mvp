@@ -216,8 +216,8 @@ async def logout(
     cookie_secure = is_production
     cookie_samesite = "none" if is_production else "lax"
     # Must specify same samesite/secure/path params as when setting cookies
-    response.delete_cookie("access_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite)
-    response.delete_cookie("refresh_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite)
+    response.delete_cookie("access_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite, path="/")
+    response.delete_cookie("refresh_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite, path="/")
     # Also try to revoke the refresh token from DB if present
     try:
         refresh_token = request.cookies.get("refresh_token")
@@ -250,8 +250,8 @@ async def logout_all(
     is_production = settings.is_production
     cookie_secure = is_production
     cookie_samesite = "none" if is_production else "lax"
-    response.delete_cookie("access_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite)
-    response.delete_cookie("refresh_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite)
+    response.delete_cookie("access_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite, path="/")
+    response.delete_cookie("refresh_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite, path="/")
     return {"message": "Successfully logged out from all sessions"}
 
 

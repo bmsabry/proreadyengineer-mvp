@@ -94,9 +94,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
       // Hard redirect clears all state including incognito cookie cache
       if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+        window.location.href = '/';
       } else {
-        router.push('/login');
+        router.push('/');
       }
     }
   };
@@ -106,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await api.auth.logoutAll();
       setUser(null);
-      router.push('/login');
+      router.push('/');
     } finally {
       setIsLoading(false);
     }
