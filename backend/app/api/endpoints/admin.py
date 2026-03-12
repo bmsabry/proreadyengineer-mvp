@@ -25,56 +25,73 @@ async def admin_status(
     current_user = Depends(require_role(["admin"])),
 ):
     """Get system status overview for admin dashboard."""
-    from sqlalchemy import select, func
+    from sqlalchemy import select, func, text
     from app.models.user import User
     from app.models.provider import Provider
     from app.models.rfq import RFQ
     from app.core.config import settings
+    from datetime import datetime as _dt
 
-    status_info = {
-        "database": {},
-        "api_keys": {},
-        "timestamp": None
+    db_info: dict = {
+        "user_count": 0,
+        "provider_count": 0,
+        "rfq_count": 0,
+        "providers_with_embeddings": 0,
+        "connection_ok": False,
     }
 
-    # Database counts
+    # Each query is independent - one failure does not kill the rest
     try:
-        # Provider count
-        result = await db.execute(select(func.count()).select_from(Provider))
-        status_info["database"]["provider_count"] = result.scalar()
-
-        # RFQ count
-        result = await db.execute(select(func.count()).select_from(RFQ))
-        status_info["database"]["rfq_count"] = result.scalar()
-
-        # User count
         result = await db.execute(select(func.count()).select_from(User))
-        status_info["database"]["user_count"] = result.scalar()
-
-        # Providers with embeddings
-        result = await db.execute(
-            select(func.count()).select_from(Provider).where(Provider.embedding.isnot(None))
-        )
-        status_info["database"]["providers_with_embeddings"] = result.scalar()
-
-        status_info["database"]["connection_ok"] = True
+        db_info["user_count"] = result.scalar() or 0
+        db_info["connection_ok"] = True
     except Exception as e:
-        status_info["database"]["connection_ok"] = False
-        status_info["database"]["error"] = str(e)
+        db_info["user_count_error"] = str(e)
 
-    # API Keys status (masked)
-    status_info["api_keys"] = {
-        "openai_configured": bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY != "dummy-key"),
-        "stripe_configured": bool(settings.STRIPE_SECRET_KEY),
-        "paypal_configured": bool(settings.PAYPAL_CLIENT_ID and settings.PAYPAL_CLIENT_SECRET),
-        "signrequest_configured": bool(settings.SIGNREQUEST_API_KEY),
-        "aws_s3_configured": bool(settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY),
+    try:
+        result = await db.execute(select(func.count()).select_from(Provider))
+        db_info["provider_count"] = result.scalar() or 0
+    except Exception as e:
+        db_info["provider_count_error"] = str(e)
+
+    try:
+        result = await db.execute(select(func.count()).select_from(RFQ))
+        db_info["rfq_count"] = result.scalar() or 0
+    except Exception as e:
+        db_info["rfq_count_error"] = str(e)
+
+    try:
+        # Use raw SQL to avoid pgvector type issues with IS NOT NULL on vector column
+        result = await db.execute(
+            text("SELECT COUNT(*) FROM providers WHERE embedding IS NOT NULL")
+        )
+        db_info["providers_with_embeddings"] = result.scalar() or 0
+    except Exception as e:
+        db_info["providers_with_embeddings_error"] = str(e)
+
+    api_keys_info: dict = {}
+    try:
+        api_keys_info = {
+            "openai_configured": bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY not in ("", "dummy-key")),
+            "stripe_configured": bool(settings.STRIPE_SECRET_KEY),
+            "paypal_configured": bool(settings.PAYPAL_CLIENT_ID and settings.PAYPAL_CLIENT_SECRET),
+            "signrequest_configured": bool(settings.SIGNREQUEST_API_KEY),
+            "aws_s3_configured": bool(settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY),
+        }
+    except Exception:
+        api_keys_info = {
+            "openai_configured": False,
+            "stripe_configured": False,
+            "paypal_configured": False,
+            "signrequest_configured": False,
+            "aws_s3_configured": False,
+        }
+
+    return {
+        "database": db_info,
+        "api_keys": api_keys_info,
+        "timestamp": _dt.utcnow().isoformat(),
     }
-
-    from datetime import datetime
-    status_info["timestamp"] = datetime.utcnow().isoformat()
-
-    return status_info
 
 
 

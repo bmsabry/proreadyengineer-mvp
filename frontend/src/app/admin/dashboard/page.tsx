@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
 import { useState, useEffect } from 'react';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, FileText, Building2, Cpu, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
+import { Users, FileText, Building2, Cpu, CheckCircle, XCircle, RefreshCw, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface AdminStatus {
@@ -29,9 +29,9 @@ interface AdminStatus {
 export const dynamic = 'force-dynamic';
 
 export default function AdminDashboard() {
-  const { isLoading: authLoading } = useRequireAuth(['admin']);
+  const { isLoading: authLoading, user } = useRequireAuth(['admin']);
   const [status, setStatus] = useState<AdminStatus | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
   const fetchStatus = async () => {
@@ -40,22 +40,26 @@ export default function AdminDashboard() {
     try {
       const res = await api.admin.getStatus();
       setStatus(res.data);
-    } catch (e) {
-      setError('Failed to load dashboard stats');
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail || e?.message || 'Failed to load dashboard stats';
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Only fetch AFTER auth has finished loading and user is confirmed
   useEffect(() => {
-    fetchStatus();
-  }, []);
+    if (!authLoading && user) {
+      fetchStatus();
+    }
+  }, [authLoading, user]);
 
   if (authLoading) {
     return (
       <div className="container py-8">
         <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Loading...</p>
+          <p className="text-muted-foreground">Authenticating...</p>
         </div>
       </div>
     );
@@ -110,7 +114,13 @@ export default function AdminDashboard() {
       </div>
 
       {error && (
-        <div className="mb-6 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>
+        <div className="mb-6 rounded-md bg-red-50 border border-red-200 p-4 flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-red-800">Could not load stats</p>
+            <p className="text-sm text-red-600 mt-1">{error}</p>
+          </div>
+        </div>
       )}
 
       {/* Stats Grid */}
@@ -128,6 +138,13 @@ export default function AdminDashboard() {
           </Card>
         ))}
       </div>
+
+      {/* DB Connection Warning */}
+      {status && db && !db.connection_ok && (
+        <div className="mb-6 rounded-md bg-yellow-50 border border-yellow-200 p-3 text-sm text-yellow-800">
+          Database query issue: {db.error || 'Check Render logs for details'}
+        </div>
+      )}
 
       {/* API Keys Status */}
       <Card>
