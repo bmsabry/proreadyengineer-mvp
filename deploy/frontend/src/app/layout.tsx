@@ -9,7 +9,7 @@ import { SetupWrapper } from '@/components/setup/SetupWrapper';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'ProReadyEngineer - Engineering Services Marketplace',
+  title: 'ProMechDirectory - Engineering Services Marketplace',
   description: 'Find and hire top engineering service providers',
 };
 

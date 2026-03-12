@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, FileText, Building2, Cpu, CheckCircle, XCircle, RefreshCw, AlertTriangle } from 'lucide-react';
+import { Users, FileText, Building2, Cpu, CheckCircle, XCircle, RefreshCw, AlertTriangle, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface AdminStatus {
@@ -13,6 +13,7 @@ interface AdminStatus {
     provider_count: number;
     rfq_count: number;
     providers_with_embeddings: number;
+    total_searches: number;
     connection_ok: boolean;
     error?: string;
   };
@@ -93,6 +94,12 @@ export default function AdminDashboard() {
       icon: Cpu,
       description: `of ${isLoading ? '...' : (db?.provider_count ?? 0).toLocaleString()} providers indexed`,
     },
+    {
+      title: 'Total Searches',
+      value: isLoading ? '...' : (db?.total_searches ?? 0).toLocaleString(),
+      icon: Search,
+      description: 'All-time search requests',
+    },
   ];
 
   const apiKeyItems = [
@@ -124,7 +131,7 @@ export default function AdminDashboard() {
       )}
 
       {/* Stats Grid */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
+      <div className="grid gap-6 grid-cols-2 md:grid-cols-3 lg:grid-cols-5 mb-8">
         {statCards.map((stat) => (
           <Card key={stat.title}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

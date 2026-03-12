@@ -1,7 +1,7 @@
-# 🚀 ProReadyEngineer Deployment Guide
+# 🚀 ProMechDirectory Deployment Guide
 
 ## Overview
-This guide will walk you through deploying the ProReadyEngineer platform to Render.com.
+This guide will walk you through deploying the ProMechDirectory platform to Render.com.
 
 ---
 

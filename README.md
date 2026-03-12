@@ -1,4 +1,4 @@
-# 🏭 ProReadyEngineer
+# 🏭 ProMechDirectory
 
 **B2B Engineering Services Marketplace Platform**
 
@@ -9,7 +9,7 @@
 
 ## 📋 Overview
 
-ProReadyEngineer is a full-stack B2B marketplace platform that connects engineering service providers with customers seeking specialized engineering services.
+ProMechDirectory is a full-stack B2B marketplace platform that connects engineering service providers with customers seeking specialized engineering services.
 
 ### Key Features
 

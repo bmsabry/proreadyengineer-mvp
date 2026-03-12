@@ -17,6 +17,7 @@ from app.models.payment import PaymentAttempt, WebhookEvent
 from app.models.provider import Provider, ProviderMembership, ProviderClaimRequest
 from app.models.admin import TierEvaluationRequest, AuditLog
 from app.models.rfq import RFQ
+from app.models.search import SearchRequest
 from app.models.user import User
 from app.schemas.advertising import AdvertisementResponse
 from app.schemas.base import PagedResponse
@@ -39,6 +40,7 @@ async def admin_stats(
         "provider_count": 0,
         "rfq_count": 0,
         "providers_with_embeddings": 0,
+        "total_searches": 0,
         "connection_ok": False,
     }
 
@@ -68,6 +70,12 @@ async def admin_stats(
         db_stats["providers_with_embeddings"] = r.scalar() or 0
     except Exception as exc:
         db_stats["providers_with_embeddings_error"] = str(exc)
+
+    try:
+        r = await db.execute(select(func.count()).select_from(SearchRequest))
+        db_stats["total_searches"] = r.scalar() or 0
+    except Exception as exc:
+        db_stats["total_searches_error"] = str(exc)
 
     api_keys: Dict[str, bool] = {}
     try:
@@ -122,6 +130,7 @@ async def admin_list_rfqs(
     """Admin: List all RFQs."""
     from sqlalchemy import select, func
     from app.models.rfq import RFQ
+from app.models.search import SearchRequest
 
     query = select(RFQ)
     if status:
@@ -152,6 +161,7 @@ async def admin_get_rfq(
     """Admin: Get RFQ details."""
     from sqlalchemy import select
     from app.models.rfq import RFQ
+from app.models.search import SearchRequest
 
     result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
     rfq = result.scalar_one_or_none()
@@ -172,6 +182,7 @@ async def admin_override_rfq_status(
     """Admin: Override RFQ status."""
     from sqlalchemy import select
     from app.models.rfq import RFQ
+from app.models.search import SearchRequest
     from app.models.admin import AuditLog
     import uuid
     from datetime import datetime

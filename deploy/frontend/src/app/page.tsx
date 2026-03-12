@@ -20,7 +20,7 @@ function Footer() {
     <footer className="border-t py-6">
       <div className="container flex flex-col md:flex-row justify-between items-center gap-4">
         <p className="text-sm text-muted-foreground">
-          &copy; {new Date().getFullYear()} ProReadyEngineer. All rights reserved.
+          &copy; {new Date().getFullYear()} ProMechDirectory. All rights reserved.
         </p>
         <div className="flex gap-4 items-center">
           {needsConfig && (
@@ -86,7 +86,7 @@ export default function LandingPage() {
         <div className="container flex h-14 items-center">
           <Link href="/" className="flex items-center gap-2 font-bold text-xl">
             <Building2 className="h-6 w-6" />
-            <span>ProReadyEngineer</span>
+            <span>ProMechDirectory</span>
           </Link>
           <nav className="ml-auto flex gap-4 items-center">
             {user ? (
@@ -158,9 +158,9 @@ export default function LandingPage() {
 
         {/* Navigation Buttons */}
         <section className="container pb-16">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto">
-            <Link href="/for-customers">
-              <Card className="hover:bg-muted/50 transition-colors cursor-pointer text-center">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto items-stretch">
+            <Link href="/for-customers" className="h-full flex">
+              <Card className="hover:bg-muted/50 transition-colors cursor-pointer text-center h-full w-full">
                 <CardContent className="p-6">
                   <Users className="h-8 w-8 mx-auto mb-2 text-blue-600" />
                   <h3 className="font-semibold">For Customers</h3>
@@ -168,8 +168,8 @@ export default function LandingPage() {
                 </CardContent>
               </Card>
             </Link>
-            <Link href="/for-providers">
-              <Card className="hover:bg-muted/50 transition-colors cursor-pointer text-center">
+            <Link href="/for-providers" className="h-full flex">
+              <Card className="hover:bg-muted/50 transition-colors cursor-pointer text-center h-full w-full">
                 <CardContent className="p-6">
                   <Building2 className="h-8 w-8 mx-auto mb-2 text-green-600" />
                   <h3 className="font-semibold">For Providers</h3>
@@ -177,8 +177,8 @@ export default function LandingPage() {
                 </CardContent>
               </Card>
             </Link>
-            <Link href="/software-providers">
-              <Card className="hover:bg-muted/50 transition-colors cursor-pointer text-center">
+            <Link href="/software-providers" className="h-full flex">
+              <Card className="hover:bg-muted/50 transition-colors cursor-pointer text-center h-full w-full">
                 <CardContent className="p-6">
                   <Search className="h-8 w-8 mx-auto mb-2 text-purple-600" />
                   <h3 className="font-semibold">Software Providers</h3>
@@ -186,8 +186,8 @@ export default function LandingPage() {
                 </CardContent>
               </Card>
             </Link>
-            <Link href="/featured-firms">
-              <Card className="hover:bg-muted/50 transition-colors cursor-pointer text-center">
+            <Link href="/featured-firms" className="h-full flex">
+              <Card className="hover:bg-muted/50 transition-colors cursor-pointer text-center h-full w-full">
                 <CardContent className="p-6">
                   <Megaphone className="h-8 w-8 mx-auto mb-2 text-orange-600" />
                   <h3 className="font-semibold">Advertise Your Firm</h3>

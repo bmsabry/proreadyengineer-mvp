@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { DashboardNav } from '@/components/admin/DashboardNav';
 
 export const metadata: Metadata = {
-  title: 'Admin - ProReadyEngineer',
+  title: 'Admin - ProMechDirectory',
 };
 
 export default function AdminLayout({

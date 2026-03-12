@@ -92,7 +92,7 @@ function SearchPageContent() {
         <div className="container flex h-14 items-center gap-2">
           <Link href="/" className="flex items-center gap-2 font-bold text-xl">
             <Building2 className="h-6 w-6" />
-            <span>ProReadyEngineer</span>
+            <span>ProMechDirectory</span>
           </Link>
           <div className="ml-auto flex gap-2 items-center">
             <Link href="/">

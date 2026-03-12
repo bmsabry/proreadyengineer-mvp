@@ -57,7 +57,7 @@ export default function PublicProviderPage() {
         <div className="container flex h-14 items-center">
           <Link href="/" className="flex items-center gap-2 font-bold text-xl">
             <Building2 className="h-6 w-6" />
-            <span>ProReadyEngineer</span>
+            <span>ProMechDirectory</span>
           </Link>
           <nav className="ml-auto flex gap-4">
             <Link href="/search">
