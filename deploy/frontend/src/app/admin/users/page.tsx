@@ -101,7 +101,7 @@ export default function AdminUsersPage() {
   };
 
   const handleExportCSV = () => {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
+    const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000') + '/api/v1';
     window.open(`${apiBase}/admin/users/export.csv`, '_blank');
   };
 

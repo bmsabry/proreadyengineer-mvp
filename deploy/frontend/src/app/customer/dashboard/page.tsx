@@ -33,7 +33,7 @@ export default function CustomerDashboard() {
     if (!user) return;
     const fetchRFQs = async () => {
       try {
-        const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
+        const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000') + '/api/v1';
         const res = await fetch(`${apiBase}/rfqs/customer/my-rfqs`, {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },

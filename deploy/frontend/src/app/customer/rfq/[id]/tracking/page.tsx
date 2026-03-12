@@ -191,7 +191,7 @@ export default function RFQTrackingPage() {
     if (!rfqId) return;
     if (isManual) setRefreshing(true);
     try {
-      const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+      const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000") + "/api/v1";
       const res = await fetch(`${apiBase}/rfqs/customer/rfqs/${rfqId}/tracking`, {
         credentials: "include",
         headers: { "Content-Type": "application/json" },
