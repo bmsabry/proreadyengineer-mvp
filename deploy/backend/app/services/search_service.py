@@ -621,59 +621,54 @@ def _project_types_bonus(provider, intent: Dict[str, Any], raw_query: str = '') 
 
 
 
+
 def _detect_similar_project(
     provider,
     intent: Dict[str, Any],
     raw_query: str = '',
 ) -> tuple:
-    """Option B: Keyword-based similar project detection.
+    """Direct keyword matching for similar project detection.
 
-    Uses GROUP-BASED matching: for each original keyword, checks if it OR any
-    of its synonyms appear in the project text.
-    ratio = matched_original_keyword_groups / total_original_keyword_groups
+    Uses DIRECT LITERAL matching only - no synonym expansion.
+    Requires that multiple DISTINCT query keywords appear literally
+    in the same project item text. This prevents false positives from
+    generic engineering companies whose project text contains common
+    words like 'instrumentation', 'exhaust', or 'heat' that have
+    nothing to do with the actual query intent.
 
     Returns (matched: bool, project_title: str, match_confidence: float)
-    where matched=True means provider has conducted a similar project.
     """
     import json as _json
 
-    # Stop list: ONLY pure function words - do NOT include technical terms
-    # 'design', 'test', 'analysis', 'engineering', 'probe', 'emissions' are all meaningful
-    stop = {'and', 'the', 'for', 'with', 'that', 'this', 'from', 'have',
-            'will', 'what', 'can', 'are', 'was', 'but', 'not', 'our',
-            'your', 'their', 'more', 'also', 'used', 'been', 'some',
-            'into', 'such', 'than', 'when', 'over', 'each', 'only'}
+    # Stop list: function words AND generic engineering words that appear everywhere
+    # These words are too common to be meaningful for project matching
+    stop = {
+        # Function words
+        'and', 'the', 'for', 'with', 'that', 'this', 'from', 'have',
+        'will', 'what', 'can', 'are', 'was', 'but', 'not', 'our',
+        'your', 'their', 'more', 'also', 'used', 'been', 'some',
+        'into', 'such', 'than', 'when', 'over', 'each', 'only',
+        # Generic engineering/business words - too common to be meaningful
+        'engineering', 'design', 'system', 'systems', 'analysis',
+        'service', 'services', 'project', 'projects', 'develop',
+        'development', 'provide', 'provides', 'solution', 'solutions',
+        'process', 'quality', 'testing', 'management', 'research',
+        'technical', 'technology', 'application', 'applications',
+        'using', 'based', 'data', 'high', 'new', 'large', 'small',
+        'full', 'complete', 'multiple', 'various', 'advanced',
+        'custom', 'support', 'include', 'includes', 'including',
+    }
 
-    # Build ORIGINAL keyword set (before expansion) - these are the groups
-    kw_set = set()
+    # Extract ONLY raw query keywords (direct words from user input)
+    # Do NOT include LLM-expanded specialty/capabilities - those are too broad
+    core_kws = set()
     q = raw_query.lower() if raw_query else ''
     for w in re.findall(r'[a-z0-9]+', q):
         if len(w) > 2 and w not in stop:
-            kw_set.add(w)
-    for kw in _safe_list(intent.get('inferred_keywords', [])):
-        for w in re.findall(r'[a-z0-9]+', kw.lower()):
-            if len(w) > 2 and w not in stop:
-                kw_set.add(w)
-    for cap in _safe_list(intent.get('capabilities_needed', [])):
-        for w in re.findall(r'[a-z0-9]+', cap.lower()):
-            if len(w) > 2 and w not in stop:
-                kw_set.add(w)
-    spec = _safe_str(intent.get('inferred_specialty', '')).lower()
-    for w in re.findall(r'[a-z0-9]+', spec):
-        if len(w) > 2 and w not in stop:
-            kw_set.add(w)
+            core_kws.add(w)
 
-    if not kw_set:
+    if len(core_kws) == 0:
         return False, '', 0.0
-
-    # Build per-keyword synonym lookup: kw -> set of all terms to check
-    # Each original keyword is a "group" - the group matches if ANY term in it appears
-    kw_groups: Dict[str, set] = {}
-    for kw in kw_set:
-        group = {kw}
-        expanded = _expand_keywords([kw])
-        group.update(expanded)
-        kw_groups[kw] = group
 
     # ── Load case studies ─────────────────────────────────────────────────────
     case_studies_raw = getattr(provider, 'proven_experience_case_studies', None) or []
@@ -695,35 +690,61 @@ def _detect_similar_project(
     if not all_items:
         return False, '', 0.0
 
-    best_ratio = 0.0
-    best_title = ''
+    # Determine minimum match threshold based on number of core keywords:
+    # - 1 keyword: must match 1/1 (100%) - single specific term
+    # - 2 keywords: must match 2/2 (100%) - both must appear
+    # - 3+ keywords: must match at least 2 distinct keywords in same item
+    min_matches_needed = min(2, len(core_kws)) if len(core_kws) >= 2 else 1
 
-    # Score each project item using GROUP-BASED matching
+    best_count = 0
+    best_title = ''
+    best_ratio = 0.0
+
     for item in all_items:
         item_str = str(item).lower()
         if len(item_str) < 5:
             continue
-        # Count how many original keyword GROUPS have at least one match
-        matched_groups = sum(
-            1 for kw, synonyms in kw_groups.items()
-            if any(term in item_str for term in synonyms)
-        )
-        ratio = matched_groups / len(kw_groups)
-        if ratio > best_ratio:
+
+        # DIRECT literal match only - check if each core keyword
+        # (or its direct stem) appears in item text
+        matched = set()
+        for kw in core_kws:
+            # Direct substring match - word must literally appear
+            # Use word-boundary style: check for kw as a token in text
+            # e.g. 'probe' matches 'probe' and 'probes' but not 'probe' != 'instrumentation'
+            if kw in item_str:
+                matched.add(kw)
+            # Also check plural/stem variants (e.g. emission->emissions)
+            elif kw.endswith('s') and kw[:-1] in item_str:
+                matched.add(kw)
+            elif not kw.endswith('s') and kw + 's' in item_str:
+                matched.add(kw)
+            elif kw.endswith('ing') and kw[:-3] in item_str:
+                matched.add(kw)
+            elif kw.endswith('ed') and kw[:-2] in item_str:
+                matched.add(kw)
+            elif kw.endswith('er') and kw[:-2] in item_str:
+                matched.add(kw)
+
+        count = len(matched)
+        ratio = count / len(core_kws)
+
+        if count > best_count or (count == best_count and ratio > best_ratio):
+            best_count = count
             best_ratio = ratio
             raw_title = str(item)[:120].split('.')[0].strip()
             best_title = raw_title if len(raw_title) > 5 else str(item)[:80].strip()
 
-    # Threshold: >= 0.5 means majority of original keywords matched
-    # e.g. 'emissions probe design' → 3 groups, need 2+ to match (0.67)
-    matched = best_ratio >= 0.5
+    # Require minimum keyword matches - must be specific, not accidental
+    matched_result = best_count >= min_matches_needed
 
     logger.debug(
-        '[SIMILAR_PROJECT] provider=%s ratio=%.2f matched=%s best_title=%s',
-        getattr(provider, 'name', '?'), best_ratio, matched, best_title[:60]
+        '[SIMILAR_PROJECT] provider=%s core_kws=%s best_count=%d/%d needed=%d matched=%s title=%s',
+        getattr(provider, 'name', '?'), sorted(core_kws), best_count, len(core_kws),
+        min_matches_needed, matched_result, best_title[:60]
     )
 
-    return matched, best_title, best_ratio
+    return matched_result, best_title, best_ratio
 
 def calculate_match_score(
     provider,
@@ -1032,34 +1053,62 @@ async def _fetch_candidates(
                 logger.info(f'[SEARCH] pgvector returned {len(rows)} candidates')
                 # ── Project injection: find providers with matching case studies ─────
                 # These providers may not score high on vector similarity but have
-                # directly relevant project experience - always include them
+                # directly relevant project experience - always include them.
+                # Strategy: use SPECIFIC keywords only (not generic like 'design', 'system')
+                # with AND logic when 2+ specific keywords exist, to avoid matching
+                # hundreds of unrelated companies.
                 injected_rows = []
                 try:
-                    raw_kws_for_inject = [
-                        *_safe_list(intent.get('inferred_keywords', [])),
-                    ]
+                    # Generic/stop words that match too many companies - exclude from injection
+                    _inject_stop = {
+                        'design', 'system', 'systems', 'analysis', 'service', 'services',
+                        'project', 'projects', 'develop', 'development', 'provide', 'provides',
+                        'solution', 'solutions', 'process', 'quality', 'testing', 'management',
+                        'research', 'technical', 'technology', 'application', 'applications',
+                        'data', 'high', 'large', 'full', 'complete', 'advanced', 'custom',
+                        'support', 'include', 'using', 'based', 'engineering', 'mechanical',
+                        'electrical', 'structural', 'civil', 'software', 'hardware',
+                        'test', 'work', 'make', 'build', 'create', 'implement',
+                    }
+                    # Collect raw query words only (not LLM expansions - too broad)
                     q_str = filters.get('raw_query', '') or ''
+                    specific_kws = []
                     for w in re.findall(r'[a-z0-9]+', q_str.lower()):
-                        if len(w) > 3:
-                            raw_kws_for_inject.append(w)
-                    raw_kws_for_inject = list(set(raw_kws_for_inject))[:8]
-                    if raw_kws_for_inject:
+                        if len(w) > 3 and w not in _inject_stop:
+                            specific_kws.append(w)
+                    specific_kws = list(dict.fromkeys(specific_kws))  # dedupe, preserve order
+
+                    if specific_kws:
                         existing_ids = {r.get('id') for r in rows}
-                        inject_conditions = []
-                        for kw in raw_kws_for_inject[:6]:
-                            kw_safe = kw.replace("'", "''")
-                            inject_conditions.append(
-                                f"LOWER(COALESCE(CAST(p.proven_experience_case_studies AS TEXT),'')) LIKE '%{kw_safe}%'"
+
+                        # Build per-keyword conditions (case_studies OR notable_projects)
+                        def _kw_condition(kw):
+                            k = kw.replace("'", "''")
+                            return (
+                                f"(LOWER(COALESCE(CAST(p.proven_experience_case_studies AS TEXT),'')) LIKE '%{k}%' "
+                                f"OR LOWER(COALESCE(CAST(p.proven_experience_notable_projects AS TEXT),'')) LIKE '%{k}%')"
                             )
-                            inject_conditions.append(
-                                f"LOWER(COALESCE(CAST(p.proven_experience_notable_projects AS TEXT),'')) LIKE '%{kw_safe}%'"
-                            )
-                        where_inject = ("WHERE " + " AND ".join(base_filters) + " AND " if base_filters else "WHERE ") + "(" + " OR ".join(inject_conditions) + ")"
+
+                        if len(specific_kws) >= 2:
+                            # AND logic: ALL specific keywords must appear in projects
+                            # This is strict but ensures relevance - e.g. both 'emissions'
+                            # AND 'probe' must appear, not just one of them
+                            and_conditions = [_kw_condition(kw) for kw in specific_kws[:4]]
+                            project_filter = ' AND '.join(and_conditions)
+                        else:
+                            # Single keyword: OR is fine, it's already specific
+                            project_filter = _kw_condition(specific_kws[0])
+
+                        where_inject = (
+                            ('WHERE ' + ' AND '.join(base_filters) + ' AND ' if base_filters else 'WHERE ')
+                            + '(' + project_filter + ')'
+                        )
                         inject_sql = sa_text(f"""
                             SELECT p.*, 0.0 AS cosine_similarity
                             FROM providers p
                             {where_inject}
-                            LIMIT 15
+                            ORDER BY p.business_evaluation_tier ASC
+                            LIMIT 100
                         """)
                         inject_result = await vec_db.execute(inject_sql)
                         inject_rows = inject_result.mappings().all()
@@ -1068,7 +1117,10 @@ async def _fetch_candidates(
                                 injected_rows.append(ir)
                                 existing_ids.add(ir.get('id'))
                         if injected_rows:
-                            logger.info(f'[SEARCH] Injected {len(injected_rows)} project-matched providers into candidate pool')
+                            logger.info(
+                                f'[SEARCH] Injected {len(injected_rows)} project-matched providers '
+                                f'(keywords={specific_kws[:4]}, and_logic={len(specific_kws)>=2})'
+                            )
                 except Exception as inj_exc:
                     logger.warning(f'[SEARCH] Project injection failed (non-fatal): {inj_exc}')
                 all_rows = list(rows) + injected_rows
