@@ -327,6 +327,8 @@ const billing = {
 // Admin API
 const admin = {
   // RFQs
+  getStatus: () =>
+    apiClient.get<any>('/admin/status'),
   listRFQs: (params?: { page?: number; page_size?: number; status?: string }) => 
     apiClient.get<PaginatedResponse<RFQ>>('/admin/rfqs', { params }),
   

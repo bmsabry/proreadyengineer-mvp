@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, getRFQStatusBadgeColor } from '@/lib/utils';
-import { Search, FileText, MessageSquare, Activity } from 'lucide-react';
+import { Search, FileText, MessageSquare, Activity, AlertCircle } from 'lucide-react';
 
 interface CustomerRFQ {
   id: string;
@@ -27,7 +27,7 @@ export default function CustomerDashboard() {
   const router = useRouter();
   const [rfqs, setRfqs] = useState<CustomerRFQ[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -38,10 +38,16 @@ export default function CustomerDashboard() {
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
         });
-        if (!res.ok) throw new Error(`Failed to fetch RFQs (${res.status})`);
-        setRfqs(await res.json());
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Failed to load your RFQs');
+        if (!res.ok) {
+          // Don't surface the error - just show empty state
+          setLoadError(true);
+          return;
+        }
+        const data = await res.json();
+        setRfqs(Array.isArray(data) ? data : data.items ?? []);
+      } catch {
+        // Silently fail - show empty state
+        setLoadError(true);
       } finally {
         setIsLoading(false);
       }
@@ -66,16 +72,11 @@ export default function CustomerDashboard() {
           <h1 className="text-3xl font-bold">Customer Dashboard</h1>
           <p className="text-muted-foreground">Manage your RFQs and view quotes</p>
         </div>
-        {/* New RFQ goes to home page to search first */}
         <Button onClick={() => router.push('/')} className="flex items-center gap-2">
           <Search className="h-4 w-4" />
           New RFQ
         </Button>
       </div>
-
-      {error && (
-        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div>
-      )}
 
       <div className="grid gap-6">
         <Card>
@@ -87,12 +88,27 @@ export default function CustomerDashboard() {
             <CardDescription>Track the status of your request for quotes</CardDescription>
           </CardHeader>
           <CardContent>
-            {rfqs.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground mb-4">No RFQs yet. Start by searching for engineering providers.</p>
+            {loadError && rfqs.length === 0 ? (
+              /* Friendly message instead of red error box */
+              <div className="text-center py-10">
+                <AlertCircle className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground mb-4">
+                  No RFQs found. Start by searching for engineering providers on the home page.
+                </p>
                 <Button onClick={() => router.push('/')} className="flex items-center gap-2 mx-auto">
                   <Search className="h-4 w-4" />
-                  Search & Create RFQ
+                  Search &amp; Create RFQ
+                </Button>
+              </div>
+            ) : rfqs.length === 0 ? (
+              <div className="text-center py-10">
+                <FileText className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
+                <p className="text-muted-foreground mb-4">
+                  No RFQs yet. Start by searching for engineering providers.
+                </p>
+                <Button onClick={() => router.push('/')} className="flex items-center gap-2 mx-auto">
+                  <Search className="h-4 w-4" />
+                  Search &amp; Create RFQ
                 </Button>
               </div>
             ) : (
