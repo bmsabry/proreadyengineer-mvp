@@ -628,45 +628,54 @@ def _detect_similar_project(
 ) -> tuple:
     """Option B: Keyword-based similar project detection.
 
-    Checks provider case studies AND notable projects for keyword matches.
+    Uses GROUP-BASED matching: for each original keyword, checks if it OR any
+    of its synonyms appear in the project text.
+    ratio = matched_original_keyword_groups / total_original_keyword_groups
+
     Returns (matched: bool, project_title: str, match_confidence: float)
     where matched=True means provider has conducted a similar project.
-    Threshold: requires strong keyword match (>= 0.35 ratio) to flag as similar.
     """
     import json as _json
 
-    # Build comprehensive keyword set from intent + raw query + synonyms
+    # Stop list: ONLY pure function words - do NOT include technical terms
+    # 'design', 'test', 'analysis', 'engineering', 'probe', 'emissions' are all meaningful
     stop = {'and', 'the', 'for', 'with', 'that', 'this', 'from', 'have',
             'will', 'what', 'can', 'are', 'was', 'but', 'not', 'our',
-            'your', 'their', 'more', 'also', 'data', 'system', 'used',
-            'design', 'analysis', 'engineering', 'service', 'test', 'project'}
+            'your', 'their', 'more', 'also', 'used', 'been', 'some',
+            'into', 'such', 'than', 'when', 'over', 'each', 'only'}
 
+    # Build ORIGINAL keyword set (before expansion) - these are the groups
     kw_set = set()
     q = raw_query.lower() if raw_query else ''
     for w in re.findall(r'[a-z0-9]+', q):
-        if len(w) > 3 and w not in stop:
+        if len(w) > 2 and w not in stop:
             kw_set.add(w)
     for kw in _safe_list(intent.get('inferred_keywords', [])):
         for w in re.findall(r'[a-z0-9]+', kw.lower()):
-            if len(w) > 3 and w not in stop:
+            if len(w) > 2 and w not in stop:
                 kw_set.add(w)
     for cap in _safe_list(intent.get('capabilities_needed', [])):
         for w in re.findall(r'[a-z0-9]+', cap.lower()):
-            if len(w) > 3 and w not in stop:
+            if len(w) > 2 and w not in stop:
                 kw_set.add(w)
-    spec = _safe_str(intent.get('inferred_specialty', ''))  .lower()
+    spec = _safe_str(intent.get('inferred_specialty', '')).lower()
     for w in re.findall(r'[a-z0-9]+', spec):
-        if len(w) > 3 and w not in stop:
+        if len(w) > 2 and w not in stop:
             kw_set.add(w)
 
-    # Expand with synonyms for richer matching
-    expanded_kws = _expand_keywords(list(kw_set))
-    search_terms = set(expanded_kws) | kw_set
-
-    if not search_terms:
+    if not kw_set:
         return False, '', 0.0
 
-    # ── Check case studies ────────────────────────────────────────────────────
+    # Build per-keyword synonym lookup: kw -> set of all terms to check
+    # Each original keyword is a "group" - the group matches if ANY term in it appears
+    kw_groups: Dict[str, set] = {}
+    for kw in kw_set:
+        group = {kw}
+        expanded = _expand_keywords([kw])
+        group.update(expanded)
+        kw_groups[kw] = group
+
+    # ── Load case studies ─────────────────────────────────────────────────────
     case_studies_raw = getattr(provider, 'proven_experience_case_studies', None) or []
     if isinstance(case_studies_raw, str):
         try:
@@ -674,7 +683,7 @@ def _detect_similar_project(
         except Exception:
             case_studies_raw = [case_studies_raw]
 
-    # ── Check notable projects ────────────────────────────────────────────────
+    # ── Load notable projects ─────────────────────────────────────────────────
     notable_raw = getattr(provider, 'proven_experience_notable_projects', None) or []
     if isinstance(notable_raw, str):
         try:
@@ -682,37 +691,37 @@ def _detect_similar_project(
         except Exception:
             notable_raw = [notable_raw]
 
+    all_items = list(case_studies_raw) + list(notable_raw)
+    if not all_items:
+        return False, '', 0.0
+
     best_ratio = 0.0
     best_title = ''
 
-    # Score each case study individually
-    for item in case_studies_raw:
+    # Score each project item using GROUP-BASED matching
+    for item in all_items:
         item_str = str(item).lower()
-        if len(item_str) < 10:
+        if len(item_str) < 5:
             continue
-        hits = sum(1 for w in search_terms if w in item_str)
-        ratio = hits / max(len(search_terms), 1)
-        if ratio > best_ratio:
-            best_ratio = ratio
-            # Extract title: first sentence or first 80 chars
-            raw_title = str(item)[:120].split('.')[0].strip()
-            best_title = raw_title if len(raw_title) > 5 else str(item)[:80].strip()
-
-    # Score each notable project individually
-    for item in notable_raw:
-        item_str = str(item).lower()
-        if len(item_str) < 10:
-            continue
-        hits = sum(1 for w in search_terms if w in item_str)
-        ratio = hits / max(len(search_terms), 1)
+        # Count how many original keyword GROUPS have at least one match
+        matched_groups = sum(
+            1 for kw, synonyms in kw_groups.items()
+            if any(term in item_str for term in synonyms)
+        )
+        ratio = matched_groups / len(kw_groups)
         if ratio > best_ratio:
             best_ratio = ratio
             raw_title = str(item)[:120].split('.')[0].strip()
             best_title = raw_title if len(raw_title) > 5 else str(item)[:80].strip()
 
-    # Threshold: >= 0.35 ratio = similar project confirmed
-    # This means at least 35% of the search terms appear in the project description
-    matched = best_ratio >= 0.35
+    # Threshold: >= 0.5 means majority of original keywords matched
+    # e.g. 'emissions probe design' → 3 groups, need 2+ to match (0.67)
+    matched = best_ratio >= 0.5
+
+    logger.debug(
+        '[SIMILAR_PROJECT] provider=%s ratio=%.2f matched=%s best_title=%s',
+        getattr(provider, 'name', '?'), best_ratio, matched, best_title[:60]
+    )
 
     return matched, best_title, best_ratio
 
@@ -721,8 +730,9 @@ def calculate_match_score(
     intent: Dict[str, Any],
     similarity: float = 0.0,
     raw_query: str = '',
+    similar_project_matched: bool = False,
 ) -> Dict[str, float]:
-    """Compute deterministic 100-point composite score."""
+    """Compute deterministic 100-point composite score (+30 bonus if similar project)."""
     tier_pts      = _tier_score(provider)
     specialty_pts = _specialty_score(provider, intent)
     if similarity > 0.0:
@@ -732,7 +742,9 @@ def calculate_match_score(
     sw_bonus       = _software_bonus(provider, intent)
     proj_bonus     = _project_types_bonus(provider, intent, raw_query)
     notable_bonus  = _score_notable_projects(provider, intent, raw_query)
-    total    = min(100.0, specialty_pts + cap_pts + tier_pts + sw_bonus + proj_bonus + notable_bonus)
+    # +30 boost when a genuinely similar project is confirmed via keyword detection
+    sim_boost      = 30.0 if similar_project_matched else 0.0
+    total    = min(100.0, specialty_pts + cap_pts + tier_pts + sw_bonus + proj_bonus + notable_bonus + sim_boost)
     return {
         'total':           round(total, 2),
         'specialty':       round(specialty_pts, 2),
@@ -741,6 +753,7 @@ def calculate_match_score(
         'software_bonus':  round(sw_bonus, 2),
         'proj_bonus':      round(proj_bonus, 2),
         'notable_bonus':   round(notable_bonus, 2),
+        'sim_boost':       round(sim_boost, 2),
         'similarity':      round(similarity, 4),
     }
 
@@ -904,6 +917,7 @@ async def _keyword_candidate_query(
             "LOWER(COALESCE(CAST(p.software_tools AS TEXT), ''))",
             "LOWER(COALESCE(CAST(p.team_members AS TEXT), ''))",
             "LOWER(COALESCE(CAST(p.proven_experience_notable_projects AS TEXT), ''))",
+            "LOWER(COALESCE(CAST(p.proven_experience_case_studies AS TEXT), ''))",
         ]:
             or_conditions.append(f"{field} LIKE '%{kw_safe}%'")
 
@@ -1016,7 +1030,49 @@ async def _fetch_candidates(
                 result = await vec_db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': max(limit, 100)})
                 rows = result.mappings().all()
                 logger.info(f'[SEARCH] pgvector returned {len(rows)} candidates')
-                return rows, True, None
+                # ── Project injection: find providers with matching case studies ─────
+                # These providers may not score high on vector similarity but have
+                # directly relevant project experience - always include them
+                injected_rows = []
+                try:
+                    raw_kws_for_inject = [
+                        *_safe_list(intent.get('inferred_keywords', [])),
+                    ]
+                    q_str = filters.get('raw_query', '') or ''
+                    for w in re.findall(r'[a-z0-9]+', q_str.lower()):
+                        if len(w) > 3:
+                            raw_kws_for_inject.append(w)
+                    raw_kws_for_inject = list(set(raw_kws_for_inject))[:8]
+                    if raw_kws_for_inject:
+                        existing_ids = {r.get('id') for r in rows}
+                        inject_conditions = []
+                        for kw in raw_kws_for_inject[:6]:
+                            kw_safe = kw.replace("'", "''")
+                            inject_conditions.append(
+                                f"LOWER(COALESCE(CAST(p.proven_experience_case_studies AS TEXT),'')) LIKE '%{kw_safe}%'"
+                            )
+                            inject_conditions.append(
+                                f"LOWER(COALESCE(CAST(p.proven_experience_notable_projects AS TEXT),'')) LIKE '%{kw_safe}%'"
+                            )
+                        where_inject = ("WHERE " + " AND ".join(base_filters) + " AND " if base_filters else "WHERE ") + "(" + " OR ".join(inject_conditions) + ")"
+                        inject_sql = sa_text(f"""
+                            SELECT p.*, 0.0 AS cosine_similarity
+                            FROM providers p
+                            {where_inject}
+                            LIMIT 15
+                        """)
+                        inject_result = await vec_db.execute(inject_sql)
+                        inject_rows = inject_result.mappings().all()
+                        for ir in inject_rows:
+                            if ir.get('id') not in existing_ids:
+                                injected_rows.append(ir)
+                                existing_ids.add(ir.get('id'))
+                        if injected_rows:
+                            logger.info(f'[SEARCH] Injected {len(injected_rows)} project-matched providers into candidate pool')
+                except Exception as inj_exc:
+                    logger.warning(f'[SEARCH] Project injection failed (non-fatal): {inj_exc}')
+                all_rows = list(rows) + injected_rows
+                return all_rows, True, None
         except Exception as exc:
             logger.warning(f'[SEARCH] pgvector failed: {type(exc).__name__}: {str(exc)[:200]}')
             fallback_reason = f'pgvector_error:{type(exc).__name__}:{str(exc)[:120]}'
@@ -1211,6 +1267,9 @@ async def search_providers(
             name = _display_name(provider)
             # Option B: detect similar project via keyword matching
             sim_matched, sim_title, sim_ratio = _detect_similar_project(provider, intent, raw_query=query)
+            # Re-score WITH the similar_project_boost now that we know it matched
+            if sim_matched:
+                scores = calculate_match_score(provider, intent, similarity=similarity, raw_query=query, similar_project_matched=True)
             explanation = _build_explanation(name, scores, intent, similar_project_title=sim_title if sim_matched else '')
             scored.append((
                 scores['total'],
