@@ -899,6 +899,10 @@ async def _fetch_candidates(
             return rows, True, None
         except Exception as exc:
             logger.warning(f'[SEARCH] pgvector failed ({exc}), falling back to keyword SQL')
+            try:
+                await db.rollback()
+            except Exception:
+                pass
             fallback_reason = f'pgvector_error:{type(exc).__name__}:{str(exc)[:120]}'
 
     # ── Keyword SQL path (no embeddings or pgvector failed) ───────────────────
