@@ -40,6 +40,8 @@ class SearchResultItem:
     software_bonus: float = 0.0
     similarity: float = 0.0
     fallback_reason: Optional[str] = None
+    similar_project_matched: bool = False
+    matching_project_title: str = ""
 
 
 def _has_api_key(cfg: Dict[str, Any] = None) -> bool:
@@ -159,6 +161,20 @@ _SYNONYMS = {
     "nde":              ["non destructive", "inspection", "testing", "ultrasonic", "radiography"],
     "controls":         ["control systems", "pid", "plc", "scada", "automation"],
     "acoustics":        ["vibration", "noise", "sound"],
+    "emissions":        ["emissions", "exhaust", "pollutants", "nox", "sox", "co2",
+                         "combustion gases", "stack gas", "flue gas", "emission probe",
+                         "emissions measurement", "emissions testing"],
+    "probe":            ["probe", "sensor", "measurement probe", "instrumentation",
+                         "rake", "pitot", "thermocouple", "pressure probe",
+                         "measurement device", "test probe"],
+    "rake":             ["rake", "probe array", "multi-point measurement",
+                         "measurement rake", "emissions rake", "traverse probe"],
+    "sensor":           ["sensor", "transducer", "measurement", "instrumentation",
+                         "detector", "probe", "gauge"],
+    "measurement":      ["measurement", "instrumentation", "test", "probe",
+                         "sensor", "diagnostics", "characterization", "metrology"],
+    "instrumentation":  ["sensor", "probe", "measurement", "transducer",
+                         "diagnostic", "test equipment", "data acquisition"],
     "hvac":             ["mechanical", "thermal", "heat transfer", "cooling", "ventilation"],
 }
 
@@ -604,6 +620,102 @@ def _project_types_bonus(provider, intent: Dict[str, Any], raw_query: str = '') 
     return round(min(15.0, best_score), 2)
 
 
+
+def _detect_similar_project(
+    provider,
+    intent: Dict[str, Any],
+    raw_query: str = '',
+) -> tuple:
+    """Option B: Keyword-based similar project detection.
+
+    Checks provider case studies AND notable projects for keyword matches.
+    Returns (matched: bool, project_title: str, match_confidence: float)
+    where matched=True means provider has conducted a similar project.
+    Threshold: requires strong keyword match (>= 0.35 ratio) to flag as similar.
+    """
+    import json as _json
+
+    # Build comprehensive keyword set from intent + raw query + synonyms
+    stop = {'and', 'the', 'for', 'with', 'that', 'this', 'from', 'have',
+            'will', 'what', 'can', 'are', 'was', 'but', 'not', 'our',
+            'your', 'their', 'more', 'also', 'data', 'system', 'used',
+            'design', 'analysis', 'engineering', 'service', 'test', 'project'}
+
+    kw_set = set()
+    q = raw_query.lower() if raw_query else ''
+    for w in re.findall(r'[a-z0-9]+', q):
+        if len(w) > 3 and w not in stop:
+            kw_set.add(w)
+    for kw in _safe_list(intent.get('inferred_keywords', [])):
+        for w in re.findall(r'[a-z0-9]+', kw.lower()):
+            if len(w) > 3 and w not in stop:
+                kw_set.add(w)
+    for cap in _safe_list(intent.get('capabilities_needed', [])):
+        for w in re.findall(r'[a-z0-9]+', cap.lower()):
+            if len(w) > 3 and w not in stop:
+                kw_set.add(w)
+    spec = _safe_str(intent.get('inferred_specialty', ''))  .lower()
+    for w in re.findall(r'[a-z0-9]+', spec):
+        if len(w) > 3 and w not in stop:
+            kw_set.add(w)
+
+    # Expand with synonyms for richer matching
+    expanded_kws = _expand_keywords(list(kw_set))
+    search_terms = set(expanded_kws) | kw_set
+
+    if not search_terms:
+        return False, '', 0.0
+
+    # ── Check case studies ────────────────────────────────────────────────────
+    case_studies_raw = getattr(provider, 'proven_experience_case_studies', None) or []
+    if isinstance(case_studies_raw, str):
+        try:
+            case_studies_raw = _json.loads(case_studies_raw)
+        except Exception:
+            case_studies_raw = [case_studies_raw]
+
+    # ── Check notable projects ────────────────────────────────────────────────
+    notable_raw = getattr(provider, 'proven_experience_notable_projects', None) or []
+    if isinstance(notable_raw, str):
+        try:
+            notable_raw = _json.loads(notable_raw)
+        except Exception:
+            notable_raw = [notable_raw]
+
+    best_ratio = 0.0
+    best_title = ''
+
+    # Score each case study individually
+    for item in case_studies_raw:
+        item_str = str(item).lower()
+        if len(item_str) < 10:
+            continue
+        hits = sum(1 for w in search_terms if w in item_str)
+        ratio = hits / max(len(search_terms), 1)
+        if ratio > best_ratio:
+            best_ratio = ratio
+            # Extract title: first sentence or first 80 chars
+            raw_title = str(item)[:120].split('.')[0].strip()
+            best_title = raw_title if len(raw_title) > 5 else str(item)[:80].strip()
+
+    # Score each notable project individually
+    for item in notable_raw:
+        item_str = str(item).lower()
+        if len(item_str) < 10:
+            continue
+        hits = sum(1 for w in search_terms if w in item_str)
+        ratio = hits / max(len(search_terms), 1)
+        if ratio > best_ratio:
+            best_ratio = ratio
+            raw_title = str(item)[:120].split('.')[0].strip()
+            best_title = raw_title if len(raw_title) > 5 else str(item)[:80].strip()
+
+    # Threshold: >= 0.35 ratio = similar project confirmed
+    # This means at least 35% of the search terms appear in the project description
+    matched = best_ratio >= 0.35
+
+    return matched, best_title, best_ratio
+
 def calculate_match_score(
     provider,
     intent: Dict[str, Any],
@@ -633,7 +745,7 @@ def calculate_match_score(
     }
 
 
-def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, Any]) -> str:
+def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, Any], similar_project_title: str = '') -> str:
     """Human-readable explanation grounded in actual scoring inputs (spec 11.12)."""
     specialty = intent.get('inferred_specialty', '') or 'engineering services'
     parts = [
@@ -652,6 +764,10 @@ def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, An
     if scores['software_bonus'] > 0:
         parts.append(f"Software tool bonus: +{scores['software_bonus']:.0f}.")
     parts.append(f"Matched on: {specialty}.")
+    if similar_project_title:
+        # Truncate title to 100 chars for readability
+        short_title = similar_project_title[:100] + ('...' if len(similar_project_title) > 100 else '')
+        parts.insert(0, f"✓ Conducted a similar project: {short_title}")
     return ' '.join(parts)
 
 
@@ -1093,7 +1209,9 @@ async def search_providers(
             similarity = float(row.get('cosine_similarity', 0.0) or 0.0) if used_vector else 0.0
             scores = calculate_match_score(provider, intent, similarity=similarity, raw_query=query)
             name = _display_name(provider)
-            explanation = _build_explanation(name, scores, intent)
+            # Option B: detect similar project via keyword matching
+            sim_matched, sim_title, sim_ratio = _detect_similar_project(provider, intent, raw_query=query)
+            explanation = _build_explanation(name, scores, intent, similar_project_title=sim_title if sim_matched else '')
             scored.append((
                 scores['total'],
                 SearchResultItem(
@@ -1106,13 +1224,18 @@ async def search_providers(
                     software_bonus=scores['software_bonus'],
                     similarity=scores['similarity'],
                     fallback_reason=fallback_reason,
+                    similar_project_matched=sim_matched,
+                    matching_project_title=sim_title,
                 ),
             ))
         except Exception as exc:
             logger.warning(f'[SEARCH] Scoring error for row: {exc}')
 
-    # Sort descending by total score
-    scored.sort(key=lambda t: t[0], reverse=True)
+    # Two-key sort: 1) similar_project_matched (True first), 2) total score (higher first)
+    scored.sort(
+        key=lambda t: (1 if t[1].similar_project_matched else 0, t[0]),
+        reverse=True,
+    )
 
     # Step 7 - Return top 5 (spec 11.10)
     results = [item for _, item in scored[:5]]
