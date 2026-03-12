@@ -28,7 +28,11 @@ interface ApiConfigInfo {
 interface DebugInfo {
   database: DatabaseStatus;
   api_config: ApiConfigInfo;
-  last_error: string | null;
+  last_error: {
+    error: string | null;
+    timestamp: string | null;
+    query: string | null;
+  } | null;
 }
 function PipelineBadge({ pipeline }: { pipeline: string | undefined }) {
   if (!pipeline) return null;
@@ -122,7 +126,7 @@ export default function DebuggingPage() {
           embedding_model: String(apiCfg.embedding_model ?? ""),
           llm_model: String(apiCfg.llm_model ?? ""),
         },
-        last_error: raw.last_error != null ? String(raw.last_error) : null,
+        last_error: (raw as any).last_error && (raw as any).last_error.error != null ? (raw as any).last_error : null,
       };
       setDebugInfo(normalized);
     } catch (err: unknown) {
@@ -302,7 +306,17 @@ export default function DebuggingPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <pre className="text-xs bg-red-50 p-3 rounded overflow-x-auto whitespace-pre-wrap text-red-800">{debugInfo.last_error}</pre>
+                  <div className="text-xs bg-red-50 p-3 rounded space-y-1">
+                    {debugInfo.last_error.error && (
+                      <p><span className="font-semibold text-red-900">Error:</span> <span className="text-red-800">{debugInfo.last_error.error}</span></p>
+                    )}
+                    {debugInfo.last_error.query && (
+                      <p><span className="font-semibold text-red-900">Query:</span> <span className="text-red-700">{debugInfo.last_error.query}</span></p>
+                    )}
+                    {debugInfo.last_error.timestamp && (
+                      <p><span className="font-semibold text-red-900">Time:</span> <span className="text-red-700">{debugInfo.last_error.timestamp}</span></p>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             )}

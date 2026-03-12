@@ -95,7 +95,7 @@ async def search_debug(db: AsyncSession = Depends(get_db)):
             "sample_provider": None,
         },
         "api_config": {},
-        "last_error": _last_search_error,
+        "last_error": _last_search_error if _last_search_error.get("error") is not None else None,
     }
 
     try:
