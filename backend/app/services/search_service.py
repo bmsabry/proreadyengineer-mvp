@@ -807,42 +807,75 @@ def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, An
 
 async def check_search_quota(
     db: AsyncSession,
-    user_id: Optional[int] = None,
+    user_id=None,
     ip_address: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Check caller search quota. Returns {allowed, remaining, limit, used}."""
+    """Check caller search quota using a FRESH session to avoid contamination.
+    Returns {allowed, remaining, limit, used}.
+    """
+    from app.db.session import AsyncSessionLocal
     now = datetime.utcnow()
+
+    # --- Anonymous / IP-based quota ---
     if user_id is None:
         if not ip_address:
             return {'allowed': True, 'remaining': 3, 'limit': 3, 'used': 0}
         try:
             from app.models.search import IPUsageTracking
             month_str = now.strftime('%Y-%m')
-            result = await db.execute(
-                select(IPUsageTracking)
-                .where(IPUsageTracking.ip_address == ip_address)
-                .where(IPUsageTracking.usage_month == month_str)
-            )
-            record = result.scalar_one_or_none()
-            used  = record.search_count if record else 0
+            async with AsyncSessionLocal() as fresh_db:
+                result = await fresh_db.execute(
+                    select(IPUsageTracking)
+                    .where(IPUsageTracking.ip_address == ip_address)
+                    .where(IPUsageTracking.usage_month == month_str)
+                )
+                record = result.scalar_one_or_none()
+                used = record.search_count if record else 0
             limit = 3
             return {'allowed': used < limit, 'remaining': max(0, limit - used), 'limit': limit, 'used': used}
         except Exception as exc:
             logger.warning(f'[QUOTA] IP tracking error: {exc}')
             return {'allowed': True, 'remaining': 3, 'limit': 3, 'used': 0}
+
+    # --- Registered user quota ---
     try:
         from app.models.user import User
-        result = await db.execute(select(User).where(User.id == user_id))
-        user   = result.scalar_one_or_none()
-        if not user:
-            return {'allowed': False, 'remaining': 0, 'limit': 0, 'used': 0}
-        search_tier = getattr(user, 'search_tier', None)
-        limit = 200 if search_tier == 2 else (100 if search_tier == 1 else 10)
-        used     = getattr(user, 'monthly_search_count', 0) or 0
-        reset_at = getattr(user, 'search_count_reset_at', None)
-        if reset_at and hasattr(reset_at, 'month'):
-            if reset_at.year != now.year or reset_at.month != now.month:
-                used = 0
+        from app.models.payment import Subscription
+        async with AsyncSessionLocal() as fresh_db:
+            # Fetch user with fresh session
+            result = await fresh_db.execute(
+                select(User).where(User.id == user_id)
+            )
+            user = result.scalar_one_or_none()
+            if not user:
+                return {'allowed': False, 'remaining': 0, 'limit': 0, 'used': 0}
+
+            # Determine quota limit from active subscription
+            limit = 10  # default free tier
+            try:
+                sub_result = await fresh_db.execute(
+                    select(Subscription).where(
+                        Subscription.user_id == user_id,
+                        Subscription.subscription_status == 'active',
+                        Subscription.subscription_type.in_(['search_tier_1', 'search_tier_2']),
+                    ).order_by(Subscription.created_at.desc()).limit(1)
+                )
+                sub = sub_result.scalar_one_or_none()
+                if sub:
+                    if sub.subscription_type == 'search_tier_2':
+                        limit = 200
+                    elif sub.subscription_type == 'search_tier_1':
+                        limit = 100
+            except Exception:
+                pass  # Keep default limit of 10
+
+            used = user.monthly_search_count or 0
+            reset_at = user.search_count_reset_at
+            # Reset count if it's a new month
+            if reset_at and hasattr(reset_at, 'month'):
+                if reset_at.year != now.year or reset_at.month != now.month:
+                    used = 0
+
         return {'allowed': used < limit, 'remaining': max(0, limit - used), 'limit': limit, 'used': used}
     except Exception as exc:
         logger.warning(f'[QUOTA] User quota check error: {exc}')
@@ -851,59 +884,87 @@ async def check_search_quota(
 
 async def increment_search_quota(
     db: AsyncSession,
-    user_id: Optional[int] = None,
+    user_id=None,
     ip_address: Optional[str] = None,
 ) -> None:
-    """Increment search usage counter for the caller."""
+    """Increment search usage counter using a FRESH independent session.
+    Uses direct SQL UPDATE to bypass ORM identity-map stale cache issues.
+    The `db` parameter is kept for signature compatibility but NOT used here.
+    """
+    from app.db.session import AsyncSessionLocal
     now = datetime.utcnow()
+
+    # --- Anonymous / IP-based increment ---
     if user_id is None:
         if not ip_address:
             return
         try:
             from app.models.search import IPUsageTracking
             month_str = now.strftime('%Y-%m')
-            result = await db.execute(
-                select(IPUsageTracking)
-                .where(IPUsageTracking.ip_address == ip_address)
-                .where(IPUsageTracking.usage_month == month_str)
-            )
-            record = result.scalar_one_or_none()
-            if record:
-                record.search_count = (record.search_count or 0) + 1
-                record.updated_at   = now
-            else:
-                db.add(IPUsageTracking(
-                    ip_address=ip_address,
-                    usage_month=month_str,
-                    search_count=1,
-                    created_at=now,
-                    updated_at=now,
-                ))
-            await db.commit()
+            async with AsyncSessionLocal() as fresh_db:
+                result = await fresh_db.execute(
+                    select(IPUsageTracking)
+                    .where(IPUsageTracking.ip_address == ip_address)
+                    .where(IPUsageTracking.usage_month == month_str)
+                )
+                record = result.scalar_one_or_none()
+                if record:
+                    record.search_count = (record.search_count or 0) + 1
+                    record.updated_at = now
+                else:
+                    fresh_db.add(IPUsageTracking(
+                        ip_address=ip_address,
+                        usage_month=month_str,
+                        search_count=1,
+                        created_at=now,
+                        updated_at=now,
+                    ))
+                await fresh_db.commit()
+            logger.info(f'[QUOTA] IP increment OK: {ip_address} month={month_str}')
         except Exception as exc:
             logger.warning(f'[QUOTA] IP increment error: {exc}')
-            await db.rollback()
         return
+
+    # --- Registered user increment via direct SQL UPDATE ---
     try:
         from app.models.user import User
-        result = await db.execute(select(User).where(User.id == user_id))
-        user   = result.scalar_one_or_none()
-        if not user:
-            return
-        reset_at = getattr(user, 'search_count_reset_at', None)
-        if reset_at and hasattr(reset_at, 'month'):
-            if reset_at.year != now.year or reset_at.month != now.month:
-                user.monthly_search_count  = 1
-                user.search_count_reset_at = now
+        from sqlalchemy import update as sql_update
+        async with AsyncSessionLocal() as fresh_db:
+            # Fetch user to check current month
+            result = await fresh_db.execute(
+                select(User.monthly_search_count, User.search_count_reset_at)
+                .where(User.id == user_id)
+            )
+            row = result.first()
+            if not row:
+                logger.warning(f'[QUOTA] User {user_id} not found for increment')
+                return
+
+            current_count, reset_at = row
+            current_count = current_count or 0
+
+            # Determine new count (reset if new month)
+            if reset_at and hasattr(reset_at, 'month'):
+                if reset_at.year != now.year or reset_at.month != now.month:
+                    new_count = 1  # new month - reset
+                else:
+                    new_count = current_count + 1
             else:
-                user.monthly_search_count = (user.monthly_search_count or 0) + 1
-        else:
-            user.monthly_search_count  = (getattr(user, 'monthly_search_count', 0) or 0) + 1
-            user.search_count_reset_at = now
-        await db.commit()
+                new_count = current_count + 1
+
+            # Direct SQL UPDATE - bypasses ORM identity map entirely
+            await fresh_db.execute(
+                sql_update(User)
+                .where(User.id == user_id)
+                .values(
+                    monthly_search_count=new_count,
+                    search_count_reset_at=now,
+                )
+            )
+            await fresh_db.commit()
+            logger.info(f'[QUOTA] User {user_id} increment OK: {current_count} -> {new_count}')
     except Exception as exc:
-        logger.warning(f'[QUOTA] User increment error: {exc}')
-        await db.rollback()
+        logger.warning(f'[QUOTA] User increment error: {exc}', exc_info=True)
 
 
 async def _keyword_candidate_query(

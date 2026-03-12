@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,11 @@ function formatDate(iso: string | null) {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatTime(date: Date | null) {
+  if (!date) return '';
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
 export default function AdminUsersPage() {
   const { isLoading: authLoading } = useRequireAuth(['admin']);
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -46,6 +51,12 @@ export default function AdminUsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [resetingId, setResetingId] = useState<string | null>(null);
   const [suspendingId, setSuspendingId] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const searchQueryRef = useRef(searchQuery);
+
+  useEffect(() => {
+    searchQueryRef.current = searchQuery;
+  }, [searchQuery]);
 
   const fetchUsers = useCallback(async (q?: string) => {
     setIsLoading(true);
@@ -57,6 +68,7 @@ export default function AdminUsersPage() {
       const data = res.data;
       setUsers(data.items ?? []);
       setTotal(data.total ?? 0);
+      setLastRefreshed(new Date());
     } catch {
       toast.error('Failed to load users');
     } finally {
@@ -64,8 +76,30 @@ export default function AdminUsersPage() {
     }
   }, []);
 
+  // Initial load
   useEffect(() => {
     fetchUsers();
+  }, [fetchUsers]);
+
+  // Auto-refresh when tab becomes visible (picks up search counts done in other tabs)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchUsers(searchQueryRef.current || undefined);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [fetchUsers]);
+
+  // Auto-refresh every 30 seconds while page is open and visible
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchUsers(searchQueryRef.current || undefined);
+      }
+    }, 30000);
+    return () => clearInterval(interval);
   }, [fetchUsers]);
 
   const handleSearch = (e: React.FormEvent) => {
@@ -79,6 +113,8 @@ export default function AdminUsersPage() {
       await api.admin.resetUserSearchQuota(userId);
       toast.success(`Search quota reset for ${email}`);
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, monthly_search_count: 0 } : u));
+      // Re-fetch after short delay to confirm backend state
+      setTimeout(() => fetchUsers(searchQueryRef.current || undefined), 800);
     } catch {
       toast.error('Failed to reset search quota');
     } finally {
@@ -120,7 +156,14 @@ export default function AdminUsersPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold">User Management</h1>
-          <p className="text-muted-foreground">{total} total users</p>
+          <p className="text-muted-foreground">
+            {total} total users
+            {lastRefreshed && (
+              <span className="ml-3 text-xs text-green-600">
+                &bull; Updated {formatTime(lastRefreshed)}
+              </span>
+            )}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => fetchUsers(searchQuery || undefined)} disabled={isLoading}>
@@ -134,7 +177,7 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {/* Search */}
+      {/* Search bar */}
       <Card className="mb-6">
         <CardContent className="pt-6">
           <form onSubmit={handleSearch} className="flex gap-3">
@@ -152,13 +195,14 @@ export default function AdminUsersPage() {
         </CardContent>
       </Card>
 
-      {/* Search Quota Legend */}
+      {/* Quota Legend */}
       <div className="mb-4 flex flex-wrap gap-4 text-sm text-muted-foreground">
         <span className="font-medium text-foreground">Monthly search quotas:</span>
-        <span>🔓 Unregistered: <strong>3</strong></span>
-        <span>👤 Free account: <strong>10</strong></span>
-        <span>⭐ Tier 1 ($10/mo): <strong>100</strong></span>
-        <span>🚀 Tier 2 ($20/mo): <strong>200</strong></span>
+        <span>&#128275; Unregistered: <strong>3</strong></span>
+        <span>&#128100; Free account: <strong>10</strong></span>
+        <span>&#11088; Tier 1 ($10/mo): <strong>100</strong></span>
+        <span>&#128640; Tier 2 ($20/mo): <strong>200</strong></span>
+        <span className="ml-auto text-xs italic">Auto-refreshes every 30s &bull; Updates on tab focus</span>
       </div>
 
       <Card>
@@ -183,6 +227,7 @@ export default function AdminUsersPage() {
                     <TableHead>Roles</TableHead>
                     <TableHead>Membership</TableHead>
                     <TableHead>Searches Used</TableHead>
+                    <TableHead>Reset At</TableHead>
                     <TableHead>Last Login</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -228,11 +273,16 @@ export default function AdminUsersPage() {
                             </span>
                             <div className="h-1.5 w-20 rounded-full bg-gray-200">
                               <div
-                                className={`h-1.5 rounded-full ${overLimit ? 'bg-red-500' : pct > 70 ? 'bg-yellow-500' : 'bg-green-500'}`}
+                                className={`h-1.5 rounded-full ${
+                                  overLimit ? 'bg-red-500' : pct > 70 ? 'bg-yellow-500' : 'bg-green-500'
+                                }`}
                                 style={{ width: `${pct}%` }}
                               />
                             </div>
                           </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {formatDate(user.search_count_reset_at)}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {formatDate(user.last_login_at)}
