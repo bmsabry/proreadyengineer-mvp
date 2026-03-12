@@ -11,8 +11,6 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Search, Building2, MapPin, Star, AlertTriangle, Home, LogOut, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { DebugPanel } from '@/components/search/DebugPanel';
-import { AIPipelinePanel } from '@/components/search/AIPipelinePanel';
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
@@ -139,7 +137,6 @@ function SearchPageContent() {
         </div>
 
         {/* Status */}
-              {pipelineInfo && <AIPipelinePanel pipeline={pipelineInfo} query={query} />}
       {hasSearched && searchStatus === 'error' && (
           <div className="max-w-3xl mx-auto mb-4">
             <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-md">
@@ -200,13 +197,6 @@ function SearchPageContent() {
                   </Card>
                 </Link>
               ))}
-              <DebugPanel
-                searchQuery={query}
-                searchStatus={searchStatus}
-                searchError={searchError}
-                resultCount={resultCount}
-                showOnEmpty={false}
-              />
             </div>
 
             {/* Right: Request Quote panel */}
@@ -253,13 +243,6 @@ function SearchPageContent() {
         {hasSearched && results.length === 0 && searchStatus !== 'loading' && searchStatus !== 'error' && (
           <div className="max-w-3xl mx-auto space-y-4">
             <p className="text-center text-muted-foreground py-8">No providers found matching your search.</p>
-            <DebugPanel
-              searchQuery={query}
-              searchStatus={searchStatus}
-              searchError={searchError}
-              resultCount={resultCount}
-              showOnEmpty={true}
-            />
           </div>
         )}
       </main>
