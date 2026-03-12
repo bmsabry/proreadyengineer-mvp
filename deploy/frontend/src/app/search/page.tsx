@@ -5,13 +5,14 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { SearchResult } from '@/types';
+import { SearchResult, PipelineInfo } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Search, Building2, MapPin, Star, AlertTriangle, Home, LogOut, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { DebugPanel } from '@/components/search/DebugPanel';
+import { AIPipelinePanel } from '@/components/search/AIPipelinePanel';
 
 function SearchPageContent() {
   const searchParams = useSearchParams();
@@ -30,6 +31,7 @@ function SearchPageContent() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [resultCount, setResultCount] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
+  const [pipelineInfo, setPipelineInfo] = useState<PipelineInfo | null>(null);
 
   useEffect(() => {
     if (initialQuery) {
@@ -43,12 +45,14 @@ function SearchPageContent() {
     setHasSearched(true);
     setSearchStatus('loading');
     setSearchError(null);
+    setPipelineInfo(null);
     try {
       const response = await api.search.query({ query: searchQuery });
       const res = response.data.results || [];
       setResults(res);
       setResultCount(res.length);
       setTotalMatches(response.data.total_matches || 0);
+      setPipelineInfo(response.data.pipeline_info || null);
       setSearchStatus('success');
     } catch (error: any) {
       setSearchStatus('error');
@@ -135,7 +139,8 @@ function SearchPageContent() {
         </div>
 
         {/* Status */}
-        {hasSearched && searchStatus === 'error' && (
+              {pipelineInfo && <AIPipelinePanel pipeline={pipelineInfo} query={query} />}
+      {hasSearched && searchStatus === 'error' && (
           <div className="max-w-3xl mx-auto mb-4">
             <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-md">
               <AlertTriangle className="h-4 w-4" />

@@ -148,6 +148,27 @@ export interface SearchResult {
   scoring_inputs?: Record<string, unknown>;
 }
 
+
+export interface PipelineInfo {
+  pipeline_used: 'ai_vector' | 'keyword_fallback' | 'no_api_key' | 'error' | string;
+  llm_called: boolean;
+  llm_response_received: boolean;
+  llm_model: string;
+  embedding_called: boolean;
+  embedding_dims: number;
+  api_key_source: 'database' | 'env_var' | 'missing' | string;
+  fallback_reason: string | null;
+  inferred_specialty: string | null;
+  inferred_keywords: string[];
+}
+
+export interface SearchResponseWithPipeline {
+  results: SearchResult[];
+  total_matches: number;
+  search_quota_remaining: number;
+  pipeline_info: PipelineInfo | null;
+}
+
 export interface SearchQueryRequest {
   query: string;
 }
@@ -157,6 +178,7 @@ export interface SearchQueryResponse {
   results: SearchResult[];
   total_matches: number;
   search_quota_remaining: number;
+  pipeline_info?: PipelineInfo | null;
   // Optional legacy fields
   search_id?: string;
   query?: string;

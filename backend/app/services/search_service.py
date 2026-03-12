@@ -956,32 +956,93 @@ async def search_providers(
     query: str,
     filters: dict = None,
     limit: int = 50,
-) -> List[SearchResultItem]:
-    """Full spec-compliant search pipeline. Returns list of SearchResultItem."""
+) -> tuple:
+    """Full spec-compliant search pipeline.
+    Returns (results: List[SearchResultItem], pipeline_info: dict)
+    pipeline_info contains AI diagnostics for debug display.
+    """
     if filters is None:
         filters = {}
 
     norm_query = _normalize_query(query)
     logger.info(f'[SEARCH] query={norm_query[:100]}')
 
+    # Initialize pipeline tracking dict
+    pipeline_info: Dict[str, Any] = {
+        'pipeline_used': 'keyword_fallback',
+        'llm_called': False,
+        'llm_response_received': False,
+        'llm_model': '',
+        'embedding_called': False,
+        'embedding_dims': 0,
+        'api_key_source': 'missing',
+        'fallback_reason': None,
+        'inferred_specialty': None,
+        'inferred_keywords': [],
+    }
+
     # Load runtime config from DB (falls back to env vars)
     from app.services.config_service import get_runtime_config
     runtime_config = await get_runtime_config(db)
-    logger.info('[SEARCH] API key from DB: %s', 'set' if runtime_config.get('OPENAI_API_KEY') else 'not set')
+
+    # Determine API key and source
+    api_key = runtime_config.get('OPENAI_API_KEY', '') or ''
+    has_key = bool(api_key) and api_key not in ('dummy-key', 'your-api-key-here', '')
+
+    if has_key:
+        try:
+            from app.models.system_config import SystemConfig
+            from sqlalchemy import select as sa_select
+            result = await db.execute(
+                sa_select(SystemConfig).where(SystemConfig.key == 'OPENAI_API_KEY')
+            )
+            rec = result.scalar_one_or_none()
+            pipeline_info['api_key_source'] = 'database' if (rec and rec.value) else 'env_var'
+        except Exception:
+            pipeline_info['api_key_source'] = 'env_var'
+    else:
+        pipeline_info['api_key_source'] = 'missing'
+
+    logger.info('[SEARCH] API key source=%s has_key=%s', pipeline_info['api_key_source'], has_key)
 
     # Step 2 - LLM intent extraction
+    llm_model = (
+        runtime_config.get('OPENAI_LLM_MODEL', '')
+        or runtime_config.get('OPENAI_MODEL', '')
+        or 'moonshotai/kimi-k2.5'
+    )
+    pipeline_info['llm_model'] = llm_model if has_key else '(none - no API key)'
+    pipeline_info['llm_called'] = has_key
+
     intent = await extract_structured_intent(norm_query, runtime_config=runtime_config)
     fallback_reason: Optional[str] = None
 
+    if has_key:
+        got_specialty = bool(intent.get('inferred_specialty', ''))
+        got_keywords = bool(intent.get('inferred_keywords') or intent.get('capabilities_needed'))
+        pipeline_info['llm_response_received'] = got_specialty or got_keywords
+        logger.info(
+            '[SEARCH] ✅ LLM response received=%s specialty=%s keywords=%s',
+            pipeline_info['llm_response_received'],
+            intent.get('inferred_specialty', ''),
+            intent.get('inferred_keywords', []),
+        )
+
+    pipeline_info['inferred_specialty'] = intent.get('inferred_specialty', '') or ''
+    pipeline_info['inferred_keywords'] = (intent.get('inferred_keywords') or [])[:8]
+
     # Step 4 - Embed query
     query_vec: Optional[List[float]] = None
-    if _has_api_key(runtime_config):
+    if has_key:
+        pipeline_info['embedding_called'] = True
         try:
             query_vec = await generate_embedding(norm_query, runtime_config=runtime_config)
+            pipeline_info['embedding_dims'] = len(query_vec) if query_vec else 0
+            logger.info('[SEARCH] ✅ Embedding generated: %d dims', pipeline_info['embedding_dims'])
         except Exception as exc:
+            pipeline_info['embedding_called'] = False
             logger.warning(f'[SEARCH] Embedding failed ({exc}), using keyword scoring')
-            if fallback_reason is None:
-                fallback_reason = f'embedding_failed:{exc}'
+            fallback_reason = fallback_reason or f'embedding_failed:{type(exc).__name__}'
 
     # Steps 3+5 - Hard filters + pgvector candidates
     try:
@@ -995,9 +1056,28 @@ async def search_providers(
         rows = []
         used_vector = False
 
+    # Set final pipeline_used
+    if used_vector:
+        pipeline_info['pipeline_used'] = 'ai_vector'
+    elif not has_key:
+        pipeline_info['pipeline_used'] = 'no_api_key'
+    else:
+        pipeline_info['pipeline_used'] = 'keyword_fallback'
+    pipeline_info['fallback_reason'] = fallback_reason
+
+    logger.info(
+        '[SEARCH] U0001f4ca Pipeline=%s | LLM=%s->%s | Embed=%s(%ddims) | Key=%s',
+        pipeline_info['pipeline_used'],
+        'called' if pipeline_info['llm_called'] else 'skipped',
+        'received' if pipeline_info['llm_response_received'] else 'no-response',
+        'ok' if pipeline_info['embedding_called'] else 'failed',
+        pipeline_info['embedding_dims'],
+        pipeline_info['api_key_source'],
+    )
+
     if not rows:
         logger.info('[SEARCH] No candidates found, returning empty')
-        return []
+        return [], pipeline_info
 
     # Step 6 - Score each candidate
     scored: List[tuple] = []
@@ -1036,4 +1116,4 @@ async def search_providers(
         len(results),
         [(r.provider.id, round(r.score, 1)) for r in results],
     )
-    return results
+    return results, pipeline_info

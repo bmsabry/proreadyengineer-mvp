@@ -230,14 +230,18 @@ async def search_query(
     # -----------------------------------------------------------------------
     # Step 2: Execute search
     # -----------------------------------------------------------------------
+    pipeline_info = {'pipeline_used': 'error', 'llm_called': False, 'llm_response_received': False,
+                     'llm_model': '', 'embedding_called': False, 'embedding_dims': 0,
+                     'api_key_source': 'missing', 'fallback_reason': None,
+                     'inferred_specialty': None, 'inferred_keywords': []}
     try:
-        results = await search_providers(
+        results, pipeline_info = await search_providers(
             db,
             query=data.query,
             filters=data.filters or {},
             limit=50,
         )
-        logger.info("[SEARCH] Search completed: %d results", len(results))
+        logger.info("[SEARCH] Search completed: %d results pipeline=%s", len(results), pipeline_info.get('pipeline_used'))
 
         # -------------------------------------------------------------------
         # Step 3: Increment quota AFTER successful search - NON-FATAL
@@ -269,10 +273,13 @@ async def search_query(
         _last_search_error = {"error": None, "timestamp": None, "query": data.query}
 
         logger.info("[SEARCH] Returning %d validated results", len(safe_results))
+        from app.schemas.search import PipelineInfo
+        pi = PipelineInfo(**pipeline_info) if pipeline_info else None
         return SearchResponse(
             results=safe_results,
             total_matches=len(results),
             search_quota_remaining=max(0, remaining - 1),
+            pipeline_info=pi,
         )
 
     except HTTPException:

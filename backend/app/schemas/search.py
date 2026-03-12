@@ -106,11 +106,26 @@ class SearchResult(BaseSchema):
     explanation: str
 
 
+class PipelineInfo(BaseSchema):
+    """AI pipeline execution diagnostics - shown in search results debug panel."""
+    pipeline_used: str = "unknown"  # 'ai_vector', 'keyword_fallback', 'no_api_key'
+    llm_called: bool = False
+    llm_response_received: bool = False
+    llm_model: str = ""
+    embedding_called: bool = False
+    embedding_dims: int = 0
+    api_key_source: str = "missing"  # 'database', 'env_var', 'missing'
+    fallback_reason: Optional[str] = None
+    inferred_specialty: Optional[str] = None
+    inferred_keywords: Optional[List[str]] = None
+
+
 class SearchResponse(BaseSchema):
     """Response envelope from the /search/query endpoint."""
     results: List[SearchResult]
     total_matches: int
     search_quota_remaining: int
+    pipeline_info: Optional[PipelineInfo] = None
 
 
 # ---------------------------------------------------------------------------
