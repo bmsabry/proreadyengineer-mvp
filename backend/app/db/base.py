@@ -20,3 +20,5 @@ from app.models.advertising import AdSlot, Advertisement  # noqa: F401
 from app.models.admin import TierEvaluationRequest, AuditLog  # noqa: F401
 
 __all__ = ["Base"]
+
+from app.models.system_config import SystemConfig  # noqa: F401

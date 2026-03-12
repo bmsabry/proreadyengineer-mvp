@@ -620,3 +620,85 @@ async def admin_suspend_user(
     await revoke_all_user_tokens(db, user_id)
 
     return {"message": "User suspended", "user_id": user_id}
+
+
+# ─── System Configuration Endpoints ──────────────────────────────────────────
+from pydantic import BaseModel as _BaseModel
+from app.services.config_service import get_runtime_config as _get_runtime_config
+from app.services.config_service import save_config_values as _save_config_values
+
+
+class SystemConfigRequest(_BaseModel):
+    openai_api_key: Optional[str] = None
+    openai_api_base: Optional[str] = None
+    openai_llm_model: Optional[str] = None
+    openai_embedding_model: Optional[str] = None
+    stripe_secret_key: Optional[str] = None
+    stripe_publishable_key: Optional[str] = None
+    stripe_webhook_secret: Optional[str] = None
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_region: Optional[str] = None
+    aws_s3_bucket: Optional[str] = None
+    resend_api_key: Optional[str] = None
+    signrequest_api_key: Optional[str] = None
+
+
+def _mask(v: str) -> str:
+    if not v or len(v) < 8:
+        return ''
+    return v[:4] + '•' * 16 + v[-4:]
+
+
+@router.get("/admin/config")
+async def get_system_config(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Get current system configuration (secrets masked)."""
+    config = await _get_runtime_config(db)
+    return {
+        "openai_api_key": _mask(config.get("OPENAI_API_KEY", "")),
+        "openai_api_key_set": bool(config.get("OPENAI_API_KEY")),
+        "openai_api_base": config.get("OPENAI_API_BASE", ""),
+        "openai_llm_model": config.get("OPENAI_LLM_MODEL", ""),
+        "openai_embedding_model": config.get("OPENAI_EMBEDDING_MODEL", ""),
+        "stripe_secret_key": _mask(config.get("STRIPE_SECRET_KEY", "")),
+        "stripe_secret_key_set": bool(config.get("STRIPE_SECRET_KEY")),
+        "stripe_publishable_key": config.get("STRIPE_PUBLISHABLE_KEY", ""),
+        "aws_access_key_id": _mask(config.get("AWS_ACCESS_KEY_ID", "")),
+        "aws_access_key_set": bool(config.get("AWS_ACCESS_KEY_ID")),
+        "aws_region": config.get("AWS_REGION", ""),
+        "aws_s3_bucket": config.get("AWS_S3_BUCKET", ""),
+        "resend_api_key": _mask(config.get("RESEND_API_KEY", "")),
+        "resend_api_key_set": bool(config.get("RESEND_API_KEY")),
+        "signrequest_api_key": _mask(config.get("SIGNREQUEST_API_KEY", "")),
+        "signrequest_api_key_set": bool(config.get("SIGNREQUEST_API_KEY")),
+        "source": "db_or_env",
+    }
+
+
+@router.post("/admin/config")
+async def save_system_config(
+    data: SystemConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Save API keys and config to database for runtime use."""
+    config_map: dict = {}
+    if data.openai_api_key:         config_map["OPENAI_API_KEY"]         = data.openai_api_key
+    if data.openai_api_base:        config_map["OPENAI_API_BASE"]        = data.openai_api_base
+    if data.openai_llm_model:       config_map["OPENAI_LLM_MODEL"]       = data.openai_llm_model
+    if data.openai_embedding_model: config_map["OPENAI_EMBEDDING_MODEL"] = data.openai_embedding_model
+    if data.stripe_secret_key:      config_map["STRIPE_SECRET_KEY"]      = data.stripe_secret_key
+    if data.stripe_publishable_key: config_map["STRIPE_PUBLISHABLE_KEY"] = data.stripe_publishable_key
+    if data.stripe_webhook_secret:  config_map["STRIPE_WEBHOOK_SECRET"]  = data.stripe_webhook_secret
+    if data.aws_access_key_id:      config_map["AWS_ACCESS_KEY_ID"]      = data.aws_access_key_id
+    if data.aws_secret_access_key:  config_map["AWS_SECRET_ACCESS_KEY"]  = data.aws_secret_access_key
+    if data.aws_region:             config_map["AWS_REGION"]             = data.aws_region
+    if data.aws_s3_bucket:          config_map["AWS_S3_BUCKET"]          = data.aws_s3_bucket
+    if data.resend_api_key:         config_map["RESEND_API_KEY"]         = data.resend_api_key
+    if data.signrequest_api_key:    config_map["SIGNREQUEST_API_KEY"]    = data.signrequest_api_key
+
+    await _save_config_values(db, config_map, user_id=current_user.id)
+    return {"status": "saved", "keys_saved": list(config_map.keys())}

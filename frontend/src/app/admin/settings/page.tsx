@@ -1,180 +1,289 @@
 'use client';
-
 export const dynamic = 'force-dynamic';
-
-import { useConfig } from '@/contexts/ConfigContext';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Key, CreditCard, Mail, Database, PenTool, Settings, Check, X, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
-import { SetupWizard } from '@/components/setup/SetupWizard';
+import { Key, CreditCard, Mail, Database, PenTool, Check, X, Loader2, AlertCircle } from 'lucide-react';
+
+interface ServerConfig {
+  openai_api_key: string; openai_api_key_set: boolean;
+  openai_api_base: string; openai_llm_model: string; openai_embedding_model: string;
+  stripe_secret_key: string; stripe_secret_key_set: boolean; stripe_publishable_key: string;
+  aws_access_key_id: string; aws_access_key_set: boolean; aws_region: string; aws_s3_bucket: string;
+  resend_api_key: string; resend_api_key_set: boolean;
+  signrequest_api_key: string; signrequest_api_key_set: boolean;
+  source: string;
+}
+interface FormState {
+  openai_api_key: string; openai_api_base: string; openai_llm_model: string; openai_embedding_model: string;
+  stripe_secret_key: string; stripe_publishable_key: string; stripe_webhook_secret: string;
+  aws_access_key_id: string; aws_secret_access_key: string; aws_region: string; aws_s3_bucket: string;
+  resend_api_key: string; signrequest_api_key: string;
+}
+const EMPTY_FORM: FormState = {
+  openai_api_key:'',openai_api_base:'',openai_llm_model:'',openai_embedding_model:'',
+  stripe_secret_key:'',stripe_publishable_key:'',stripe_webhook_secret:'',
+  aws_access_key_id:'',aws_secret_access_key:'',aws_region:'',aws_s3_bucket:'',
+  resend_api_key:'',signrequest_api_key:'',
+};
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
+
+async function fetchServerConfig(): Promise<ServerConfig> {
+  const res = await fetch(`${API_BASE}/admin/config`, { credentials: 'include', cache: 'no-store' });
+  if (!res.ok) throw new Error(`Failed to load config: ${res.status}`);
+  return res.json();
+}
+
+async function postServerConfig(data: Partial<FormState>): Promise<{ status: string; keys_saved: string[] }> {
+  const payload: Record<string, string> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v && (v as string).trim()) payload[k] = (v as string).trim();
+  }
+  const res = await fetch(`${API_BASE}/admin/config`, {
+    method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).detail || `Save failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+function SetBadge({ isSet }: { isSet: boolean }) {
+  return isSet ? (
+    <Badge className="bg-green-100 text-green-800 text-xs">
+      <Check className="h-3 w-3 mr-1 inline" />Set
+    </Badge>
+  ) : (
+    <Badge variant="secondary" className="text-xs">
+      <X className="h-3 w-3 mr-1 inline" />Not set
+    </Badge>
+  );
+}
+
+function Field({ id, label, type = 'text', value, onChange, placeholder, hint }: {
+  id: string; label: string; type?: string;
+  value: string; onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  placeholder?: string; hint?: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} type={type} value={value} onChange={onChange}
+        placeholder={placeholder ?? ''} autoComplete="off" className="font-mono text-sm" />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+    </div>
+  );
+}
+
+interface StatusDetail { label: string; value: string; }
+function StatusCard({ title, icon: Icon, configured, description, details }: {
+  title: string; icon: React.ElementType; configured: boolean;
+  description: string; details: StatusDetail[];
+}) {
+  return (
+    <Card className={configured ? 'border-green-200' : 'border-amber-200'}>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon className="h-4 w-4" />
+            <CardTitle className="text-sm font-medium">{title}</CardTitle>
+          </div>
+          <SetBadge isSet={configured} />
+        </div>
+        <CardDescription className="text-xs">{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-1">
+        {details.map((d) => (
+          <div key={d.label} className="flex justify-between text-xs gap-2">
+            <span className="text-muted-foreground shrink-0">{d.label}:</span>
+            <span className="font-mono truncate max-w-[180px] text-right">{d.value}</span>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function AdminSettingsPage() {
-  const { config, updateConfig, isConfigured, missingServices, validateConfig } = useConfig();
-  const [showSetup, setShowSetup] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [localConfig, setLocalConfig] = useState(config);
+  const [serverConfig, setServerConfig] = useState<ServerConfig | null>(null);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [savedKeys, setSavedKeys] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState('');
 
-  const handleSave = () => {
-    updateConfig(localConfig);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const loadConfig = () => {
+    setLoading(true);
+    fetchServerConfig()
+      .then((cfg) => {
+        setServerConfig(cfg);
+        setForm((f) => ({
+          ...f,
+          openai_api_base: cfg.openai_api_base || '',
+          openai_llm_model: cfg.openai_llm_model || '',
+          openai_embedding_model: cfg.openai_embedding_model || '',
+          stripe_publishable_key: cfg.stripe_publishable_key || '',
+          aws_region: cfg.aws_region || '',
+          aws_s3_bucket: cfg.aws_s3_bucket || '',
+        }));
+        setLoadError('');
+      })
+      .catch((e: Error) => setLoadError(e.message))
+      .finally(() => setLoading(false));
   };
 
-  const updateField = (field: keyof typeof localConfig, value: string) => {
-    setLocalConfig(prev => ({ ...prev, [field]: value }));
+  useEffect(() => { loadConfig(); }, []);
+
+  const set = (field: keyof FormState) =>
+    (e: React.ChangeEvent<HTMLInputElement>) =>
+      setForm((f) => ({ ...f, [field]: e.target.value }));
+
+  const handleSave = async () => {
+    setSaving(true); setSaveError(''); setSavedKeys([]);
+    try {
+      const result = await postServerConfig(form);
+      setSavedKeys(result.keys_saved);
+      const updated = await fetchServerConfig();
+      setServerConfig(updated);
+      setForm((f) => ({
+        ...f,
+        openai_api_key: '', stripe_secret_key: '', stripe_webhook_secret: '',
+        aws_access_key_id: '', aws_secret_access_key: '',
+        resend_api_key: '', signrequest_api_key: '',
+      }));
+    } catch (e: any) {
+      setSaveError(e.message);
+    } finally { setSaving(false); }
   };
 
-  const { valid, errors } = validateConfig();
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        <span className="ml-2 text-muted-foreground">Loading configuration...</span>
+      </div>
+    );
+  }
 
-  const maskKey = (key: string) => {
-    if (!key) return 'Not set';
-    if (key.length < 8) return '••••••••';
-    return key.slice(0, 4) + '••••••••••••••••' + key.slice(-4);
-  };
+  const aiConfigured     = serverConfig?.openai_api_key_set      ?? false;
+  const stripeConfigured = serverConfig?.stripe_secret_key_set   ?? false;
+  const awsConfigured    = serverConfig?.aws_access_key_set      ?? false;
+  const resendConfigured = serverConfig?.resend_api_key_set      ?? false;
+  const signConfigured   = serverConfig?.signrequest_api_key_set ?? false;
+  const allConfigured    = aiConfigured && stripeConfigured && awsConfigured && resendConfigured;
+  const missingCount     = [aiConfigured,stripeConfigured,awsConfigured,resendConfigured,signConfigured].filter(x=>!x).length;
 
   return (
-    <div className="container mx-auto py-8 px-4">
-      <div className="flex justify-between items-center mb-6">
+    <div className="container mx-auto py-8 px-4 max-w-5xl">
+      <div className="flex justify-between items-start mb-6">
         <div>
           <h1 className="text-3xl font-bold">System Settings</h1>
-          <p className="text-muted-foreground">Configure API keys and service integrations</p>
+          <p className="text-muted-foreground mt-1">Keys stored in DB — no restart needed.</p>
         </div>
-        <div className="flex items-center gap-4">
-          {isConfigured ? (
-            <Badge className="bg-green-100 text-green-800">
-              <Check className="h-3 w-3 mr-1" />
-              Fully Configured
-            </Badge>
-          ) : (
-            <Badge variant="destructive">
-              <X className="h-3 w-3 mr-1" />
-              {missingServices.length} services missing
-            </Badge>
-          )}
-          <Button onClick={() => setShowSetup(true)}>
-            <Key className="h-4 w-4 mr-2" />
-            Configure APIs
-          </Button>
+        <div className="mt-1">
+          {allConfigured
+            ? <Badge className="bg-green-100 text-green-800"><Check className="h-3 w-3 mr-1" />Fully Configured</Badge>
+            : <Badge variant="destructive"><X className="h-3 w-3 mr-1" />{missingCount} service{missingCount !== 1 ? 's' : ''} missing</Badge>
+          }
         </div>
       </div>
 
+      {loadError && (
+        <div className="mb-4 flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded p-3 text-sm">
+          <AlertCircle className="h-4 w-4 shrink-0" />Could not load config from server: {loadError}
+        </div>
+      )}
+      {savedKeys.length > 0 && (
+        <div className="mb-4 flex items-center gap-2 text-green-700 bg-green-50 border border-green-200 rounded p-3 text-sm">
+          <Check className="h-4 w-4 shrink-0" />Saved to database: <span className="font-mono ml-1">{savedKeys.join(', ')}</span>
+        </div>
+      )}
+      {saveError && (
+        <div className="mb-4 flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded p-3 text-sm">
+          <AlertCircle className="h-4 w-4 shrink-0" />Save failed: {saveError}
+        </div>
+      )}
+
+      <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
+        <strong>How this works:</strong> Enter new values and click <strong>Save to Database</strong>.
+        Keys are stored in PostgreSQL and read by the backend at request time — no environment
+        variable changes or server restarts required. Leave a field blank to keep its current value.
+      </div>
+
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="ai">AI Search</TabsTrigger>
-          <TabsTrigger value="payments">Payments</TabsTrigger>
-          <TabsTrigger value="email">Email</TabsTrigger>
-          <TabsTrigger value="storage">Storage</TabsTrigger>
+          <TabsTrigger value="ai">AI / Search{!aiConfigured && <span className="ml-1 text-red-500">●</span>}</TabsTrigger>
+          <TabsTrigger value="payments">Payments{!stripeConfigured && <span className="ml-1 text-red-500">●</span>}</TabsTrigger>
+          <TabsTrigger value="email">Email{!resendConfigured && <span className="ml-1 text-red-500">●</span>}</TabsTrigger>
+          <TabsTrigger value="storage">Storage{!awsConfigured && <span className="ml-1 text-red-500">●</span>}</TabsTrigger>
           <TabsTrigger value="signing">Document Signing</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <ServiceCard
-              title="AI Search"
-              icon={Key}
-              configured={!!config.deepinfraApiKey}
-              description="DeepInfra API for embeddings and completions"
+            <StatusCard title="AI / Search" icon={Key} configured={aiConfigured}
+              description="OpenAI-compatible API for embeddings & completions"
               details={[
-                { label: 'API Key', value: maskKey(config.deepinfraApiKey) },
-                { label: 'Base URL', value: config.openaiBaseUrl },
-                { label: 'Model', value: config.completionModel },
-              ]}
-            />
-            <ServiceCard
-              title="Payments"
-              icon={CreditCard}
-              configured={!!config.stripeSecretKey}
-              description="Stripe for payment processing"
+                { label: 'API Key', value: serverConfig?.openai_api_key || 'Not set' },
+                { label: 'Base URL', value: serverConfig?.openai_api_base || '—' },
+                { label: 'LLM Model', value: serverConfig?.openai_llm_model || '—' },
+                { label: 'Embed Model', value: serverConfig?.openai_embedding_model || '—' },
+              ]} />
+            <StatusCard title="Payments" icon={CreditCard} configured={stripeConfigured}
+              description="Stripe for subscriptions and one-time payments"
               details={[
-                { label: 'Secret Key', value: maskKey(config.stripeSecretKey) },
-                { label: 'Publishable Key', value: maskKey(config.stripePublishableKey) },
-                { label: 'Webhook Secret', value: config.stripeWebhookSecret ? 'Set' : 'Not set' },
-              ]}
-            />
-            <ServiceCard
-              title="Email"
-              icon={Mail}
-              configured={!!config.resendApiKey}
+                { label: 'Secret Key', value: serverConfig?.stripe_secret_key || 'Not set' },
+                { label: 'Publishable Key', value: serverConfig?.stripe_publishable_key ? serverConfig.stripe_publishable_key.slice(0,20)+'...' : 'Not set' },
+              ]} />
+            <StatusCard title="Email" icon={Mail} configured={resendConfigured}
               description="Resend for transactional emails"
+              details={[{ label: 'API Key', value: serverConfig?.resend_api_key || 'Not set' }]} />
+            <StatusCard title="File Storage" icon={Database} configured={awsConfigured}
+              description="AWS S3 for document uploads"
               details={[
-                { label: 'API Key', value: maskKey(config.resendApiKey) },
-              ]}
-            />
-            <ServiceCard
-              title="File Storage"
-              icon={Database}
-              configured={!!config.awsAccessKey}
-              description="AWS S3 for file uploads"
-              details={[
-                { label: 'Access Key', value: maskKey(config.awsAccessKey) },
-                { label: 'Region', value: config.awsRegion },
-                { label: 'Bucket', value: config.awsS3Bucket || 'Not set' },
-              ]}
-            />
-            <ServiceCard
-              title="Document Signing"
-              icon={PenTool}
-              configured={!!config.signrequestApiKey}
-              description="SignRequest for NDAs"
-              details={[
-                { label: 'API Key', value: maskKey(config.signrequestApiKey) },
-              ]}
-            />
+                { label: 'Access Key', value: serverConfig?.aws_access_key_id || 'Not set' },
+                { label: 'Region', value: serverConfig?.aws_region || '—' },
+                { label: 'Bucket', value: serverConfig?.aws_s3_bucket || '—' },
+              ]} />
+            <StatusCard title="Document Signing" icon={PenTool} configured={signConfigured}
+              description="SignRequest for NDA workflows"
+              details={[{ label: 'API Key', value: serverConfig?.signrequest_api_key || 'Not set' }]} />
           </div>
         </TabsContent>
 
         <TabsContent value="ai" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Key className="h-5 w-5" />
-                DeepInfra AI Configuration
-              </CardTitle>
-              <CardDescription>
-                Configure AI search and embeddings using DeepInfra
-              </CardDescription>
+              <CardTitle className="flex items-center gap-2"><Key className="h-5 w-5" />AI / Search Configuration</CardTitle>
+              <CardDescription>OpenAI-compatible endpoint for intent extraction and vector embeddings.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="deepinfra-key">DeepInfra API Key</Label>
-                <Input
-                  id="deepinfra-key"
-                  type="password"
-                  value={localConfig.deepinfraApiKey}
-                  onChange={(e) => updateField('deepinfraApiKey', e.target.value)}
-                  placeholder="sk-..."
-                />
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Current status:</span>
+                <SetBadge isSet={aiConfigured} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="base-url">API Base URL</Label>
-                <Input
-                  id="base-url"
-                  value={localConfig.openaiBaseUrl}
-                  onChange={(e) => updateField('openaiBaseUrl', e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="completion-model">Completion Model</Label>
-                <Input
-                  id="completion-model"
-                  value={localConfig.completionModel}
-                  onChange={(e) => updateField('completionModel', e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="embedding-model">Embedding Model</Label>
-                <Input
-                  id="embedding-model"
-                  value={localConfig.embeddingModel}
-                  onChange={(e) => updateField('embeddingModel', e.target.value)}
-                />
-              </div>
+              <Field id="openai_api_key" label="API Key" type="password" value={form.openai_api_key}
+                onChange={set('openai_api_key')} placeholder="sk-… or leave blank to keep existing"
+                hint="Used for both LLM completions and vector embeddings." />
+              <Field id="openai_api_base" label="API Base URL" value={form.openai_api_base}
+                onChange={set('openai_api_base')} placeholder="https://api.deepinfra.com/v1/openai"
+                hint="Leave blank for official OpenAI. Set to DeepInfra/other compatible endpoint." />
+              <Field id="openai_llm_model" label="LLM Model" value={form.openai_llm_model}
+                onChange={set('openai_llm_model')} placeholder="moonshotai/kimi-k2.5"
+                hint="Used for structured intent extraction from search queries." />
+              <Field id="openai_embedding_model" label="Embedding Model" value={form.openai_embedding_model}
+                onChange={set('openai_embedding_model')} placeholder="BAAI/bge-large-en-v1.5"
+                hint="Used for provider profile and query vector embeddings." />
             </CardContent>
           </Card>
         </TabsContent>
@@ -182,38 +291,21 @@ export default function AdminSettingsPage() {
         <TabsContent value="payments" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <CreditCard className="h-5 w-5" />
-                Stripe Payment Configuration
-              </CardTitle>
+              <CardTitle className="flex items-center gap-2"><CreditCard className="h-5 w-5" />Stripe Configuration</CardTitle>
+              <CardDescription>Required for subscriptions, RFQ unlock fees, and NDA charges.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="stripe-secret">Stripe Secret Key</Label>
-                <Input
-                  id="stripe-secret"
-                  type="password"
-                  value={localConfig.stripeSecretKey}
-                  onChange={(e) => updateField('stripeSecretKey', e.target.value)}
-                />
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Current status:</span>
+                <SetBadge isSet={stripeConfigured} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="stripe-publishable">Stripe Publishable Key</Label>
-                <Input
-                  id="stripe-publishable"
-                  value={localConfig.stripePublishableKey}
-                  onChange={(e) => updateField('stripePublishableKey', e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="stripe-webhook">Stripe Webhook Secret</Label>
-                <Input
-                  id="stripe-webhook"
-                  type="password"
-                  value={localConfig.stripeWebhookSecret}
-                  onChange={(e) => updateField('stripeWebhookSecret', e.target.value)}
-                />
-              </div>
+              <Field id="stripe_secret_key" label="Secret Key" type="password" value={form.stripe_secret_key}
+                onChange={set('stripe_secret_key')} placeholder="sk_live_… or sk_test_…" />
+              <Field id="stripe_publishable_key" label="Publishable Key" value={form.stripe_publishable_key}
+                onChange={set('stripe_publishable_key')} placeholder="pk_live_… or pk_test_…" />
+              <Field id="stripe_webhook_secret" label="Webhook Secret" type="password" value={form.stripe_webhook_secret}
+                onChange={set('stripe_webhook_secret')} placeholder="whsec_…"
+                hint="From Stripe webhook dashboard. Required for verified payment events." />
             </CardContent>
           </Card>
         </TabsContent>
@@ -221,21 +313,16 @@ export default function AdminSettingsPage() {
         <TabsContent value="email" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Mail className="h-5 w-5" />
-                Resend Email Configuration
-              </CardTitle>
+              <CardTitle className="flex items-center gap-2"><Mail className="h-5 w-5" />Email Configuration</CardTitle>
+              <CardDescription>Resend API for transactional emails (RFQ notifications, account emails).</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="resend-key">Resend API Key</Label>
-                <Input
-                  id="resend-key"
-                  type="password"
-                  value={localConfig.resendApiKey}
-                  onChange={(e) => updateField('resendApiKey', e.target.value)}
-                />
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Current status:</span>
+                <SetBadge isSet={resendConfigured} />
               </div>
+              <Field id="resend_api_key" label="Resend API Key" type="password" value={form.resend_api_key}
+                onChange={set('resend_api_key')} placeholder="re_… or leave blank to keep existing" />
             </CardContent>
           </Card>
         </TabsContent>
@@ -243,45 +330,22 @@ export default function AdminSettingsPage() {
         <TabsContent value="storage" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
-                AWS S3 Storage Configuration
-              </CardTitle>
+              <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5" />AWS S3 Storage</CardTitle>
+              <CardDescription>Required for RFQ document uploads and signed NDA storage.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="aws-key">AWS Access Key ID</Label>
-                <Input
-                  id="aws-key"
-                  value={localConfig.awsAccessKey}
-                  onChange={(e) => updateField('awsAccessKey', e.target.value)}
-                />
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Current status:</span>
+                <SetBadge isSet={awsConfigured} />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="aws-secret">AWS Secret Access Key</Label>
-                <Input
-                  id="aws-secret"
-                  type="password"
-                  value={localConfig.awsSecretKey}
-                  onChange={(e) => updateField('awsSecretKey', e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="aws-region">AWS Region</Label>
-                <Input
-                  id="aws-region"
-                  value={localConfig.awsRegion}
-                  onChange={(e) => updateField('awsRegion', e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="aws-bucket">S3 Bucket Name</Label>
-                <Input
-                  id="aws-bucket"
-                  value={localConfig.awsS3Bucket}
-                  onChange={(e) => updateField('awsS3Bucket', e.target.value)}
-                />
-              </div>
+              <Field id="aws_access_key_id" label="Access Key ID" type="password" value={form.aws_access_key_id}
+                onChange={set('aws_access_key_id')} placeholder="AKIA… or leave blank to keep existing" />
+              <Field id="aws_secret_access_key" label="Secret Access Key" type="password" value={form.aws_secret_access_key}
+                onChange={set('aws_secret_access_key')} placeholder="Leave blank to keep existing" />
+              <Field id="aws_region" label="Region" value={form.aws_region}
+                onChange={set('aws_region')} placeholder="us-east-1" />
+              <Field id="aws_s3_bucket" label="S3 Bucket Name" value={form.aws_s3_bucket}
+                onChange={set('aws_s3_bucket')} placeholder="proreadyengineer-uploads" />
             </CardContent>
           </Card>
         </TabsContent>
@@ -289,100 +353,27 @@ export default function AdminSettingsPage() {
         <TabsContent value="signing" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <PenTool className="h-5 w-5" />
-                SignRequest Configuration
-              </CardTitle>
+              <CardTitle className="flex items-center gap-2"><PenTool className="h-5 w-5" />Document Signing</CardTitle>
+              <CardDescription>SignRequest API for NDA embedded signing workflows.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="signrequest-key">SignRequest API Key</Label>
-                <Input
-                  id="signrequest-key"
-                  type="password"
-                  value={localConfig.signrequestApiKey}
-                  onChange={(e) => updateField('signrequestApiKey', e.target.value)}
-                />
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Current status:</span>
+                <SetBadge isSet={signConfigured} />
               </div>
+              <Field id="signrequest_api_key" label="SignRequest API Key" type="password" value={form.signrequest_api_key}
+                onChange={set('signrequest_api_key')} placeholder="Leave blank to keep existing" />
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {errors.length > 0 && (
-        <Card className="mt-6 border-red-200">
-          <CardHeader>
-            <CardTitle className="text-red-600">Configuration Errors</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc list-inside text-red-600">
-              {errors.map((error, i) => (
-                <li key={i}>{error}</li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="mt-6 flex justify-end gap-2">
-        {saved && (
-          <span className="flex items-center gap-1 text-green-600">
-            <Check className="h-4 w-4" />
-            Saved successfully
-          </span>
-        )}
-        <Button onClick={handleSave} size="lg">
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Save All Changes
+      <div className="mt-8 flex items-center justify-between border-t pt-6">
+        <p className="text-sm text-muted-foreground">Only filled fields will be updated. Blank fields keep their current values.</p>
+        <Button onClick={handleSave} disabled={saving} size="lg">
+          {saving ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving...</> : <><Check className="h-4 w-4 mr-2" />Save to Database</>}
         </Button>
       </div>
-
-      {showSetup && (
-        <SetupWizard onClose={() => setShowSetup(false)} />
-      )}
     </div>
-  );
-}
-
-function ServiceCard({
-  title,
-  icon: Icon,
-  configured,
-  description,
-  details,
-}: {
-  title: string;
-  icon: React.ElementType;
-  configured: boolean;
-  description: string;
-  details: { label: string; value: string }[];
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Icon className="h-5 w-5" />
-            {title}
-          </CardTitle>
-          {configured ? (
-            <Badge className="bg-green-100 text-green-800">Active</Badge>
-          ) : (
-            <Badge variant="secondary">Not Configured</Badge>
-          )}
-        </div>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <dl className="space-y-1">
-          {details.map((detail, i) => (
-            <div key={i} className="flex justify-between text-sm">
-              <dt className="text-muted-foreground">{detail.label}:</dt>
-              <dd className="font-mono">{detail.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </CardContent>
-    </Card>
   );
 }

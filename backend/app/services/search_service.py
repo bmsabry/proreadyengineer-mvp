@@ -42,29 +42,47 @@ class SearchResultItem:
     fallback_reason: Optional[str] = None
 
 
-def _has_api_key() -> bool:
-    key = getattr(settings, 'OPENAI_API_KEY', '') or ''
+def _has_api_key(cfg: Dict[str, Any] = None) -> bool:
+    """Check if an OpenAI-compatible API key is available (DB config takes priority)."""
+    if cfg:
+        key = cfg.get('OPENAI_API_KEY') or ''
+    else:
+        key = getattr(settings, 'OPENAI_API_KEY', '') or ''
     return bool(key) and key not in ('dummy-key', '')
 
 
-def _get_client() -> AsyncOpenAI:
-    kwargs: Dict[str, Any] = {'api_key': getattr(settings, 'OPENAI_API_KEY', 'dummy-key') or 'dummy-key'}
-    base = getattr(settings, 'OPENAI_API_BASE', '') or ''
-    if base:
-        kwargs['base_url'] = base
+def _get_client(cfg: Dict[str, Any] = None) -> AsyncOpenAI:
+    """Build AsyncOpenAI client using DB config (falls back to env settings)."""
+    if cfg:
+        api_key = cfg.get('OPENAI_API_KEY') or 'dummy-key'
+        base_url = cfg.get('OPENAI_API_BASE') or ''
+    else:
+        api_key = getattr(settings, 'OPENAI_API_KEY', 'dummy-key') or 'dummy-key'
+        base_url = getattr(settings, 'OPENAI_API_BASE', '') or ''
+    kwargs: Dict[str, Any] = {'api_key': api_key}
+    if base_url:
+        kwargs['base_url'] = base_url
     return AsyncOpenAI(**kwargs)
 
 
-def _embedding_model() -> str:
-    model = getattr(settings, 'OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small') or 'text-embedding-3-small'
-    base = getattr(settings, 'OPENAI_API_BASE', '') or ''
+def _embedding_model(cfg: Dict[str, Any] = None) -> str:
+    """Return embedding model name, adapting for deepinfra when needed."""
+    if cfg:
+        model = cfg.get('OPENAI_EMBEDDING_MODEL') or 'BAAI/bge-large-en-v1.5'
+        base = cfg.get('OPENAI_API_BASE') or ''
+    else:
+        model = getattr(settings, 'OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small') or 'text-embedding-3-small'
+        base = getattr(settings, 'OPENAI_API_BASE', '') or ''
     openai_only = {'text-embedding-3-small', 'text-embedding-ada-002', 'text-embedding-3-large'}
     if 'deepinfra' in base.lower() and model in openai_only:
         return 'BAAI/bge-large-en-v1.5'
     return model
 
 
-def _llm_model() -> str:
+def _llm_model(cfg: Dict[str, Any] = None) -> str:
+    """Return LLM model name from DB config or env settings."""
+    if cfg:
+        return cfg.get('OPENAI_LLM_MODEL') or 'moonshotai/kimi-k2.5'
     return getattr(settings, 'OPENAI_LLM_MODEL', None) or 'moonshotai/kimi-k2.5'
 
 
@@ -215,9 +233,10 @@ def _simple_keywords(query: str) -> List[str]:
 async def extract_structured_intent(
     query: str,
     document_text: Optional[str] = None,
+    runtime_config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Step 2: LLM structured intent. Falls back to keywords on any failure."""
-    if not _has_api_key():
+    if not _has_api_key(runtime_config):
         logger.info('[INTENT] No API key - using keyword extraction')
         _kws = _simple_keywords(query); return {**_DEFAULT_INTENT, 'inferred_keywords': _kws, 'inferred_specialty': _infer_specialty_from_keywords(_expand_keywords(_kws) or _kws)}
 
@@ -246,8 +265,8 @@ async def extract_structured_intent(
     prompt = '\n'.join(prompt_parts)
 
     try:
-        client = _get_client()
-        model  = _llm_model()
+        client = _get_client(runtime_config)
+        model  = _llm_model(runtime_config)
         logger.info(f'[INTENT] Calling LLM model={model} query={query[:80]}')
         response = await client.chat.completions.create(
             model=model,
@@ -283,12 +302,15 @@ async def extract_structured_intent(
     _kws = _simple_keywords(query); return {**_DEFAULT_INTENT, 'inferred_keywords': _kws, 'inferred_specialty': _infer_specialty_from_keywords(_expand_keywords(_kws) or _kws)}
 
 
-async def generate_embedding(text_input: str) -> List[float]:
+async def generate_embedding(
+    text_input: str,
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> List[float]:
     """Step 4: Generate vector embedding. Raises ValueError if no API key."""
-    if not _has_api_key():
+    if not _has_api_key(runtime_config):
         raise ValueError('No AI API key configured - embeddings unavailable')
-    client = _get_client()
-    model  = _embedding_model()
+    client = _get_client(runtime_config)
+    model  = _embedding_model(runtime_config)
     logger.info(f'[EMBED] model={model}, input_len={len(text_input)}')
     try:
         resp = await client.embeddings.create(model=model, input=text_input[:8000])
@@ -942,15 +964,20 @@ async def search_providers(
     norm_query = _normalize_query(query)
     logger.info(f'[SEARCH] query={norm_query[:100]}')
 
+    # Load runtime config from DB (falls back to env vars)
+    from app.services.config_service import get_runtime_config
+    runtime_config = await get_runtime_config(db)
+    logger.info('[SEARCH] API key from DB: %s', 'set' if runtime_config.get('OPENAI_API_KEY') else 'not set')
+
     # Step 2 - LLM intent extraction
-    intent = await extract_structured_intent(norm_query)
+    intent = await extract_structured_intent(norm_query, runtime_config=runtime_config)
     fallback_reason: Optional[str] = None
 
     # Step 4 - Embed query
     query_vec: Optional[List[float]] = None
-    if _has_api_key():
+    if _has_api_key(runtime_config):
         try:
-            query_vec = await generate_embedding(norm_query)
+            query_vec = await generate_embedding(norm_query, runtime_config=runtime_config)
         except Exception as exc:
             logger.warning(f'[SEARCH] Embedding failed ({exc}), using keyword scoring')
             if fallback_reason is None:
