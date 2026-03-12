@@ -1,13 +1,14 @@
-"use client";
+'use client';
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, getRFQStatusBadgeColor } from '@/lib/utils';
-import { PlusCircle, FileText, MessageSquare, Activity } from 'lucide-react';
+import { Search, FileText, MessageSquare, Activity } from 'lucide-react';
 
 interface CustomerRFQ {
   id: string;
@@ -22,24 +23,25 @@ interface CustomerRFQ {
 }
 
 export default function CustomerDashboard() {
-  const { user, isLoading: authLoading } = useRequireAuth(["customer"]);
+  const { user, isLoading: authLoading } = useRequireAuth(['customer']);
+  const router = useRouter();
   const [rfqs, setRfqs] = useState<CustomerRFQ[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (!user) return;
     const fetchRFQs = async () => {
       try {
-        const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+        const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1';
         const res = await fetch(`${apiBase}/rfqs/customer/my-rfqs`, {
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
         });
         if (!res.ok) throw new Error(`Failed to fetch RFQs (${res.status})`);
         setRfqs(await res.json());
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "Failed to load your RFQs");
+        setError(e instanceof Error ? e.message : 'Failed to load your RFQs');
       } finally {
         setIsLoading(false);
       }
@@ -64,12 +66,11 @@ export default function CustomerDashboard() {
           <h1 className="text-3xl font-bold">Customer Dashboard</h1>
           <p className="text-muted-foreground">Manage your RFQs and view quotes</p>
         </div>
-        <Link href="/customer/rfq/new">
-          <Button>
-            <PlusCircle className="mr-2 h-4 w-4" />
-            New RFQ
-          </Button>
-        </Link>
+        {/* New RFQ goes to home page to search first */}
+        <Button onClick={() => router.push('/')} className="flex items-center gap-2">
+          <Search className="h-4 w-4" />
+          New RFQ
+        </Button>
       </div>
 
       {error && (
@@ -88,10 +89,11 @@ export default function CustomerDashboard() {
           <CardContent>
             {rfqs.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-muted-foreground mb-4">No RFQs yet</p>
-                <Link href="/customer/rfq/new">
-                  <Button variant="outline">Create your first RFQ</Button>
-                </Link>
+                <p className="text-muted-foreground mb-4">No RFQs yet. Start by searching for engineering providers.</p>
+                <Button onClick={() => router.push('/')} className="flex items-center gap-2 mx-auto">
+                  <Search className="h-4 w-4" />
+                  Search & Create RFQ
+                </Button>
               </div>
             ) : (
               <div className="space-y-4">
@@ -103,22 +105,22 @@ export default function CustomerDashboard() {
                           <Link href={`/customer/rfq/${rfq.id}`}>
                             <h3 className="font-semibold hover:text-blue-600 transition-colors">
                               {rfq.project_description.slice(0, 120)}
-                              {rfq.project_description.length > 120 ? "..." : ""}
+                              {rfq.project_description.length > 120 ? '...' : ''}
                             </h3>
                           </Link>
                           <p className="text-sm text-muted-foreground mt-1">
-                            {rfq.created_at ? formatDate(rfq.created_at) : "Unknown date"}
-                            {rfq.urgency ? ` · Urgency: ${rfq.urgency}` : ""}
+                            {rfq.created_at ? formatDate(rfq.created_at) : 'Unknown date'}
+                            {rfq.urgency ? ` · Urgency: ${rfq.urgency}` : ''}
                           </p>
                         </div>
                         <Badge className={getRFQStatusBadgeColor(rfq.rfq_status)}>
-                          {rfq.rfq_status.replace(/_/g, " ")}
+                          {rfq.rfq_status.replace(/_/g, ' ')}
                         </Badge>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 mt-3">
                         <span className="flex items-center gap-1 text-sm text-muted-foreground">
                           <MessageSquare className="h-4 w-4" />
-                          {rfq.quote_count} quote{rfq.quote_count !== 1 ? "s" : ""}
+                          {rfq.quote_count} quote{rfq.quote_count !== 1 ? 's' : ''}
                         </span>
                         {rfq.nda_required && (
                           <Badge variant="outline" className="text-xs">NDA Required</Badge>
@@ -133,7 +135,7 @@ export default function CustomerDashboard() {
                           <Link href={`/customer/rfq/${rfq.id}/tracking`}>
                             <Button variant="outline" size="sm" className="text-blue-600 border-blue-200 hover:bg-blue-50">
                               <Activity className="mr-1 h-3 w-3" />
-                              Track Dispatch
+                              Track
                             </Button>
                           </Link>
                         </div>

@@ -30,6 +30,97 @@ async def create_rfq_endpoint(
     return RFQResponse.from_orm(rfq)
 
 
+# ── Customer RFQ listing & tracking ──────────────────────────────────────────
+
+@router.get("/customer/my-rfqs")
+async def get_my_rfqs(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """List all RFQs owned by the authenticated customer."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQ
+    rows = (await db.execute(
+        select(RFQ).where(RFQ.customer_user_id == current_user.id).order_by(RFQ.created_at.desc())
+    )).scalars().all()
+    return [{
+        "id": str(r.id),
+        "project_description": r.project_description,
+        "rfq_status": r.rfq_status.value if hasattr(r.rfq_status, "value") else str(r.rfq_status),
+        "urgency": r.urgency, "nda_required": r.nda_required,
+        "quote_count": r.quote_count, "is_closed": r.is_closed,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+    } for r in rows]
+
+
+@router.get("/customer/rfqs/{rfq_id}/tracking")
+async def get_rfq_tracking(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Real-time RFQ tracking: batches, dispatched providers, quotes."""
+    import uuid as _u
+    from sqlalchemy import select, func as F
+    from app.models.rfq import RFQ, RFQMatch, RFQDispatch, RFQDispatchBatch
+    from app.models.provider import Provider
+    from app.models.quote import Quote
+    try:
+        uid = _u.UUID(rfq_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid RFQ ID")
+    rfq = await db.get(RFQ, uid)
+    if not rfq:
+        raise HTTPException(404, "RFQ not found")
+    if rfq.customer_user_id != current_user.id and "admin" not in (current_user.roles or []):
+        raise HTTPException(403, "Not authorized")
+    batches = (await db.execute(
+        select(RFQDispatchBatch).where(RFQDispatchBatch.rfq_id == uid)
+        .order_by(RFQDispatchBatch.batch_number)
+    )).scalars().all()
+    disp_rows = (await db.execute(
+        select(RFQDispatch, Provider)
+        .join(Provider, RFQDispatch.provider_id == Provider.id)
+        .where(RFQDispatch.rfq_id == uid).order_by(RFQDispatch.created_at)
+    )).all()
+    quotes = (await db.execute(select(Quote).where(Quote.rfq_id == uid))).scalars().all()
+    total_matches = (await db.execute(
+        select(F.count()).select_from(RFQMatch).where(RFQMatch.rfq_id == uid)
+    )).scalar() or 0
+    def sv(v): return v.value if hasattr(v, "value") else str(v)
+    def iso(d): return d.isoformat() if d else None
+    def pname(p): return getattr(p, "name", None) or getattr(p, "firm_name", None) or "Unknown"
+    dispatched = [{
+        "provider_id": p.id, "provider_name": pname(p),
+        "city": getattr(p, "city", None), "state": getattr(p, "state", None),
+        "tier": getattr(p, "tier", None), "dispatch_status": sv(d.dispatch_status),
+        "teaser_email_sent_at": iso(d.teaser_email_sent_at),
+        "batch_id": str(d.batch_id) if d.batch_id else None,
+    } for d, p in disp_rows]
+    batch_list = [{
+        "id": str(b.id), "batch_number": b.batch_number, "status": b.status,
+        "scheduled_for": iso(b.scheduled_for), "dispatched_at": iso(b.dispatched_at),
+        "providers_contacted": [x for x in dispatched if x["batch_id"] == str(b.id)],
+    } for b in batches]
+    qlist = [{
+        "id": str(q.id), "provider_id": q.provider_id, "quote_status": sv(q.quote_status),
+        "rough_price_min": float(q.rough_price_min) if q.rough_price_min else None,
+        "rough_price_max": float(q.rough_price_max) if q.rough_price_max else None,
+        "currency": q.currency, "turnaround_estimate_text": q.turnaround_estimate_text,
+        "submitted_at": iso(q.submitted_at),
+    } for q in quotes]
+    return {
+        "rfq": {"id": str(rfq.id), "project_description": rfq.project_description,
+                "rfq_status": sv(rfq.rfq_status), "urgency": rfq.urgency,
+                "nda_required": rfq.nda_required, "quote_count": rfq.quote_count,
+                "is_closed": rfq.is_closed, "created_at": iso(rfq.created_at),
+                "submitted_at": iso(rfq.submitted_at)},
+        "total_matches": total_matches, "total_dispatched": len(dispatched),
+        "quotes_received": len(qlist), "batches": batch_list, "quotes": qlist,
+    }
+
+
 @router.get("/{rfq_id}", response_model=RFQResponse)
 async def get_rfq(
     rfq_id: str,
@@ -359,92 +450,3 @@ async def get_rfq_files(
     }
 
 
-# ── Customer RFQ listing & tracking ──────────────────────────────────────────
-
-@router.get("/customer/my-rfqs")
-async def get_my_rfqs(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    """List all RFQs owned by the authenticated customer."""
-    from sqlalchemy import select
-    from app.models.rfq import RFQ
-    rows = (await db.execute(
-        select(RFQ).where(RFQ.customer_user_id == current_user.id).order_by(RFQ.created_at.desc())
-    )).scalars().all()
-    return [{
-        "id": str(r.id),
-        "project_description": r.project_description,
-        "rfq_status": r.rfq_status.value if hasattr(r.rfq_status, "value") else str(r.rfq_status),
-        "urgency": r.urgency, "nda_required": r.nda_required,
-        "quote_count": r.quote_count, "is_closed": r.is_closed,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
-        "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
-    } for r in rows]
-
-
-@router.get("/customer/rfqs/{rfq_id}/tracking")
-async def get_rfq_tracking(
-    rfq_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    """Real-time RFQ tracking: batches, dispatched providers, quotes."""
-    import uuid as _u
-    from sqlalchemy import select, func as F
-    from app.models.rfq import RFQ, RFQMatch, RFQDispatch, RFQDispatchBatch
-    from app.models.provider import Provider
-    from app.models.quote import Quote
-    try:
-        uid = _u.UUID(rfq_id)
-    except ValueError:
-        raise HTTPException(400, "Invalid RFQ ID")
-    rfq = await db.get(RFQ, uid)
-    if not rfq:
-        raise HTTPException(404, "RFQ not found")
-    if rfq.customer_user_id != current_user.id and "admin" not in (current_user.roles or []):
-        raise HTTPException(403, "Not authorized")
-    batches = (await db.execute(
-        select(RFQDispatchBatch).where(RFQDispatchBatch.rfq_id == uid)
-        .order_by(RFQDispatchBatch.batch_number)
-    )).scalars().all()
-    disp_rows = (await db.execute(
-        select(RFQDispatch, Provider)
-        .join(Provider, RFQDispatch.provider_id == Provider.id)
-        .where(RFQDispatch.rfq_id == uid).order_by(RFQDispatch.created_at)
-    )).all()
-    quotes = (await db.execute(select(Quote).where(Quote.rfq_id == uid))).scalars().all()
-    total_matches = (await db.execute(
-        select(F.count()).select_from(RFQMatch).where(RFQMatch.rfq_id == uid)
-    )).scalar() or 0
-    def sv(v): return v.value if hasattr(v, "value") else str(v)
-    def iso(d): return d.isoformat() if d else None
-    def pname(p): return getattr(p, "name", None) or getattr(p, "firm_name", None) or "Unknown"
-    dispatched = [{
-        "provider_id": p.id, "provider_name": pname(p),
-        "city": getattr(p, "city", None), "state": getattr(p, "state", None),
-        "tier": getattr(p, "tier", None), "dispatch_status": sv(d.dispatch_status),
-        "teaser_email_sent_at": iso(d.teaser_email_sent_at),
-        "batch_id": str(d.batch_id) if d.batch_id else None,
-    } for d, p in disp_rows]
-    batch_list = [{
-        "id": str(b.id), "batch_number": b.batch_number, "status": b.status,
-        "scheduled_for": iso(b.scheduled_for), "dispatched_at": iso(b.dispatched_at),
-        "providers_contacted": [x for x in dispatched if x["batch_id"] == str(b.id)],
-    } for b in batches]
-    qlist = [{
-        "id": str(q.id), "provider_id": q.provider_id, "quote_status": sv(q.quote_status),
-        "rough_price_min": float(q.rough_price_min) if q.rough_price_min else None,
-        "rough_price_max": float(q.rough_price_max) if q.rough_price_max else None,
-        "currency": q.currency, "turnaround_estimate_text": q.turnaround_estimate_text,
-        "submitted_at": iso(q.submitted_at),
-    } for q in quotes]
-    return {
-        "rfq": {"id": str(rfq.id), "project_description": rfq.project_description,
-                "rfq_status": sv(rfq.rfq_status), "urgency": rfq.urgency,
-                "nda_required": rfq.nda_required, "quote_count": rfq.quote_count,
-                "is_closed": rfq.is_closed, "created_at": iso(rfq.created_at),
-                "submitted_at": iso(rfq.submitted_at)},
-        "total_matches": total_matches, "total_dispatched": len(dispatched),
-        "quotes_received": len(qlist), "batches": batch_list, "quotes": qlist,
-    }

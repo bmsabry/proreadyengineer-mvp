@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -12,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { Home } from 'lucide-react';
 
 const tollgateOptions = [
   { value: 'TG0', label: 'TG0: Idea Generation' },
@@ -23,46 +25,59 @@ const tollgateOptions = [
   { value: 'DontKnow', label: "Don't Know" },
 ];
 
-export default function CreateRFQPage() {
+function CreateRFQForm() {
   const { user, isLoading: authLoading } = useRequireAuth(['customer']);
   const router = useRouter();
-  
+  const searchParams = useSearchParams();
+  const prefilledQuery = searchParams.get('q') || '';
+
   const [formData, setFormData] = useState({
-    customer_email: user?.email || '',
+    customer_email: '',
     business_name: '',
     contact_name: '',
-    project_description: '',
+    project_description: prefilledQuery,
     urgency: 'Intermediate' as 'High' | 'Intermediate' | 'Low',
     tollgate_phases: [] as string[],
     nda_required: false,
   });
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Pre-fill email and name from user when available
+  useEffect(() => {
+    if (user) {
+      setFormData(prev => ({
+        ...prev,
+        customer_email: user.email || '',
+        contact_name: prev.contact_name,
+        // Only set description from URL if not already set
+        project_description: prev.project_description || prefilledQuery,
+      }));
+    }
+  }, [user, prefilledQuery]);
 
   const handleTollgateToggle = (value: string) => {
     setFormData(prev => ({
       ...prev,
       tollgate_phases: prev.tollgate_phases.includes(value)
         ? prev.tollgate_phases.filter(p => p !== value)
-        : [...prev.tollgate_phases, value]
+        : [...prev.tollgate_phases, value],
     }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
     try {
       const response = await api.rfqs.create(formData);
-      toast.success('RFQ created successfully');
-      
+      toast.success('RFQ created! Suppliers are being contacted...');
       if (formData.nda_required) {
         router.push(`/customer/rfq/${response.data.id}/nda`);
       } else {
-        router.push(`/customer/rfq/${response.data.id}`);
+        router.push(`/customer/rfq/${response.data.id}/tracking`);
       }
-    } catch (error) {
-      toast.error('Failed to create RFQ');
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to create RFQ');
     } finally {
       setIsSubmitting(false);
     }
@@ -79,140 +94,141 @@ export default function CreateRFQPage() {
   }
 
   return (
-    <div className="container py-8 max-w-3xl">
-      <h1 className="text-3xl font-bold mb-2">Create New RFQ</h1>
-      <p className="text-muted-foreground mb-8">Describe your engineering project to receive quotes</p>
-      
-      <form onSubmit={handleSubmit}>
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Contact Information</CardTitle>
-              <CardDescription>How providers can reach you</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="customer_email">Email *</Label>
-                <Input
-                  id="customer_email"
-                  type="email"
-                  value={formData.customer_email}
-                  onChange={(e) => setFormData(prev => ({ ...prev, customer_email: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="business_name">Business Name</Label>
-                <Input
-                  id="business_name"
-                  value={formData.business_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, business_name: e.target.value }))}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="contact_name">Contact Name</Label>
-                <Input
-                  id="contact_name"
-                  value={formData.contact_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, contact_name: e.target.value }))}
-                />
-              </div>
-            </CardContent>
-          </Card>
+    <div className="container py-8 max-w-2xl">
+      <div className="flex items-center gap-4 mb-6">
+        <Link href="/">
+          <Button variant="ghost" size="sm" className="flex items-center gap-1">
+            <Home className="h-4 w-4" />
+            Back to Search
+          </Button>
+        </Link>
+        <div>
+          <h1 className="text-3xl font-bold">Request for Quote</h1>
+          <p className="text-muted-foreground">Describe your project and we'll contact matched providers</p>
+        </div>
+      </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Project Details</CardTitle>
-              <CardDescription>Tell us about your engineering needs</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="project_description">Project Description *</Label>
-                <Textarea
-                  id="project_description"
-                  rows={5}
-                  value={formData.project_description}
-                  onChange={(e) => setFormData(prev => ({ ...prev, project_description: e.target.value }))}
-                  placeholder="Describe your project requirements, technical specifications, timeline..."
-                  required
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="urgency">Urgency *</Label>
-                <Select
-                  value={formData.urgency}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, urgency: value as any }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="High">High</SelectItem>
-                    <SelectItem value="Intermediate">Intermediate</SelectItem>
-                    <SelectItem value="Low">Low</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+      {prefilledQuery && (
+        <div className="mb-4 rounded-md bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
+          ✅ Your search query has been pre-filled below. Review and complete the form.
+        </div>
+      )}
 
-              <div className="space-y-2">
-                <Label>Tollgate Phases</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {tollgateOptions.map((option) => (
-                    <div key={option.value} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={`tollgate-${option.value}`}
-                        checked={formData.tollgate_phases.includes(option.value)}
-                        onCheckedChange={() => handleTollgateToggle(option.value)}
-                      />
-                      <Label htmlFor={`tollgate-${option.value}`} className="font-normal text-sm">
-                        {option.label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Contact Information</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="email">Email *</Label>
+              <Input
+                id="email"
+                type="email"
+                required
+                value={formData.customer_email}
+                onChange={e => setFormData(prev => ({ ...prev, customer_email: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="business_name">Business Name *</Label>
+              <Input
+                id="business_name"
+                required
+                value={formData.business_name}
+                onChange={e => setFormData(prev => ({ ...prev, business_name: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="contact_name">Contact Name *</Label>
+              <Input
+                id="contact_name"
+                required
+                value={formData.contact_name}
+                onChange={e => setFormData(prev => ({ ...prev, contact_name: e.target.value }))}
+              />
+            </div>
+          </CardContent>
+        </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>NDA & Attachments</CardTitle>
-              <CardDescription>Additional requirements</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center space-x-2">
-                <Checkbox
-                  id="nda_required"
-                  checked={formData.nda_required}
-                  onCheckedChange={(checked) => 
-                    setFormData(prev => ({ ...prev, nda_required: checked as boolean }))
-                  }
-                />
-                <Label htmlFor="nda_required" className="font-normal">
-                  NDA Required ($5 handling fee)
-                </Label>
+        <Card>
+          <CardHeader>
+            <CardTitle>Project Details</CardTitle>
+            <CardDescription>Describe what you need in as much detail as possible</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label htmlFor="description">Project Description *</Label>
+              <Textarea
+                id="description"
+                required
+                rows={5}
+                placeholder="Describe your engineering project, requirements, and goals..."
+                value={formData.project_description}
+                onChange={e => setFormData(prev => ({ ...prev, project_description: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label htmlFor="urgency">Urgency</Label>
+              <Select
+                value={formData.urgency}
+                onValueChange={v => setFormData(prev => ({ ...prev, urgency: v as 'High' | 'Intermediate' | 'Low' }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="High">High — Need quotes ASAP</SelectItem>
+                  <SelectItem value="Intermediate">Intermediate — Within a few weeks</SelectItem>
+                  <SelectItem value="Low">Low — Exploratory / Planning</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-2 block">Project Phases (select all that apply)</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {tollgateOptions.map(opt => (
+                  <div key={opt.value} className="flex items-center gap-2">
+                    <Checkbox
+                      id={opt.value}
+                      checked={formData.tollgate_phases.includes(opt.value)}
+                      onCheckedChange={() => handleTollgateToggle(opt.value)}
+                    />
+                    <Label htmlFor={opt.value} className="font-normal cursor-pointer">{opt.label}</Label>
+                  </div>
+                ))}
               </div>
-              
-              <div className="pt-4 border-t">
-                <Button type="button" variant="outline">
-                  Upload Project Files (PDF, DOCX, DWG, STEP)
-                </Button>
-                <p className="text-sm text-muted-foreground mt-2">Max file size: 25MB</p>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="nda"
+                checked={formData.nda_required}
+                onCheckedChange={v => setFormData(prev => ({ ...prev, nda_required: Boolean(v) }))}
+              />
+              <Label htmlFor="nda" className="font-normal cursor-pointer">
+                Require NDA before sharing project details ($5 document handling fee)
+              </Label>
+            </div>
+          </CardContent>
+        </Card>
 
-          <div className="flex gap-4">
-            <Button type="submit" className="flex-1" disabled={isSubmitting}>
-              {isSubmitting ? 'Creating...' : 'Create RFQ'}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => router.back()}>
-              Cancel
-            </Button>
-          </div>
+        <div className="flex gap-3">
+          <Button type="submit" disabled={isSubmitting} className="flex-1">
+            {isSubmitting ? 'Submitting...' : 'Submit RFQ — Start Automated Quote Collection'}
+          </Button>
+          <Link href="/customer/dashboard">
+            <Button type="button" variant="outline">Cancel</Button>
+          </Link>
         </div>
       </form>
     </div>
+  );
+}
+
+export default function CreateRFQPage() {
+  return (
+    <Suspense fallback={<div className="container py-8"><p>Loading...</p></div>}>
+      <CreateRFQForm />
+    </Suspense>
   );
 }
