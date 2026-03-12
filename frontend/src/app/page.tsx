@@ -71,13 +71,6 @@ export default function LandingPage() {
     return '/customer/dashboard';
   };
 
-  const tollgates = [
-    { id: 'tg0', name: 'TG0: Idea Generation', description: 'Concept development and initial feasibility' },
-    { id: 'tg1', name: 'TG1: Basic Engineering', description: '1D analysis and simple calculations' },
-    { id: 'tg3', name: 'TG3: Intermediate Analysis', description: 'Advanced modeling and concept testing' },
-    { id: 'tg4', name: 'TG4: Full Scale Modeling', description: 'Detailed simulation and optimization' },
-    { id: 'tg6', name: 'TG6: Full System Testing', description: 'Prototype validation and certification' },
-  ];
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -198,34 +191,6 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Tollgate Map */}
-        <section className="bg-muted/30 py-16">
-          <div className="container">
-            <div className="max-w-4xl mx-auto">
-              <h2 className="text-2xl font-bold text-center mb-4">Engineering Project Tollgate Map</h2>
-              <p className="text-center text-muted-foreground mb-8">
-                Our providers support every phase of your engineering project lifecycle.
-                You don&apos;t need to complete every phase &mdash; start where you are.
-              </p>
-              <div className="grid gap-3">
-                {tollgates.map((tg, index) => (
-                  <div key={tg.id} className="flex items-center gap-4 bg-background rounded-lg p-4 shadow-sm">
-                    <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <h3 className="font-semibold">{tg.name}</h3>
-                      <p className="text-sm text-muted-foreground">{tg.description}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="text-center text-sm text-muted-foreground mt-6">
-                Phases may include fabrication, physical testing, and data handling.
-              </p>
-            </div>
-          </div>
-        </section>
       </main>
 
       <Footer />
