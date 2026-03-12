@@ -787,7 +787,7 @@ async def _keyword_candidate_query(
             "LOWER(COALESCE(CAST(p.secondary_specialties AS TEXT), ''))",
             "LOWER(COALESCE(CAST(p.software_tools AS TEXT), ''))",
             "LOWER(COALESCE(CAST(p.team_members AS TEXT), ''))",
-            "LOWER(COALESCE(p.proven_experience_notable_projects, ''))",
+            "LOWER(COALESCE(CAST(p.proven_experience_notable_projects AS TEXT), ''))",
         ]:
             or_conditions.append(f"{field} LIKE '%{kw_safe}%'")
 
@@ -899,7 +899,7 @@ async def _fetch_candidates(
             return rows, True, None
         except Exception as exc:
             logger.warning(f'[SEARCH] pgvector failed ({exc}), falling back to keyword SQL')
-            fallback_reason = f'pgvector_error: {type(exc).__name__}'
+            fallback_reason = f'pgvector_error:{type(exc).__name__}:{str(exc)[:120]}'
 
     # ── Keyword SQL path (no embeddings or pgvector failed) ───────────────────
     # Extract + expand keywords from intent
@@ -933,7 +933,7 @@ async def _fetch_candidates(
             return rows, False, f'keyword_error:{type(exc).__name__}'
         except Exception as exc2:
             logger.error(f'[SEARCH] All fallbacks failed: {exc2}')
-            return [], False, 'query_failed'
+            return [], False, f'err:{type(exc2).__name__}:{str(exc2)[:120]}'
 
 
 
