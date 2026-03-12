@@ -87,40 +87,46 @@ async def search_debug(db: AsyncSession = Depends(get_db)):
 
     info: dict = {
         "timestamp": datetime.utcnow().isoformat(),
-        "database": {},
-        "api_keys": {},
+        "database": {
+            "connection_ok": False,
+            "provider_count": 0,
+            "providers_with_embeddings": 0,
+            "embedding_coverage_pct": 0.0,
+            "sample_provider": None,
+        },
+        "api_config": {},
         "last_error": _last_search_error,
     }
 
     try:
         result = await db.execute(select(func.count()).select_from(Provider))
-        info["database"]["provider_count"] = result.scalar()
+        total = result.scalar() or 0
+        info["database"]["provider_count"] = total
 
         result = await db.execute(
             select(func.count()).select_from(Provider).where(Provider.embedding.isnot(None))
         )
-        info["database"]["providers_with_embeddings"] = result.scalar()
+        with_emb = result.scalar() or 0
+        info["database"]["providers_with_embeddings"] = with_emb
+        info["database"]["embedding_coverage_pct"] = round((with_emb / total * 100) if total > 0 else 0.0, 1)
 
         result = await db.execute(select(Provider).limit(1))
         sample = result.scalar_one_or_none()
         if sample:
-            info["database"]["sample_provider"] = {
-                "id": str(sample.id),
-                "name": sample.name,
-                "has_embedding": sample.embedding is not None,
-            }
+            emb_status = "with embedding" if sample.embedding is not None else "no embedding"
+            info["database"]["sample_provider"] = f"{sample.name} (id={sample.id}, {emb_status})"
         info["database"]["connection_ok"] = True
     except Exception as exc:  # noqa: BLE001
         logger.error("[SEARCH DEBUG] DB check failed: %s", exc)
         info["database"]["connection_ok"] = False
         info["database"]["error"] = str(exc)
 
-    info["api_keys"]["openai_configured"] = bool(
+    info["api_config"]["openai_configured"] = bool(
         settings.OPENAI_API_KEY and settings.OPENAI_API_KEY not in ("dummy-key", "")
     )
-    info["api_keys"]["openai_base_url"] = settings.OPENAI_API_BASE or "default (OpenAI)"
-    info["api_keys"]["embedding_model"] = settings.OPENAI_EMBEDDING_MODEL
-    info["api_keys"]["llm_model"] = settings.OPENAI_LLM_MODEL
+    info["api_config"]["openai_base_url"] = settings.OPENAI_API_BASE or None
+    info["api_config"]["embedding_model"] = settings.OPENAI_EMBEDDING_MODEL
+    info["api_config"]["llm_model"] = settings.OPENAI_LLM_MODEL
 
     return info
 
