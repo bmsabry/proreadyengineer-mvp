@@ -5,19 +5,26 @@ Generate embeddings for all providers using DeepInfra BAAI/bge-large-en-v1.5.
 Model: BAAI/bge-large-en-v1.5 (1024 dimensions)
 API:   DeepInfra OpenAI-compatible endpoint
 
-Usage:
+Usage on Render shell:
+    cd /opt/render/project/src/deploy/backend
     python generate_embeddings.py --api-key YOUR_DEEPINFRA_KEY
-    python generate_embeddings.py --api-key KEY --batch-size 20
-    python generate_embeddings.py --api-key KEY --all   # re-embed all providers
+    python generate_embeddings.py --api-key KEY --all   # re-embed ALL (v3 update)
+
+KEY DIFFERENCE from old script:
+  - NO app imports (avoids .env SQLite override)
+  - Reads DATABASE_URL directly from OS environment (Render injects it)
+  - Uses raw asyncpg for direct PostgreSQL access
+  - Detects and rejects SQLite URLs immediately
 """
 import argparse
 import asyncio
+import json
 import logging
+import os
 import sys
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import List, Optional
+from datetime import datetime, timezone
+from typing import List
 
 import httpx
 
@@ -32,34 +39,55 @@ log = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate provider embeddings via DeepInfra")
     p.add_argument("--api-key", required=True, help="DeepInfra API key")
+    p.add_argument("--model", default="BAAI/bge-large-en-v1.5")
+    p.add_argument("--batch-size", type=int, default=10)
+    p.add_argument("--rate-limit-sleep", type=float, default=1.0)
     p.add_argument(
-        "--model",
-        default="BAAI/bge-large-en-v1.5",
-        help="Embedding model (default: BAAI/bge-large-en-v1.5)",
-    )
-    p.add_argument(
-        "--batch-size", type=int, default=10,
-        help="Providers per API call (default: 10)",
-    )
-    p.add_argument(
-        "--rate-limit-sleep", type=float, default=1.0,
-        help="Seconds to sleep between batches (default: 1.0)",
-    )
-    p.add_argument(
-        "--all",
-        dest="only_missing",
-        action="store_false",
-        help="Re-embed ALL providers (default: only embed missing)",
+        "--all", dest="only_missing", action="store_false",
+        help="Re-embed ALL providers (default: only missing)",
     )
     p.set_defaults(only_missing=True)
-    p.add_argument("--db-url", default=None, help="Database URL (overrides .env)")
-    p.add_argument(
-        "--deepinfra-base",
-        default="https://api.deepinfra.com/v1/openai",
-        help="DeepInfra API base URL",
-    )
-    p.add_argument("--dry-run", action="store_true", help="List providers without calling API")
+    p.add_argument("--deepinfra-base", default="https://api.deepinfra.com/v1/openai")
+    p.add_argument("--dry-run", action="store_true")
     return p.parse_args()
+
+
+def get_postgres_url() -> str:
+    """Get PostgreSQL URL from OS environment.
+
+    IMPORTANT: Reads ONLY from os.environ, NOT from .env file.
+    On Render, DATABASE_URL is injected into the process environment automatically.
+    The .env file contains a SQLite fallback that must NOT be used here.
+    """
+    db_url = os.environ.get("DATABASE_URL", "").strip()
+
+    if not db_url:
+        log.error("="*60)
+        log.error("ERROR: DATABASE_URL is not set in environment!")
+        log.error("On Render shell, this should be automatic.")
+        log.error("Verify with: echo $DATABASE_URL")
+        log.error("It should look like: postgresql://user:pass@host/dbname")
+        log.error("="*60)
+        sys.exit(1)
+
+    if "sqlite" in db_url.lower():
+        log.error("="*60)
+        log.error(f"ERROR: DATABASE_URL is SQLite: {db_url}")
+        log.error("This script requires PostgreSQL on Render.")
+        log.error("The .env file has a SQLite fallback that should not be used.")
+        log.error("Make sure the Render environment variable DATABASE_URL is set.")
+        log.error("="*60)
+        sys.exit(1)
+
+    # Normalize URL for asyncpg (needs plain postgresql://)
+    if db_url.startswith("postgres://"):
+        db_url = "postgresql://" + db_url[len("postgres://"):]
+    # Remove asyncpg driver prefix if present (asyncpg uses plain postgresql://)
+    if "+asyncpg" in db_url:
+        db_url = db_url.replace("+asyncpg", "")
+
+    log.info(f"Using database: {db_url[:50]}...")
+    return db_url
 
 
 async def embed_texts(
@@ -69,12 +97,8 @@ async def embed_texts(
     base_url: str,
     timeout: float = 60.0,
 ) -> List[List[float]]:
-    """Call DeepInfra embeddings endpoint; return list of vectors."""
     url = base_url.rstrip("/") + "/embeddings"
-    headers = {
-        "Authorization": "Bearer " + api_key,
-        "Content-Type": "application/json",
-    }
+    headers = {"Authorization": "Bearer " + api_key, "Content-Type": "application/json"}
     payload = {"model": model, "input": texts}
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(url, json=payload, headers=headers)
@@ -83,22 +107,48 @@ async def embed_texts(
     return [item["embedding"] for item in data["data"]]
 
 
-def get_db_url(override: Optional[str]) -> str:
-    if override:
-        return override
-    env_path = Path(__file__).parent / ".env"
-    if env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("DATABASE_URL") and "=" in line and not line.startswith("#"):
-                val = line.split("=", 1)[1].strip().strip('"').strip("'")
-                if val:
-                    return val
-    import os
-    db_url = os.environ.get("DATABASE_URL", "")
-    if not db_url:
-        raise ValueError("No DATABASE_URL found. Pass --db-url or set DATABASE_URL in .env")
-    return db_url
+def safe_json_to_text(val) -> str:
+    if not val:
+        return ""
+    if isinstance(val, list):
+        return " ".join(str(x) for x in val if x)
+    if isinstance(val, str):
+        val = val.strip()
+        if val.startswith("[") or val.startswith("{"):
+            try:
+                parsed = json.loads(val)
+                if isinstance(parsed, list):
+                    return " ".join(str(x) for x in parsed if x)
+                elif isinstance(parsed, dict):
+                    return " ".join(str(v) for v in parsed.values() if v)
+            except Exception:
+                pass
+        return val
+    return str(val)
+
+
+def build_embedding_text(row: dict) -> str:
+    """Build v3 embedding text. Includes projects & case studies."""
+    parts = []
+    name = row.get("name") or row.get("firm_name") or ""
+    if name:
+        parts.append(name)
+    if row.get("primary_specialty"):
+        parts.append(row["primary_specialty"])
+    if row.get("business_description"):
+        parts.append(row["business_description"])
+    for field in ["specialties", "capabilities", "software_tools"]:
+        t = safe_json_to_text(row.get(field))
+        if t:
+            parts.append(t)
+    # v3 additions
+    t = safe_json_to_text(row.get("proven_experience_notable_projects"))
+    if t:
+        parts.append(t)
+    t = safe_json_to_text(row.get("proven_experience_case_studies"))
+    if t:
+        parts.append(t)
+    return " ".join(filter(None, parts)).strip()[:4096]
 
 
 def print_progress(done: int, total: int, errors: int, label: str = "") -> None:
@@ -106,176 +156,170 @@ def print_progress(done: int, total: int, errors: int, label: str = "") -> None:
     bar_len = 40
     filled = int(bar_len * done / total) if total else 0
     bar = "#" * filled + "-" * (bar_len - filled)
-    line = "\r[" + bar + "] " + str(done) + "/" + str(total) + " (" + format(pct, ".1f") + "%) errors=" + str(errors) + "  " + label
+    line = f"\r[{bar}] {done}/{total} ({pct:.1f}%) errors={errors}  {label}"
     print(line, end="", flush=True)
     if done == total:
         print()
 
 
 async def run(args: argparse.Namespace) -> None:
-    db_url = get_db_url(args.db_url)
+    db_url = get_postgres_url()
 
-    if db_url.startswith("sqlite:///") and "+aiosqlite" not in db_url:
-        db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
-    elif db_url.startswith("postgresql://") and "+asyncpg" not in db_url:
-        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+    try:
+        import asyncpg
+    except ImportError:
+        log.error("asyncpg not installed. Run: pip install asyncpg")
+        sys.exit(1)
 
-    from sqlalchemy import select, update
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-    from sqlalchemy.orm import sessionmaker
+    log.info("Connecting to PostgreSQL...")
+    try:
+        conn = await asyncpg.connect(db_url)
+    except Exception as e:
+        log.error(f"Failed to connect: {e}")
+        sys.exit(1)
+    log.info("Connected.")
 
-    engine = create_async_engine(db_url, echo=False)
-    AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    # Verify providers table exists
+    table_exists = await conn.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='providers')"
+    )
+    if not table_exists:
+        log.error("Table 'providers' does not exist! Run migration first.")
+        log.error("  cd /opt/render/project/src/deploy/scripts && python3 migrate_providers.py")
+        await conn.close()
+        sys.exit(1)
 
-    sys.path.insert(0, str(Path(__file__).parent))
-    from app.models.provider import Provider
+    total_count = await conn.fetchval("SELECT COUNT(*) FROM providers")
+    embed_count = await conn.fetchval("SELECT COUNT(*) FROM providers WHERE embedding IS NOT NULL")
+    log.info(f"Providers: {total_count} total, {embed_count} already have embeddings")
 
-    async with AsyncSessionLocal() as db:
-        if args.only_missing:
-            stmt = select(Provider).where(Provider.embedding.is_(None))
-            log.info("Querying providers without embeddings...")
-        else:
-            stmt = select(Provider)
-            log.info("Querying ALL providers for re-embedding...")
+    if total_count == 0:
+        log.error("No providers found! Run migration first.")
+        await conn.close()
+        sys.exit(1)
 
-        result = await db.execute(stmt)
-        providers = result.scalars().all()
-        total = len(providers)
-        log.info("Found " + str(total) + " providers to embed.")
+    if args.only_missing:
+        rows = await conn.fetch("""
+            SELECT id, name, firm_name, primary_specialty, business_description,
+                   specialties, capabilities, software_tools,
+                   proven_experience_notable_projects, proven_experience_case_studies
+            FROM providers WHERE embedding IS NULL ORDER BY id
+        """)
+        log.info(f"Found {len(rows)} providers WITHOUT embeddings.")
+    else:
+        rows = await conn.fetch("""
+            SELECT id, name, firm_name, primary_specialty, business_description,
+                   specialties, capabilities, software_tools,
+                   proven_experience_notable_projects, proven_experience_case_studies
+            FROM providers ORDER BY id
+        """)
+        log.info(f"Re-embedding ALL {len(rows)} providers (--all mode, v3 update).")
 
-        if args.dry_run:
-            log.info("DRY RUN - no API calls will be made.")
-            for p in providers[:10]:
-                preview = (p.business_description or "")[:80].replace("\n", " ")
-                print("  [" + str(p.id) + "] " + str(p.name or p.firm_name) + ": " + preview + "...")
-            if total > 10:
-                print("  ... and " + str(total - 10) + " more providers")
-            return
+    total = len(rows)
 
-        if total == 0:
-            log.info("Nothing to do. All providers already have embeddings.")
-            return
+    if args.dry_run:
+        log.info(f"DRY RUN - first 10 of {total} providers:")
+        for row in rows[:10]:
+            t = build_embedding_text(dict(row))
+            print(f"  [{row['id']}] {row['name'] or row['firm_name']}: {t[:80]}...")
+        if total > 10:
+            print(f"  ... and {total - 10} more")
+        await conn.close()
+        return
 
-        done = 0
-        errors = 0
-        skipped = 0
-        start_time = time.time()
+    if total == 0:
+        log.info("Nothing to do - all providers already have embeddings.")
+        await conn.close()
+        return
 
-        for batch_start in range(0, total, args.batch_size):
-            batch = providers[batch_start: batch_start + args.batch_size]
+    done = 0
+    errors = 0
+    skipped = 0
+    start_time = time.time()
 
-            texts = []
-            valid_providers = []
-            for p in batch:
-                parts = [
-                    p.name or p.firm_name or "",
-                    p.primary_specialty or "",
-                    p.business_description or "",
-                ]
-                # v3: Include specialties, capabilities, software_tools, notable_projects, case_studies
-                for field_val in [p.specialties, p.capabilities, p.software_tools]:
-                    if field_val:
-                        if isinstance(field_val, list):
-                            parts.append(" ".join(str(x) for x in field_val if x))
-                        else:
-                            parts.append(str(field_val))
-                # Add proven experience: notable projects and case studies
-                for field_val in [p.proven_experience_notable_projects, p.proven_experience_case_studies]:
-                    if field_val:
-                        if isinstance(field_val, list):
-                            # Each item may be a dict with 'title', 'description', etc.
-                            items_text = []
-                            for item in field_val:
-                                if isinstance(item, dict):
-                                    text_parts = []
-                                    for key in ['title', 'description', 'summary', 'industry', 'scope']:
-                                        if item.get(key):
-                                            text_parts.append(str(item[key]))
-                                    items_text.append(" ".join(text_parts))
-                                else:
-                                    items_text.append(str(item))
-                            parts.append(" ".join(items_text))
-                        elif isinstance(field_val, dict):
-                            parts.append(str(field_val))
-                        else:
-                            parts.append(str(field_val))
-                combined = " ".join(filter(None, parts)).strip()
-                if not combined:
-                    log.warning("Provider " + str(p.id) + " has no text content, skipping.")
-                    skipped += 1
-                    continue
-                texts.append(combined[:2048])
-                valid_providers.append(p)
-
-            if not texts:
-                done += len(batch)
-                print_progress(done, total, errors)
+    for batch_start in range(0, total, args.batch_size):
+        batch = rows[batch_start: batch_start + args.batch_size]
+        texts = []
+        valid_rows = []
+        for row in batch:
+            t = build_embedding_text(dict(row))
+            if not t:
+                skipped += 1
                 continue
+            texts.append(t)
+            valid_rows.append(row)
 
-            embeddings = None
-            for attempt in range(3):
-                try:
-                    embeddings = await embed_texts(
-                        texts,
-                        model=args.model,
-                        api_key=args.api_key,
-                        base_url=args.deepinfra_base,
-                    )
-                    break
-                except httpx.HTTPStatusError as exc:
-                    log.error("HTTP " + str(exc.response.status_code) + " on batch " + str(batch_start) + ": " + str(exc))
-                    if exc.response.status_code == 429:
-                        log.warning("Rate limited – sleeping 5 seconds")
-                        await asyncio.sleep(5)
-                    elif attempt == 2:
-                        log.error("Skipping batch " + str(batch_start) + " after 3 failures")
-                        errors += len(texts)
-                        break
-                except Exception as exc:
-                    log.error("Error on batch " + str(batch_start) + " attempt " + str(attempt + 1) + ": " + str(exc))
-                    if attempt == 2:
-                        errors += len(texts)
-                        break
-                    await asyncio.sleep(2 ** attempt)
-
-            if embeddings is None:
-                done += len(batch)
-                print_progress(done, total, errors)
-                continue
-
-            for provider, embedding in zip(valid_providers, embeddings):
-                try:
-                    await db.execute(
-                        update(Provider)
-                        .where(Provider.id == provider.id)
-                        .values(
-                            embedding=embedding,
-                            embedding_model=args.model,
-                            embedding_generated_at=datetime.utcnow(),
-                            embedding_version="3",  # v3: includes specialties, capabilities, software_tools, notable_projects, case_studies
-                        )
-                    )
-                except Exception as exc:
-                    log.error("DB update failed for provider " + str(provider.id) + ": " + str(exc))
-                    errors += 1
-
-            await db.commit()
+        if not texts:
             done += len(batch)
+            print_progress(done, total, errors)
+            continue
 
-            elapsed = time.time() - start_time
-            rate = done / elapsed if elapsed > 0 else 0
-            eta = (total - done) / rate if rate > 0 else 0
-            label = "rate=" + format(rate, ".1f") + "/s eta=" + format(eta, ".0f") + "s"
-            print_progress(done, total, errors, label)
+        embeddings = None
+        for attempt in range(3):
+            try:
+                embeddings = await embed_texts(
+                    texts, model=args.model, api_key=args.api_key,
+                    base_url=args.deepinfra_base,
+                )
+                break
+            except httpx.HTTPStatusError as exc:
+                status = exc.response.status_code
+                log.error(f"HTTP {status} on batch {batch_start}: {exc}")
+                if status == 401:
+                    log.error("AUTHENTICATION FAILED - invalid API key or insufficient credits!")
+                    await conn.close()
+                    sys.exit(1)
+                elif status == 429:
+                    log.warning("Rate limited - sleeping 5s")
+                    await asyncio.sleep(5)
+                elif attempt == 2:
+                    errors += len(texts)
+                    break
+            except Exception as exc:
+                log.error(f"Error attempt {attempt+1}: {exc}")
+                if attempt == 2:
+                    errors += len(texts)
+                    break
+                await asyncio.sleep(2 ** attempt)
 
-            if batch_start + args.batch_size < total:
-                await asyncio.sleep(args.rate_limit_sleep)
+        if embeddings is None:
+            done += len(batch)
+            print_progress(done, total, errors)
+            continue
 
+        now = datetime.now(timezone.utc)
+        for row, embedding in zip(valid_rows, embeddings):
+            try:
+                emb_list = embedding if isinstance(embedding, list) else list(embedding)
+                await conn.execute(
+                    """
+                    UPDATE providers
+                    SET embedding = $1::vector,
+                        embedding_model = $2,
+                        embedding_generated_at = $3,
+                        embedding_version = '3'
+                    WHERE id = $4
+                    """,
+                    str(emb_list), args.model, now, row["id"]
+                )
+            except Exception as exc:
+                log.error(f"DB update failed for provider {row['id']}: {exc}")
+                errors += 1
+
+        done += len(batch)
+        elapsed = time.time() - start_time
+        rate = done / elapsed if elapsed > 0 else 0
+        eta = (total - done) / rate if rate > 0 else 0
+        print_progress(done, total, errors, f"rate={rate:.1f}/s eta={eta:.0f}s")
+
+        if batch_start + args.batch_size < total:
+            await asyncio.sleep(args.rate_limit_sleep)
+
+    await conn.close()
     elapsed_total = time.time() - start_time
     log.info(
-        "Done! Embedded " + str(done - errors - skipped) + "/" + str(total) +
-        " providers in " + format(elapsed_total, ".1f") + "s. " +
-        "Errors=" + str(errors) + ", Skipped(no text)=" + str(skipped)
+        f"Done! Embedded {done-errors-skipped}/{total} providers in {elapsed_total:.1f}s. "
+        f"Errors={errors}, Skipped={skipped}"
     )
 
 
