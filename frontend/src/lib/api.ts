@@ -327,8 +327,11 @@ const billing = {
 // Admin API
 const admin = {
   // RFQs
+  getStats: () =>
+    apiClient.get<any>('/admin/stats'),
+  // backward compat alias
   getStatus: () =>
-    apiClient.get<any>('/admin/status'),
+    apiClient.get<any>('/admin/stats'),
   listRFQs: (params?: { page?: number; page_size?: number; status?: string }) => 
     apiClient.get<PaginatedResponse<RFQ>>('/admin/rfqs', { params }),
   

@@ -3,36 +3,37 @@
 import csv
 import io
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
 
 from app.api.deps import get_db, require_role
+from app.core.config import settings
+from app.models.advertising import Advertisement
+from app.models.payment import PaymentAttempt, WebhookEvent
+from app.models.provider import Provider, TierEvaluationRequest
+from app.models.rfq import RFQ
+from app.models.user import User
+from app.schemas.advertising import AdvertisementResponse
 from app.schemas.base import PagedResponse
-from app.schemas.user import UserResponse
+from app.schemas.payment import PaymentAttemptResponse, WebhookEventResponse
 from app.schemas.provider import ProviderResponse, TierEvaluationResponse
 from app.schemas.rfq import RFQResponse, RFQStatusOverrideRequest
-from app.schemas.payment import PaymentAttemptResponse, WebhookEventResponse
-from app.schemas.advertising import AdvertisementResponse
+from app.schemas.user import UserResponse
 
 router = APIRouter()
 
 
-@router.get("/admin/status")
-async def admin_status(
+@router.get("/admin/stats")
+async def admin_stats(
     db: AsyncSession = Depends(get_db),
-    current_user = Depends(require_role(["admin"])),
-):
-    """Get system status overview for admin dashboard."""
-    from sqlalchemy import select, func, text
-    from app.models.user import User
-    from app.models.provider import Provider
-    from app.models.rfq import RFQ
-    from app.core.config import settings
-    from datetime import datetime as _dt
-
-    db_info: dict = {
+    current_user: User = Depends(require_role(["admin"])),
+) -> Dict[str, Any]:
+    """Get system statistics for the admin dashboard."""
+    db_stats: Dict[str, Any] = {
         "user_count": 0,
         "provider_count": 0,
         "rfq_count": 0,
@@ -40,46 +41,52 @@ async def admin_status(
         "connection_ok": False,
     }
 
-    # Each query is independent - one failure does not kill the rest
     try:
-        result = await db.execute(select(func.count()).select_from(User))
-        db_info["user_count"] = result.scalar() or 0
-        db_info["connection_ok"] = True
-    except Exception as e:
-        db_info["user_count_error"] = str(e)
+        r = await db.execute(select(func.count()).select_from(User))
+        db_stats["user_count"] = r.scalar() or 0
+        db_stats["connection_ok"] = True
+    except Exception as exc:
+        db_stats["user_count_error"] = str(exc)
 
     try:
-        result = await db.execute(select(func.count()).select_from(Provider))
-        db_info["provider_count"] = result.scalar() or 0
-    except Exception as e:
-        db_info["provider_count_error"] = str(e)
+        r = await db.execute(select(func.count()).select_from(Provider))
+        db_stats["provider_count"] = r.scalar() or 0
+    except Exception as exc:
+        db_stats["provider_count_error"] = str(exc)
 
     try:
-        result = await db.execute(select(func.count()).select_from(RFQ))
-        db_info["rfq_count"] = result.scalar() or 0
-    except Exception as e:
-        db_info["rfq_count_error"] = str(e)
+        r = await db.execute(select(func.count()).select_from(RFQ))
+        db_stats["rfq_count"] = r.scalar() or 0
+    except Exception as exc:
+        db_stats["rfq_count_error"] = str(exc)
 
     try:
-        # Use raw SQL to avoid pgvector type issues with IS NOT NULL on vector column
-        result = await db.execute(
+        r = await db.execute(
             text("SELECT COUNT(*) FROM providers WHERE embedding IS NOT NULL")
         )
-        db_info["providers_with_embeddings"] = result.scalar() or 0
-    except Exception as e:
-        db_info["providers_with_embeddings_error"] = str(e)
+        db_stats["providers_with_embeddings"] = r.scalar() or 0
+    except Exception as exc:
+        db_stats["providers_with_embeddings_error"] = str(exc)
 
-    api_keys_info: dict = {}
+    api_keys: Dict[str, bool] = {}
     try:
-        api_keys_info = {
-            "openai_configured": bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY not in ("", "dummy-key")),
-            "stripe_configured": bool(settings.STRIPE_SECRET_KEY),
-            "paypal_configured": bool(settings.PAYPAL_CLIENT_ID and settings.PAYPAL_CLIENT_SECRET),
-            "signrequest_configured": bool(settings.SIGNREQUEST_API_KEY),
-            "aws_s3_configured": bool(settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY),
+        api_keys = {
+            "openai_configured": bool(
+                getattr(settings, "OPENAI_API_KEY", "") not in ("", None, "dummy-key")
+            ),
+            "stripe_configured": bool(getattr(settings, "STRIPE_SECRET_KEY", "")),
+            "paypal_configured": bool(
+                getattr(settings, "PAYPAL_CLIENT_ID", "")
+                and getattr(settings, "PAYPAL_CLIENT_SECRET", "")
+            ),
+            "signrequest_configured": bool(getattr(settings, "SIGNREQUEST_API_KEY", "")),
+            "aws_s3_configured": bool(
+                getattr(settings, "AWS_ACCESS_KEY_ID", "")
+                and getattr(settings, "AWS_SECRET_ACCESS_KEY", "")
+            ),
         }
     except Exception:
-        api_keys_info = {
+        api_keys = {
             "openai_configured": False,
             "stripe_configured": False,
             "paypal_configured": False,
@@ -88,12 +95,19 @@ async def admin_status(
         }
 
     return {
-        "database": db_info,
-        "api_keys": api_keys_info,
-        "timestamp": _dt.utcnow().isoformat(),
+        "database": db_stats,
+        "api_keys": api_keys,
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 
+@router.get("/admin/status")
+async def admin_status_alias(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> Dict[str, Any]:
+    """Backward-compat alias for /admin/stats."""
+    return await admin_stats(db=db, current_user=current_user)
 
 
 @router.get("/admin/rfqs", response_model=PagedResponse[RFQResponse])
