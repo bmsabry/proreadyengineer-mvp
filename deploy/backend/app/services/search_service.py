@@ -883,26 +883,26 @@ async def _fetch_candidates(
 
     # ── Vector path ──────────────────────────────────────────────────────────
     if query_vec:
+        # Use begin_nested() (SAVEPOINT) so a pgvector failure only rolls back
+        # the savepoint, NOT the outer transaction - this prevents the
+        # InFailedSQLTransactionError that corrupts the fallback keyword queries.
         try:
-            where_clause = ('WHERE ' + ' AND '.join(base_filters)) if base_filters else ''
-            sql = sa_text(f"""
-                SELECT p.*,
-                       1 - (p.embedding <=> CAST(:vec AS vector)) AS cosine_similarity
-                FROM providers p
-                {where_clause}
-                ORDER BY cosine_similarity DESC
-                LIMIT :lim
-            """)
-            result = await db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': max(limit, 100)})
-            rows = result.mappings().all()
-            logger.info(f'[SEARCH] pgvector returned {len(rows)} candidates')
-            return rows, True, None
+            async with db.begin_nested():
+                where_clause = ('WHERE ' + ' AND '.join(base_filters)) if base_filters else ''
+                sql = sa_text(f"""
+                    SELECT p.*,
+                           1 - (p.embedding <=> CAST(:vec AS vector)) AS cosine_similarity
+                    FROM providers p
+                    {where_clause}
+                    ORDER BY cosine_similarity DESC
+                    LIMIT :lim
+                """)
+                result = await db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': max(limit, 100)})
+                rows = result.mappings().all()
+                logger.info(f'[SEARCH] pgvector returned {len(rows)} candidates')
+                return rows, True, None
         except Exception as exc:
             logger.warning(f'[SEARCH] pgvector failed ({exc}), falling back to keyword SQL')
-            try:
-                await db.rollback()
-            except Exception:
-                pass
             fallback_reason = f'pgvector_error:{type(exc).__name__}:{str(exc)[:120]}'
 
     # ── Keyword SQL path (no embeddings or pgvector failed) ───────────────────
