@@ -1,31 +1,35 @@
 "use client";
+export const dynamic = "force-dynamic";
 
 import { useState, useEffect, useCallback } from "react";
 import { api } from "@/lib/api";
 import { PipelineInfo } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertCircle, CheckCircle, Database, Search, RefreshCw, Activity, Zap } from "lucide-react";
 
-interface DebugInfo {
-  database: {
-    connection_ok: boolean;
-    provider_count: number;
-    providers_with_embeddings: number;
-    embedding_coverage_pct: number;
-    sample_provider: string | null;
-  };
-  api_config: {
-    openai_configured: boolean;
-    openai_base_url: string | null;
-    embedding_model: string;
-    llm_model: string;
-  };
-  last_error: string | null;
+interface DatabaseStatus {
+  connection_ok: boolean;
+  provider_count: number;
+  providers_with_embeddings: number;
+  embedding_coverage_pct: number;
+  sample_provider: string | null;
+  error?: string;
 }
 
+interface ApiConfigInfo {
+  openai_configured: boolean;
+  openai_base_url: string | null;
+  embedding_model: string;
+  llm_model: string;
+}
+
+interface DebugInfo {
+  database: DatabaseStatus;
+  api_config: ApiConfigInfo;
+  last_error: string | null;
+}
 function PipelineBadge({ pipeline }: { pipeline: string | undefined }) {
   if (!pipeline) return null;
   const colors: Record<string, string> = {
@@ -34,13 +38,21 @@ function PipelineBadge({ pipeline }: { pipeline: string | undefined }) {
     no_api_key: "bg-red-100 text-red-800 border-red-300",
   };
   const cls = colors[pipeline] ?? "bg-gray-100 text-gray-800 border-gray-300";
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${cls}`}>{pipeline}</span>;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${cls}`}>
+      {pipeline}
+    </span>
+  );
 }
 
-function AIPipelineBanner({ pipeline, query }: { pipeline: PipelineInfo; query: string }) {
+function AIPipelineBanner({ pipeline }: { pipeline: PipelineInfo }) {
   const isAI = pipeline.pipeline_used === "ai_vector";
   const isKeyword = pipeline.pipeline_used === "keyword_fallback";
-  const bannerClass = isAI ? "bg-green-50 border-green-200" : isKeyword ? "bg-yellow-50 border-yellow-200" : "bg-red-50 border-red-200";
+  const bannerClass = isAI
+    ? "bg-green-50 border-green-200"
+    : isKeyword
+    ? "bg-yellow-50 border-yellow-200"
+    : "bg-red-50 border-red-200";
   return (
     <div className={`border rounded-lg p-4 ${bannerClass} space-y-3`}>
       <div className="flex items-center gap-2">
@@ -56,12 +68,26 @@ function AIPipelineBanner({ pipeline, query }: { pipeline: PipelineInfo; query: 
         <div><span className="font-medium">Embedding Called:</span> {pipeline.embedding_called ? "Yes" : "No"}</div>
         <div><span className="font-medium">Embedding Dims:</span> {pipeline.embedding_dims ?? "n/a"}</div>
         <div><span className="font-medium">Inferred Specialty:</span> {pipeline.inferred_specialty ?? "n/a"}</div>
-        <div><span className="font-medium">Keywords:</span> {pipeline.inferred_keywords?.join(", ") ?? "n/a"}</div>
+        <div><span className="font-medium">Keywords:</span> {(pipeline.inferred_keywords ?? []).join(", ") || "n/a"}</div>
       </div>
       {pipeline.fallback_reason && (
-        <div className="text-xs text-yellow-700"><span className="font-medium">Fallback Reason:</span> {pipeline.fallback_reason}</div>
+        <div className="text-xs text-yellow-700">
+          <span className="font-medium">Fallback Reason:</span> {pipeline.fallback_reason}
+        </div>
       )}
     </div>
+  );
+}
+
+function StatusBadge({ ok }: { ok: boolean }) {
+  return ok ? (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-300">
+      <CheckCircle className="h-3 w-3" /> OK
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 border border-red-300">
+      <AlertCircle className="h-3 w-3" /> Error
+    </span>
   );
 }
 export default function DebuggingPage() {
@@ -78,7 +104,27 @@ export default function DebuggingPage() {
     setDebugError(null);
     try {
       const response = await api.search.debug();
-      setDebugInfo(response.data as DebugInfo);
+      const raw = (response.data ?? {}) as Record<string, unknown>;
+      const db = (raw.database ?? {}) as Record<string, unknown>;
+      const apiCfg = (raw.api_config ?? {}) as Record<string, unknown>;
+      const normalized: DebugInfo = {
+        database: {
+          connection_ok: Boolean(db.connection_ok),
+          provider_count: Number(db.provider_count ?? 0),
+          providers_with_embeddings: Number(db.providers_with_embeddings ?? 0),
+          embedding_coverage_pct: Number(db.embedding_coverage_pct ?? 0),
+          sample_provider: db.sample_provider != null ? String(db.sample_provider) : null,
+          error: db.error != null ? String(db.error) : undefined,
+        },
+        api_config: {
+          openai_configured: Boolean(apiCfg.openai_configured),
+          openai_base_url: apiCfg.openai_base_url != null ? String(apiCfg.openai_base_url) : null,
+          embedding_model: String(apiCfg.embedding_model ?? ""),
+          llm_model: String(apiCfg.llm_model ?? ""),
+        },
+        last_error: raw.last_error != null ? String(raw.last_error) : null,
+      };
+      setDebugInfo(normalized);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
       setDebugError(e.response?.data?.detail ?? e.message ?? "Failed to load debug info");
@@ -96,8 +142,9 @@ export default function DebuggingPage() {
     setSearchError(null);
     try {
       const response = await api.search.query({ query: testQuery });
-      const results = response.data.results ?? [];
-      const pipeline = response.data.pipeline_info ?? null;
+      const data = (response.data as unknown as Record<string, unknown>) ?? {};
+      const results = (data.results ?? []) as unknown[];
+      const pipeline = (data.pipeline_info ?? null) as PipelineInfo | null;
       setSearchResult({ pipeline, count: results.length });
     } catch (err: unknown) {
       const e = err as { response?: { data?: { detail?: string } }; message?: string };
@@ -107,7 +154,7 @@ export default function DebuggingPage() {
     }
   };
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -136,7 +183,7 @@ export default function DebuggingPage() {
               onChange={(e) => setTestQuery(e.target.value)}
               placeholder="Enter test search query..."
               className="flex-1"
-              onKeyDown={(e) => e.key === "Enter" && runTestSearch()}
+              onKeyDown={(e) => { if (e.key === "Enter") runTestSearch(); }}
             />
             <Button onClick={runTestSearch} disabled={searchLoading}>
               <Search className="h-4 w-4 mr-2" />
@@ -153,10 +200,10 @@ export default function DebuggingPage() {
             <div className="space-y-3">
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle className="h-4 w-4 text-green-600" />
-                <span>Search completed — <strong>{searchResult.count}</strong> result{searchResult.count !== 1 ? "s" : ""} returned</span>
+                <span>Search completed: <strong>{searchResult.count}</strong> result{searchResult.count !== 1 ? "s" : ""} returned</span>
               </div>
               {searchResult.pipeline ? (
-                <AIPipelineBanner pipeline={searchResult.pipeline} query={testQuery} />
+                <AIPipelineBanner pipeline={searchResult.pipeline} />
               ) : (
                 <p className="text-sm text-muted-foreground">No pipeline info returned.</p>
               )}
@@ -191,11 +238,7 @@ export default function DebuggingPage() {
               <CardContent className="space-y-2 text-sm">
                 <div className="flex justify-between items-center">
                   <span className="text-muted-foreground">Connection</span>
-                  {debugInfo.database.connection_ok ? (
-                    <Badge className="bg-green-600 text-white text-xs"><CheckCircle className="h-3 w-3 mr-1 inline" /> OK</Badge>
-                  ) : (
-                    <Badge variant="destructive" className="text-xs"><AlertCircle className="h-3 w-3 mr-1 inline" /> Error</Badge>
-                  )}
+                  <StatusBadge ok={debugInfo.database.connection_ok} />
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Provider Count</span>
@@ -215,6 +258,11 @@ export default function DebuggingPage() {
                     <p className="text-xs font-mono bg-muted p-1 rounded truncate">{debugInfo.database.sample_provider}</p>
                   </div>
                 )}
+                {debugInfo.database.error && (
+                  <div className="pt-2 border-t">
+                    <p className="text-xs text-red-600 font-mono">{debugInfo.database.error}</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -227,12 +275,8 @@ export default function DebuggingPage() {
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
                 <div className="flex justify-between items-center">
-                  <span className="text-muted-foreground">OpenAI Configured</span>
-                  {debugInfo.api_config.openai_configured ? (
-                    <Badge className="bg-green-600 text-white text-xs"><CheckCircle className="h-3 w-3 mr-1 inline" /> Yes</Badge>
-                  ) : (
-                    <Badge variant="destructive" className="text-xs"><AlertCircle className="h-3 w-3 mr-1 inline" /> No</Badge>
-                  )}
+                  <span className="text-muted-foreground">AI Configured</span>
+                  <StatusBadge ok={debugInfo.api_config.openai_configured} />
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Base URL</span>
@@ -254,7 +298,7 @@ export default function DebuggingPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base text-red-700 flex items-center gap-2">
                     <AlertCircle className="h-4 w-4" />
-                    Last Error
+                    Last Search Error
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
