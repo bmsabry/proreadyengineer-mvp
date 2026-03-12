@@ -33,6 +33,9 @@ apiClient.interceptors.request.use(
 
 // Response interceptor - handle 401 with token refresh
 let isRefreshing = false;
+// Flag to prevent auto-refresh during intentional logout
+export let isLoggingOut = false;
+export const setLoggingOut = (val: boolean) => { isLoggingOut = val; };
 let refreshQueue: Array<(token?: string) => void> = [];
 
 const processRefreshQueue = (error?: Error) => {
@@ -52,7 +55,7 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
-    if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isLoggingOut) {
       if (isRefreshing) {
         // Queue this request until refresh completes
         return new Promise((resolve, reject) => {

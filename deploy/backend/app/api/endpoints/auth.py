@@ -216,8 +216,12 @@ async def logout(
     cookie_secure = is_production
     cookie_samesite = "none" if is_production else "lax"
     # Must specify same samesite/secure/path params as when setting cookies
+    # Delete cookies - use both methods for maximum browser compatibility
     response.delete_cookie("access_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite, path="/")
     response.delete_cookie("refresh_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite, path="/")
+    # Also explicitly expire cookies via Set-Cookie header with past expiry
+    response.set_cookie(key="access_token", value="", httponly=True, secure=cookie_secure, samesite=cookie_samesite, path="/", max_age=0, expires=0)
+    response.set_cookie(key="refresh_token", value="", httponly=True, secure=cookie_secure, samesite=cookie_samesite, path="/", max_age=0, expires=0)
     # Also try to revoke the refresh token from DB if present
     try:
         refresh_token = request.cookies.get("refresh_token")

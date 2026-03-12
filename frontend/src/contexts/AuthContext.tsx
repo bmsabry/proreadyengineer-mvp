@@ -1,9 +1,9 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, AuthResponse } from '@/types';
-import { api } from '@/lib/api';
+import { api, setLoggingOut } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
@@ -19,10 +19,13 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const LOGOUT_FLAG_KEY = 'pre_logged_out';
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const isLoggingOutRef = useRef(false);
 
   const refreshUser = useCallback(async () => {
     try {
@@ -35,19 +38,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const initAuth = async () => {
+      // If we just logged out, skip auth check entirely
+      if (typeof window !== 'undefined' && localStorage.getItem(LOGOUT_FLAG_KEY)) {
+        localStorage.removeItem(LOGOUT_FLAG_KEY);
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
       try {
-        // First try to get current user (works if access token is still valid)
         const response = await api.auth.me();
         setUser(response.data);
       } catch {
-        // Access token expired or missing - try to refresh
         try {
           await api.auth.refresh();
-          // Refresh succeeded - now get user data
           const response = await api.auth.me();
           setUser(response.data);
         } catch {
-          // Refresh also failed - user is not authenticated
           setUser(null);
         }
       } finally {
@@ -59,6 +66,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string, rememberMe: boolean = false) => {
     setIsLoading(true);
+    // Clear logout flag on login
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(LOGOUT_FLAG_KEY);
+    }
     try {
       const response = await api.auth.login({ email, password, remember_me: rememberMe });
       setUser(response.data.user);
@@ -74,6 +85,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     roles: ('customer' | 'provider' | 'advertiser')[] = ['customer']
   ) => {
     setIsLoading(true);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(LOGOUT_FLAG_KEY);
+    }
     try {
       const response = await api.auth.register({ email, password, roles });
       setUser(response.data.user);
@@ -84,17 +98,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
-    setIsLoading(true);
+    isLoggingOutRef.current = true;
+    setLoggingOut(true); // prevent interceptor from auto-refreshing
+    // Set logout flag BEFORE any async operations
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(LOGOUT_FLAG_KEY, '1');
+    }
+    // Clear user state immediately
+    setUser(null);
     try {
       await api.auth.logout();
     } catch {
-      // Ignore errors - proceed with client-side logout regardless
+      // Ignore errors - client-side logout already done
     } finally {
-      setUser(null);
+      isLoggingOutRef.current = false;
+      setLoggingOut(false);
       setIsLoading(false);
-      // Hard redirect clears all state including incognito cookie cache
+      // Hard redirect to home page
       if (typeof window !== 'undefined') {
-        window.location.href = '/';
+        window.location.replace('/');
       } else {
         router.push('/');
       }
@@ -102,13 +124,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logoutAll = async () => {
-    setIsLoading(true);
+    isLoggingOutRef.current = true;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(LOGOUT_FLAG_KEY, '1');
+    }
+    setUser(null);
     try {
       await api.auth.logoutAll();
-      setUser(null);
-      router.push('/');
+    } catch {
+      // ignore
     } finally {
-      setIsLoading(false);
+      isLoggingOutRef.current = false;
+      if (typeof window !== 'undefined') {
+        window.location.replace('/');
+      } else {
+        router.push('/');
+      }
     }
   };
 
