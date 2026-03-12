@@ -1,6 +1,10 @@
 """Admin API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import csv
+import io
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
@@ -406,6 +410,158 @@ async def admin_pause_ad(
 
     return {"message": "Ad paused", "ad_id": ad_id}
 
+
+
+
+@router.get("/admin/users")
+async def admin_list_users(
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=200),
+    search: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role(["admin"])),
+):
+    """Admin: List all users with pagination and optional search."""
+    from sqlalchemy import select, func, or_
+    from app.models.user import User
+    from app.models.payment import Subscription
+
+    query = select(User)
+    count_query = select(func.count()).select_from(User)
+
+    if search:
+        filter_clause = or_(
+            User.email.ilike(f"%{search}%"),
+            User.full_name.ilike(f"%{search}%"),
+            User.business_name.ilike(f"%{search}%"),
+        )
+        query = query.where(filter_clause)
+        count_query = count_query.where(filter_clause)
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+
+    result = await db.execute(
+        query.order_by(User.email).offset((page - 1) * size).limit(size)
+    )
+    users = result.scalars().all()
+
+    # Get subscription info for each user
+    user_ids = [u.id for u in users]
+    sub_result = await db.execute(
+        select(Subscription).where(
+            Subscription.user_id.in_(user_ids),
+            Subscription.subscription_status == "active",
+        )
+    )
+    subs = {str(s.user_id): s for s in sub_result.scalars().all()}
+
+    items = []
+    for u in users:
+        sub = subs.get(str(u.id))
+        items.append({
+            "id": str(u.id),
+            "email": u.email,
+            "full_name": u.full_name,
+            "business_name": u.business_name,
+            "roles": u.roles,
+            "is_super_admin": u.is_super_admin,
+            "monthly_search_count": u.monthly_search_count or 0,
+            "search_count_reset_at": u.search_count_reset_at.isoformat() if u.search_count_reset_at else None,
+            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
+            "failed_login_count": u.failed_login_count or 0,
+            "locked_until": u.locked_until.isoformat() if u.locked_until else None,
+            "membership_type": sub.subscription_type if sub else "free",
+            "subscription_status": sub.subscription_status if sub else None,
+            "subscription_id": str(sub.id) if sub else None,
+        })
+
+    return {"items": items, "total": total, "page": page, "size": size}
+
+
+@router.get("/admin/users/export.csv")
+async def admin_export_users_csv(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role(["admin"])),
+):
+    """Admin: Export all users to CSV with full account info and membership type."""
+    from sqlalchemy import select
+    from app.models.user import User
+    from app.models.payment import Subscription
+
+    result = await db.execute(select(User).order_by(User.email))
+    users = result.scalars().all()
+
+    sub_result = await db.execute(
+        select(Subscription).where(Subscription.subscription_status == "active")
+    )
+    subs = {str(s.user_id): s for s in sub_result.scalars().all()}
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    writer.writerow([
+        "id", "email", "full_name", "business_name", "roles",
+        "is_super_admin", "membership_type", "subscription_status",
+        "monthly_search_count", "search_count_reset_at",
+        "last_login_at", "failed_login_count", "locked_until",
+    ])
+
+    for u in users:
+        sub = subs.get(str(u.id))
+        writer.writerow([
+            str(u.id),
+            u.email,
+            u.full_name or "",
+            u.business_name or "",
+            ",".join(u.roles) if u.roles else "",
+            u.is_super_admin,
+            sub.subscription_type if sub else "free",
+            sub.subscription_status if sub else "none",
+            u.monthly_search_count or 0,
+            u.search_count_reset_at.isoformat() if u.search_count_reset_at else "",
+            u.last_login_at.isoformat() if u.last_login_at else "",
+            u.failed_login_count or 0,
+            u.locked_until.isoformat() if u.locked_until else "",
+        ])
+
+    output.seek(0)
+    filename = f"users_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.post("/admin/users/{user_id}/reset-search-quota")
+async def admin_reset_user_search_quota(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role(["admin"])),
+):
+    """Admin: Reset a user's monthly search count to zero."""
+    from sqlalchemy import select
+    from app.models.user import User
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    old_count = user.monthly_search_count or 0
+    user.monthly_search_count = 0
+    user.search_count_reset_at = datetime.utcnow()
+    await db.commit()
+
+    return {
+        "message": "Search quota reset successfully",
+        "user_id": user_id,
+        "old_count": old_count,
+        "new_count": 0,
+    }
 
 @router.post("/admin/users/{user_id}/suspend")
 async def admin_suspend_user(

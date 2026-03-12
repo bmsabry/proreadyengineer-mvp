@@ -207,7 +207,7 @@ async def search_query(
     can_search: bool = True
     remaining: int = 10
     try:
-        quota_result = await check_search_quota(db, current_user, ip)
+        quota_result = await check_search_quota(db, user_id=user_id, ip_address=ip)
         can_search = quota_result.get("allowed", True) if isinstance(quota_result, dict) else bool(quota_result)
         remaining = quota_result.get("remaining", 10) if isinstance(quota_result, dict) else 10
         logger.info("[SEARCH] Quota: can_search=%s remaining=%s", can_search, remaining)

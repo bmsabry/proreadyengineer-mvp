@@ -365,11 +365,14 @@ const admin = {
     apiClient.post<Advertisement>(`/admin/ads/${id}/pause`),
   
   // Users
-  listUsers: (params?: { page?: number; page_size?: number; is_active?: boolean }) =>
-    apiClient.get<PaginatedResponse<User>>("/admin/users", { params }),
+  listUsers: (queryString?: string) =>
+    apiClient.get<any>(`/admin/users${queryString ? '?' + queryString : ''}`),
 
-  suspendUser: (id: string) => 
-    apiClient.post<User>(`/admin/users/${id}/suspend`),
+  suspendUser: (id: string) =>
+    apiClient.post<any>(`/admin/users/${id}/suspend`),
+
+  resetUserSearchQuota: (userId: string) =>
+    apiClient.post<any>(`/admin/users/${userId}/reset-search-quota`),
 };
 
 // Webhooks (server-side only, usually)

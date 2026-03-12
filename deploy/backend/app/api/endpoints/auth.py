@@ -208,25 +208,50 @@ async def refresh_token(
 @router.post("/logout")
 async def logout(
     response: Response,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Logout current user (revoke refresh token from cookie)."""
-    response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token")
+    """Logout current user (revoke refresh token from cookie). Does not require auth so incognito/expired sessions work."""
+    is_production = settings.is_production
+    cookie_secure = is_production
+    cookie_samesite = "none" if is_production else "lax"
+    # Must specify same samesite/secure/path params as when setting cookies
+    response.delete_cookie("access_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite)
+    response.delete_cookie("refresh_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite)
+    # Also try to revoke the refresh token from DB if present
+    try:
+        refresh_token = request.cookies.get("refresh_token")
+        if refresh_token:
+            import hashlib
+            token_hash = hashlib.sha256(refresh_token.encode()).hexdigest()
+            from sqlalchemy import select, update
+            from app.models.user import RefreshToken
+            from datetime import datetime
+            await db.execute(
+                update(RefreshToken)
+                .where(RefreshToken.token_hash == token_hash)
+                .values(revoked_at=datetime.utcnow())
+            )
+            await db.commit()
+    except Exception:
+        pass
     return {"message": "Successfully logged out"}
 
 
 @router.post("/logout-all")
 async def logout_all(
     response: Response,
+    request: Request,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Logout from all devices."""
     await revoke_all_user_tokens(db, current_user.id)
-    response.delete_cookie("access_token")
-    response.delete_cookie("refresh_token")
+    is_production = settings.is_production
+    cookie_secure = is_production
+    cookie_samesite = "none" if is_production else "lax"
+    response.delete_cookie("access_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite)
+    response.delete_cookie("refresh_token", httponly=True, secure=cookie_secure, samesite=cookie_samesite)
     return {"message": "Successfully logged out from all sessions"}
 
 

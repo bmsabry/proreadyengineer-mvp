@@ -87,10 +87,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     try {
       await api.auth.logout();
-      setUser(null);
-      router.push('/login');
+    } catch {
+      // Ignore errors - proceed with client-side logout regardless
     } finally {
+      setUser(null);
       setIsLoading(false);
+      // Hard redirect clears all state including incognito cookie cache
+      if (typeof window !== 'undefined') {
+        window.location.href = '/login';
+      } else {
+        router.push('/login');
+      }
     }
   };
 
