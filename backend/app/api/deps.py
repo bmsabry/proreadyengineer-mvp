@@ -88,18 +88,27 @@ async def get_current_active_user(
     return current_user
 
 
-def require_role(*roles: str):
+def require_role(*roles):
     """
     Dependency factory to require specific roles.
+    Accepts both require_role("admin") and require_role(["admin"]) patterns.
 
     Usage:
         @router.get("/admin-only", dependencies=[Depends(require_role("admin"))])
     """
+    # Flatten any list/tuple arguments so both calling patterns work
+    flat_roles = []
+    for r in roles:
+        if isinstance(r, (list, tuple)):
+            flat_roles.extend(r)
+        else:
+            flat_roles.append(str(r))
+
     async def role_checker(user: User = Depends(get_current_active_user)) -> User:
-        if not any(role in user.roles for role in roles):
+        if not any(role in (user.roles or []) for role in flat_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Required role: {', '.join(roles)}",
+                detail=f"Required role: {', '.join(flat_roles)}",
             )
         return user
     return role_checker
