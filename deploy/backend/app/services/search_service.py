@@ -1196,6 +1196,8 @@ async def search_providers(
 
     norm_query = _normalize_query(query)
     logger.info(f'[SEARCH] query={norm_query[:100]}')
+    # Ensure raw_query is available for project injection in _fetch_candidates
+    filters['raw_query'] = norm_query
 
     # Initialize pipeline tracking dict
     pipeline_info: Dict[str, Any] = {
