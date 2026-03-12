@@ -866,28 +866,28 @@ async def _fetch_candidates(
     query_vec,
     limit = 50,
 ):
-    """Steps 3+5: hard filters + pgvector or keyword pre-filter.
+    """
+    Steps 3+5: hard filters + pgvector or keyword pre-filter.
     Returns (rows, used_vector, fallback_reason).
 
-    KEY FIX: When no embeddings, uses full keyword SQL search across ALL text
-    fields (including JSON arrays cast to text) so providers deep in the
-    database are found by relevance, not just the first 50 rows by ID order.
+    NUCLEAR FIX: Each query path uses its OWN fresh AsyncSession.
+    asyncpg marks a connection as aborted on ANY SQL error - even inside a
+    SAVEPOINT - making all subsequent queries on that session fail with
+    InFailedSQLTransactionError. The ONLY reliable fix is a fresh connection.
     """
     from sqlalchemy import text as sa_text
     import json as _json
+    from app.db.session import AsyncSessionLocal
     fallback_reason = None
 
     base_filters = []
     if intent.get('requires_engineering', 1) == 1:
         base_filters.append('is_engineering_service = 1')
 
-    # ── Vector path ──────────────────────────────────────────────────────────
+    # ── Vector path (isolated fresh session) ─────────────────────────────────
     if query_vec:
-        # Use begin_nested() (SAVEPOINT) so a pgvector failure only rolls back
-        # the savepoint, NOT the outer transaction - this prevents the
-        # InFailedSQLTransactionError that corrupts the fallback keyword queries.
         try:
-            async with db.begin_nested():
+            async with AsyncSessionLocal() as vec_db:
                 where_clause = ('WHERE ' + ' AND '.join(base_filters)) if base_filters else ''
                 sql = sa_text(f"""
                     SELECT p.*,
@@ -897,16 +897,15 @@ async def _fetch_candidates(
                     ORDER BY cosine_similarity DESC
                     LIMIT :lim
                 """)
-                result = await db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': max(limit, 100)})
+                result = await vec_db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': max(limit, 100)})
                 rows = result.mappings().all()
                 logger.info(f'[SEARCH] pgvector returned {len(rows)} candidates')
                 return rows, True, None
         except Exception as exc:
-            logger.warning(f'[SEARCH] pgvector failed ({exc}), falling back to keyword SQL')
+            logger.warning(f'[SEARCH] pgvector failed: {type(exc).__name__}: {str(exc)[:200]}')
             fallback_reason = f'pgvector_error:{type(exc).__name__}:{str(exc)[:120]}'
 
-    # ── Keyword SQL path (no embeddings or pgvector failed) ───────────────────
-    # Extract + expand keywords from intent
+    # ── Keyword SQL path (fresh isolated session) ─────────────────────────────
     raw_kws = [
         *_safe_list(intent.get('inferred_keywords', [])),
         *_safe_list(intent.get('capabilities_needed', [])),
@@ -921,23 +920,26 @@ async def _fetch_candidates(
     logger.info(f'[SEARCH] keyword search with {len(expanded)} terms (raw: {raw_kws[:3]})')
 
     try:
-        rows = await _keyword_candidate_query(db, expanded, base_filters, max(limit, 150))
-        logger.info(f'[SEARCH] keyword SQL returned {len(rows)} candidates')
+        async with AsyncSessionLocal() as kw_db:
+            rows = await _keyword_candidate_query(kw_db, expanded, base_filters, max(limit, 150))
+            logger.info(f'[SEARCH] keyword SQL returned {len(rows)} candidates')
 
-        if not rows:
-            logger.warning('[SEARCH] No keyword matches, returning providers by tier')
-            fallback_reason = fallback_reason or 'no_keyword_match'
-            rows = await _all_providers_by_tier(db, base_filters, max(limit, 100))
+            if not rows:
+                logger.warning('[SEARCH] No keyword matches, returning providers by tier')
+                fallback_reason = fallback_reason or 'no_keyword_match'
+                rows = await _all_providers_by_tier(kw_db, base_filters, max(limit, 100))
 
-        return rows, False, fallback_reason
+            return rows, False, fallback_reason
     except Exception as exc:
-        logger.error(f'[SEARCH] Keyword query failed: {exc}')
+        logger.error(f'[SEARCH] Keyword query failed: {type(exc).__name__}: {str(exc)[:200]}')
         try:
-            rows = await _all_providers_by_tier(db, base_filters, max(limit, 50))
-            return rows, False, f'keyword_error:{type(exc).__name__}'
+            async with AsyncSessionLocal() as tier_db:
+                rows = await _all_providers_by_tier(tier_db, base_filters, max(limit, 50))
+                return rows, False, f'keyword_error:{type(exc).__name__}'
         except Exception as exc2:
-            logger.error(f'[SEARCH] All fallbacks failed: {exc2}')
+            logger.error(f'[SEARCH] All fallbacks failed: {type(exc2).__name__}: {str(exc2)[:200]}')
             return [], False, f'err:{type(exc2).__name__}:{str(exc2)[:120]}'
+
 
 
 
