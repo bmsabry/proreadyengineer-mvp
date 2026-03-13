@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -17,15 +17,42 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+async def _ensure_table(db: AsyncSession) -> None:
+    """Create system_config table if it does not exist."""
+    try:
+        await db.execute(text("""
+            CREATE TABLE IF NOT EXISTS system_config (
+                id SERIAL PRIMARY KEY,
+                key VARCHAR(100) UNIQUE NOT NULL,
+                value TEXT,
+                is_secret BOOLEAN DEFAULT TRUE,
+                updated_at TIMESTAMP,
+                updated_by INTEGER
+            )
+        """))
+        await db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_system_config_key ON system_config (key)"
+        ))
+        await db.commit()
+    except Exception as exc:
+        logger.warning(f'[CONFIG] Could not ensure system_config table: {exc}')
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
 async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
     """Get the full runtime AI/service config from DB with env-var fallbacks."""
+    await _ensure_table(db)
     try:
         from app.models.system_config import SystemConfig
         result = await db.execute(select(SystemConfig))
         records = result.scalars().all()
         db_cfg = {r.key: r.value for r in records if r.value}
+        logger.debug(f'[CONFIG] Loaded {len(db_cfg)} keys from DB')
     except Exception as exc:
-        logger.debug(f'[CONFIG] DB config load failed: {exc}')
+        logger.warning(f'[CONFIG] DB config load failed: {exc}')
         db_cfg = {}
 
     def _get(key: str, default: str = '') -> str:
@@ -37,24 +64,25 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         )
 
     return {
-        'OPENAI_API_KEY':        _get('OPENAI_API_KEY'),
-        'OPENAI_API_BASE':       _get('OPENAI_API_BASE', 'https://api.deepinfra.com/v1/openai'),
-        'OPENAI_LLM_MODEL':      _get('OPENAI_LLM_MODEL', 'moonshotai/kimi-k2.5'),
-        'OPENAI_EMBEDDING_MODEL':_get('OPENAI_EMBEDDING_MODEL', 'BAAI/bge-large-en-v1.5'),
-        'STRIPE_SECRET_KEY':     _get('STRIPE_SECRET_KEY'),
-        'STRIPE_PUBLISHABLE_KEY':_get('STRIPE_PUBLISHABLE_KEY'),
-        'STRIPE_WEBHOOK_SECRET': _get('STRIPE_WEBHOOK_SECRET'),
-        'AWS_ACCESS_KEY_ID':     _get('AWS_ACCESS_KEY_ID'),
-        'AWS_SECRET_ACCESS_KEY': _get('AWS_SECRET_ACCESS_KEY'),
-        'AWS_REGION':            _get('AWS_REGION', 'us-east-1'),
-        'AWS_S3_BUCKET':         _get('AWS_S3_BUCKET'),
-        'RESEND_API_KEY':        _get('RESEND_API_KEY'),
-        'SIGNREQUEST_API_KEY':   _get('SIGNREQUEST_API_KEY'),
+        'OPENAI_API_KEY'        : _get('OPENAI_API_KEY'),
+        'OPENAI_API_BASE'       : _get('OPENAI_API_BASE', 'https://api.deepinfra.com/v1/openai'),
+        'OPENAI_LLM_MODEL'      : _get('OPENAI_LLM_MODEL', 'moonshotai/kimi-k2.5'),
+        'OPENAI_EMBEDDING_MODEL': _get('OPENAI_EMBEDDING_MODEL', 'BAAI/bge-large-en-v1.5'),
+        'STRIPE_SECRET_KEY'     : _get('STRIPE_SECRET_KEY'),
+        'STRIPE_PUBLISHABLE_KEY': _get('STRIPE_PUBLISHABLE_KEY'),
+        'STRIPE_WEBHOOK_SECRET'  : _get('STRIPE_WEBHOOK_SECRET'),
+        'AWS_ACCESS_KEY_ID'     : _get('AWS_ACCESS_KEY_ID'),
+        'AWS_SECRET_ACCESS_KEY' : _get('AWS_SECRET_ACCESS_KEY'),
+        'AWS_REGION'            : _get('AWS_REGION', 'us-east-1'),
+        'AWS_S3_BUCKET'         : _get('AWS_S3_BUCKET'),
+        'RESEND_API_KEY'        : _get('RESEND_API_KEY'),
+        'SIGNREQUEST_API_KEY'   : _get('SIGNREQUEST_API_KEY'),
     }
 
 
 async def get_config_value(db: AsyncSession, key: str) -> Optional[str]:
     """Get a single config value from DB, fall back to env/settings."""
+    await _ensure_table(db)
     try:
         from app.models.system_config import SystemConfig
         result = await db.execute(
@@ -75,8 +103,10 @@ async def save_config_values(
     user_id: int,
 ) -> None:
     """Upsert config key/value pairs into the system_config table."""
+    await _ensure_table(db)
     from app.models.system_config import SystemConfig
 
+    errors = []
     for key, value in config.items():
         if value is None:
             continue
@@ -89,6 +119,7 @@ async def save_config_values(
                 record.value = value
                 record.updated_at = datetime.utcnow()
                 record.updated_by = user_id
+                logger.info(f'[CONFIG] Updated key: {key}')
             else:
                 db.add(SystemConfig(
                     key=key,
@@ -97,6 +128,13 @@ async def save_config_values(
                     updated_at=datetime.utcnow(),
                     updated_by=user_id,
                 ))
+                logger.info(f'[CONFIG] Inserted key: {key}')
         except Exception as exc:
-            logger.error(f'[CONFIG] Failed to save key {key}: {exc}')
+            logger.error(f'[CONFIG] Failed to stage key {key}: {exc}')
+            errors.append(f'{key}: {exc}')
+
+    if errors:
+        raise RuntimeError(f'Failed to save config keys: {', '.join(errors)}')
+
     await db.commit()
+    logger.info(f'[CONFIG] Committed {len(config)} config keys to DB')

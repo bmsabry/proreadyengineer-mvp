@@ -708,5 +708,10 @@ async def save_system_config(
     if data.resend_api_key:         config_map["RESEND_API_KEY"]         = data.resend_api_key
     if data.signrequest_api_key:    config_map["SIGNREQUEST_API_KEY"]    = data.signrequest_api_key
 
-    await _save_config_values(db, config_map, user_id=current_user.id)
-    return {"status": "saved", "keys_saved": list(config_map.keys())}
+    if not config_map:
+        return {"status": "no_changes", "keys_saved": [], "message": "No non-empty values provided"}
+    try:
+        await _save_config_values(db, config_map, user_id=current_user.id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save config: {exc}")
+    return {"status": "saved", "keys_saved": list(config_map.keys()), "message": f"Saved {len(config_map)} key(s) successfully"}
