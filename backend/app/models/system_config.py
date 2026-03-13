@@ -11,4 +11,4 @@ class SystemConfig(Base):
     value = Column(Text, nullable=True)
     is_secret = Column(Boolean, default=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    updated_by = Column(Integer, nullable=True)  # user id
+    updated_by = Column(String(100), nullable=True)  # user id (UUID stored as string)

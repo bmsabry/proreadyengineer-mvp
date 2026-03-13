@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _ensure_table(db: AsyncSession) -> None:
-    """Create system_config table if it does not exist, and add missing columns."""
+    """Create system_config table if it does not exist, and add/fix missing columns."""
     try:
         await db.execute(text("""
             CREATE TABLE IF NOT EXISTS system_config (
@@ -28,13 +28,13 @@ async def _ensure_table(db: AsyncSession) -> None:
                 is_secret BOOLEAN DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW(),
-                updated_by INTEGER
+                updated_by VARCHAR(100)
             )
         """))
         await db.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_system_config_key ON system_config (key)"
         ))
-        # Add created_at column if it does not exist (for tables created without it)
+        # Add created_at if missing (tables created without it)
         await db.execute(text("""
             DO $$
             BEGIN
@@ -43,6 +43,23 @@ async def _ensure_table(db: AsyncSession) -> None:
                     WHERE table_name='system_config' AND column_name='created_at'
                 ) THEN
                     ALTER TABLE system_config ADD COLUMN created_at TIMESTAMP DEFAULT NOW();
+                END IF;
+            END$$;
+        """))
+        # CRITICAL FIX: migrate updated_by from INTEGER to VARCHAR if needed
+        # Handles existing production tables created with INTEGER type
+        await db.execute(text("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='system_config'
+                      AND column_name='updated_by'
+                      AND data_type IN ('integer', 'bigint', 'smallint')
+                ) THEN
+                    ALTER TABLE system_config
+                        ALTER COLUMN updated_by TYPE VARCHAR(100)
+                        USING COALESCE(updated_by::TEXT, NULL);
                 END IF;
             END$$;
         """))
@@ -121,18 +138,20 @@ async def get_config_value(db: AsyncSession, key: str) -> Optional[str]:
 async def save_config_values(
     db: AsyncSession,
     config: Dict[str, str],
-    user_id: int,
+    user_id: Any = None,
 ) -> None:
     """Upsert config key/value pairs into the system_config table."""
     await _ensure_table(db)
     from app.models.system_config import SystemConfig
+
+    # Always convert user_id to string — handles UUID, int, str, or None safely
+    user_id_str: Optional[str] = str(user_id) if user_id is not None else None
 
     errors = []
     for key, value in config.items():
         if value is None:
             continue
         try:
-            # Use a fresh check after ensure_table committed
             result = await db.execute(
                 select(SystemConfig).where(SystemConfig.key == key)
             )
@@ -140,7 +159,7 @@ async def save_config_values(
             if record:
                 record.value = value
                 record.updated_at = datetime.utcnow()
-                record.updated_by = user_id
+                record.updated_by = user_id_str
                 logger.info(f'[CONFIG] Updated key: {key}')
             else:
                 db.add(SystemConfig(
@@ -148,7 +167,7 @@ async def save_config_values(
                     value=value,
                     is_secret=True,
                     updated_at=datetime.utcnow(),
-                    updated_by=user_id,
+                    updated_by=user_id_str,
                 ))
                 logger.info(f'[CONFIG] Inserted key: {key}')
         except Exception as exc:
