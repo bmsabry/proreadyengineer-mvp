@@ -134,7 +134,7 @@ async def save_config_values(
             errors.append(f'{key}: {exc}')
 
     if errors:
-        raise RuntimeError(f'Failed to save config keys: {', '.join(errors)}')
+        raise RuntimeError("Failed to save config keys: " + ", ".join(errors))
 
     await db.commit()
     logger.info(f'[CONFIG] Committed {len(config)} config keys to DB')
