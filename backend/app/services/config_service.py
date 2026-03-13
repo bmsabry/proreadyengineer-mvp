@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 async def _ensure_table(db: AsyncSession) -> None:
-    """Create system_config table if it does not exist."""
+    """Create system_config table if it does not exist, and add missing columns."""
     try:
         await db.execute(text("""
             CREATE TABLE IF NOT EXISTS system_config (
@@ -26,13 +26,26 @@ async def _ensure_table(db: AsyncSession) -> None:
                 key VARCHAR(100) UNIQUE NOT NULL,
                 value TEXT,
                 is_secret BOOLEAN DEFAULT TRUE,
-                updated_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
                 updated_by INTEGER
             )
         """))
         await db.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_system_config_key ON system_config (key)"
         ))
+        # Add created_at column if it does not exist (for tables created without it)
+        await db.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name='system_config' AND column_name='created_at'
+                ) THEN
+                    ALTER TABLE system_config ADD COLUMN created_at TIMESTAMP DEFAULT NOW();
+                END IF;
+            END$$;
+        """))
         await db.commit()
     except Exception as exc:
         logger.warning(f'[CONFIG] Could not ensure system_config table: {exc}')
@@ -53,6 +66,10 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         logger.debug(f'[CONFIG] Loaded {len(db_cfg)} keys from DB')
     except Exception as exc:
         logger.warning(f'[CONFIG] DB config load failed: {exc}')
+        try:
+            await db.rollback()
+        except Exception:
+            pass
         db_cfg = {}
 
     def _get(key: str, default: str = '') -> str:
@@ -70,7 +87,7 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'OPENAI_EMBEDDING_MODEL': _get('OPENAI_EMBEDDING_MODEL', 'BAAI/bge-large-en-v1.5'),
         'STRIPE_SECRET_KEY'     : _get('STRIPE_SECRET_KEY'),
         'STRIPE_PUBLISHABLE_KEY': _get('STRIPE_PUBLISHABLE_KEY'),
-        'STRIPE_WEBHOOK_SECRET'  : _get('STRIPE_WEBHOOK_SECRET'),
+        'STRIPE_WEBHOOK_SECRET' : _get('STRIPE_WEBHOOK_SECRET'),
         'AWS_ACCESS_KEY_ID'     : _get('AWS_ACCESS_KEY_ID'),
         'AWS_SECRET_ACCESS_KEY' : _get('AWS_SECRET_ACCESS_KEY'),
         'AWS_REGION'            : _get('AWS_REGION', 'us-east-1'),
@@ -93,6 +110,10 @@ async def get_config_value(db: AsyncSession, key: str) -> Optional[str]:
             return record.value
     except Exception as exc:
         logger.debug(f'[CONFIG] DB lookup failed for {key}: {exc}')
+        try:
+            await db.rollback()
+        except Exception:
+            pass
     val = getattr(settings, key.lower(), None) or getattr(settings, key, None)
     return str(val) if val else None
 
@@ -111,6 +132,7 @@ async def save_config_values(
         if value is None:
             continue
         try:
+            # Use a fresh check after ensure_table committed
             result = await db.execute(
                 select(SystemConfig).where(SystemConfig.key == key)
             )
