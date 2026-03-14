@@ -34,7 +34,8 @@ const EMPTY_FORM: FormState = {
   signwell_api_key:'',signwell_template_id:'',
 };
 
-const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
+// Use Next.js API proxy route to avoid CORS issues
+const API_BASE = '/api';
 
 async function fetchServerConfig(): Promise<ServerConfig> {
   const res = await fetch(`${API_BASE}/admin/config`, { credentials: 'include', cache: 'no-store' });
