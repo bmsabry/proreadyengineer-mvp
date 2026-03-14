@@ -34,11 +34,12 @@ const EMPTY_FORM: FormState = {
   signwell_api_key:'',signwell_template_id:'',
 };
 
-// Direct backend URL - do NOT use proxy (proxy can't forward auth cookies from backend domain)
-const BACKEND_API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Use Next.js server-side proxy to avoid cross-domain cookie/CORS issues
+// The proxy at /api/admin/config runs server-side, reads the httpOnly cookie, and forwards to backend
+const PROXY_URL = '/api/admin/config';
 
 async function fetchServerConfig(): Promise<ServerConfig> {
-  const res = await fetch(`${BACKEND_API}/api/v1/admin/config`, {
+  const res = await fetch(PROXY_URL, {
     credentials: 'include',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
@@ -52,7 +53,7 @@ async function postServerConfig(data: Partial<FormState>): Promise<{ status: str
   for (const [k, v] of Object.entries(data)) {
     if (v && (v as string).trim()) payload[k] = (v as string).trim();
   }
-  const res = await fetch(`${BACKEND_API}/api/v1/admin/config`, {
+  const res = await fetch(PROXY_URL, {
     method: 'POST',
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
