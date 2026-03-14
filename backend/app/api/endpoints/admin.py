@@ -3,6 +3,7 @@
 import csv
 import io
 from datetime import datetime
+import httpx
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -715,3 +716,122 @@ async def save_system_config(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to save config: {exc}")
     return {"status": "saved", "keys_saved": list(config_map.keys()), "message": f"Saved {len(config_map)} key(s) successfully"}
+
+
+# --- Email Debug Endpoint ---
+
+class TestEmailRequest(_BaseModel):
+    to_email: str
+
+
+@router.post("/admin/debug/test-email")
+async def admin_debug_test_email(
+    data: TestEmailRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> dict:
+    """Admin: Send a Resend test email to verify email integration."""
+    config = await _get_runtime_config(db)
+    api_key: str = config.get("RESEND_API_KEY", "") or ""
+    api_key_present = bool(api_key)
+    api_key_prefix = api_key[:10] if len(api_key) >= 10 else api_key
+    from_address = config.get("RESEND_FROM_EMAIL", "") or "ProMechDirectory <onboarding@resend.dev>"
+
+    if not api_key_present:
+        return {
+            "success": False,
+            "message_id": None,
+            "error": "RESEND_API_KEY is not configured. Add it in Admin Configuration.",
+            "api_key_present": False,
+            "api_key_prefix": "",
+            "from_address": from_address,
+            "to_address": data.to_email,
+            "resend_status_code": None,
+        }
+
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    html_body = (
+        "<h1>Email Test Successful</h1>"
+        "<p>Resend integration is working correctly for ProMechDirectory.</p>"
+        "<p>Sent at: " + timestamp + "</p>"
+    )
+
+    payload = {
+        "from": from_address,
+        "to": [data.to_email],
+        "subject": "ProMechDirectory - Resend Test Email",
+        "html": html_body,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                "https://api.resend.com/emails",
+                json=payload,
+                headers={
+                    "Authorization": "Bearer " + api_key,
+                    "Content-Type": "application/json",
+                },
+            )
+        resend_status = response.status_code
+        if resend_status in (200, 201):
+            resp_json = response.json()
+            return {
+                "success": True,
+                "message_id": resp_json.get("id"),
+                "error": None,
+                "api_key_present": True,
+                "api_key_prefix": api_key_prefix,
+                "from_address": from_address,
+                "to_address": data.to_email,
+                "resend_status_code": resend_status,
+            }
+        else:
+            try:
+                ed = response.json()
+                error_msg = ed.get("message") or ed.get("name") or str(ed)
+            except Exception:
+                error_msg = response.text or "HTTP " + str(resend_status)
+            return {
+                "success": False,
+                "message_id": None,
+                "error": "Resend API error (" + str(resend_status) + "): " + error_msg,
+                "api_key_present": True,
+                "api_key_prefix": api_key_prefix,
+                "from_address": from_address,
+                "to_address": data.to_email,
+                "resend_status_code": resend_status,
+            }
+    except httpx.TimeoutException:
+        return {
+            "success": False,
+            "message_id": None,
+            "error": "Request to Resend API timed out after 15 seconds.",
+            "api_key_present": True,
+            "api_key_prefix": api_key_prefix,
+            "from_address": from_address,
+            "to_address": data.to_email,
+            "resend_status_code": None,
+        }
+    except httpx.RequestError as exc:
+        return {
+            "success": False,
+            "message_id": None,
+            "error": "Network error contacting Resend: " + str(exc),
+            "api_key_present": True,
+            "api_key_prefix": api_key_prefix,
+            "from_address": from_address,
+            "to_address": data.to_email,
+            "resend_status_code": None,
+        }
+    except Exception as exc:
+        return {
+            "success": False,
+            "message_id": None,
+            "error": "Unexpected error: " + str(exc),
+            "api_key_present": True,
+            "api_key_prefix": api_key_prefix,
+            "from_address": from_address,
+            "to_address": data.to_email,
+            "resend_status_code": None,
+        }

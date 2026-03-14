@@ -7,7 +7,7 @@ import { PipelineInfo } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertCircle, CheckCircle, Database, Search, RefreshCw, Activity, Zap } from "lucide-react";
+import { AlertCircle, CheckCircle, Database, Search, RefreshCw, Activity, Zap, Mail } from "lucide-react";
 
 interface DatabaseStatus {
   connection_ok: boolean;
@@ -94,6 +94,17 @@ function StatusBadge({ ok }: { ok: boolean }) {
     </span>
   );
 }
+interface TestEmailResult {
+  success: boolean;
+  message_id: string | null;
+  error: string | null;
+  api_key_present: boolean;
+  api_key_prefix: string;
+  from_address: string;
+  to_address: string;
+  resend_status_code: number | null;
+}
+
 export default function DebuggingPage() {
   const [testQuery, setTestQuery] = useState("gas turbine combustion analysis");
   const [searchLoading, setSearchLoading] = useState(false);
@@ -102,6 +113,41 @@ export default function DebuggingPage() {
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
   const [debugError, setDebugError] = useState<string | null>(null);
+
+  // Email test state
+  const [emailTo, setEmailTo] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailResult, setEmailResult] = useState<TestEmailResult | null>(null);
+
+  const sendTestEmail = async () => {
+    if (!emailTo.trim()) return;
+    setEmailLoading(true);
+    setEmailResult(null);
+    try {
+      const res = await fetch("/api/v1/admin/debug/test-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ to_email: emailTo.trim() }),
+      });
+      const data: TestEmailResult = await res.json();
+      setEmailResult(data);
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setEmailResult({
+        success: false,
+        message_id: null,
+        error: e.message ?? "Request failed",
+        api_key_present: false,
+        api_key_prefix: "",
+        from_address: "",
+        to_address: emailTo,
+        resend_status_code: null,
+      });
+    } finally {
+      setEmailLoading(false);
+    }
+  };
 
   const loadDebugInfo = useCallback(async () => {
     setDebugLoading(true);
@@ -323,6 +369,78 @@ export default function DebuggingPage() {
           </div>
         )}
       </div>
+
+      {/* ---- Email Integration (Resend) ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            📧 Email Integration (Resend)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-muted-foreground">API Key</span>
+            {emailResult ? (
+              emailResult.api_key_present ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-300">
+                  <CheckCircle className="h-3 w-3" /> Configured
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 border border-red-300">
+                  <AlertCircle className="h-3 w-3" /> Not Set
+                </span>
+              )
+            ) : (
+              <span className="text-xs text-muted-foreground italic">Send a test to check</span>
+            )}
+          </div>
+          {emailResult?.api_key_prefix && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Key Prefix</span>
+              <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">{emailResult.api_key_prefix}...</span>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Input
+              type="email"
+              value={emailTo}
+              onChange={(e) => setEmailTo(e.target.value)}
+              placeholder="Send test to email address"
+              className="flex-1"
+              onKeyDown={(e) => { if (e.key === "Enter") sendTestEmail(); }}
+            />
+            <Button onClick={sendTestEmail} disabled={emailLoading || !emailTo.trim()}>
+              <Mail className="h-4 w-4 mr-2" />
+              {emailLoading ? "Sending..." : "Send Test Email"}
+            </Button>
+          </div>
+          {emailResult?.success && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-3 space-y-1 text-sm">
+              <div className="flex items-center gap-2 text-green-700 font-medium">
+                <CheckCircle className="h-4 w-4" />
+                ✅ Email sent successfully
+              </div>
+              {emailResult.message_id && (
+                <div className="text-xs text-green-600">Message ID: {emailResult.message_id}</div>
+              )}
+              <div className="text-xs text-green-600">From: {emailResult.from_address}</div>
+              <div className="text-xs text-green-600">To: {emailResult.to_address}</div>
+            </div>
+          )}
+          {emailResult && !emailResult.success && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3 space-y-1 text-sm">
+              <div className="flex items-center gap-2 text-red-700 font-medium">
+                <AlertCircle className="h-4 w-4" />
+                ❌ Failed: {emailResult.error}
+              </div>
+              {emailResult.resend_status_code && (
+                <div className="text-xs text-red-500">HTTP Status: {emailResult.resend_status_code}</div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
