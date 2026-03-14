@@ -735,7 +735,7 @@ async def admin_debug_test_email(
     api_key: str = config.get("RESEND_API_KEY", "") or ""
     api_key_present = bool(api_key)
     api_key_prefix = api_key[:10] if len(api_key) >= 10 else api_key
-    from_address = config.get("RESEND_FROM_EMAIL", "") or "ProMechDirectory <onboarding@resend.dev>"
+    from_address = config.get("RESEND_FROM_EMAIL", "") or settings.FROM_EMAIL
 
     if not api_key_present:
         return {

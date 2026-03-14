@@ -110,6 +110,7 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'AWS_REGION'            : _get('AWS_REGION', 'us-east-1'),
         'AWS_S3_BUCKET'         : _get('AWS_S3_BUCKET'),
         'RESEND_API_KEY'        : _get('RESEND_API_KEY'),
+        'RESEND_FROM_EMAIL'     : _get('RESEND_FROM_EMAIL'),
         'SIGNREQUEST_API_KEY'   : _get('SIGNREQUEST_API_KEY'),
     }
 

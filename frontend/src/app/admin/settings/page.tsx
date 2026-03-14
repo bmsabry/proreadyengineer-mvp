@@ -14,7 +14,7 @@ interface ServerConfig {
   openai_api_base: string; openai_llm_model: string; openai_embedding_model: string;
   stripe_secret_key: string; stripe_secret_key_set: boolean; stripe_publishable_key: string;
   aws_access_key_id: string; aws_access_key_set: boolean; aws_region: string; aws_s3_bucket: string;
-  resend_api_key: string; resend_api_key_set: boolean;
+  resend_api_key: string; resend_api_key_set: boolean; resend_from_email?: string;
   signrequest_api_key: string; signrequest_api_key_set: boolean;
   source: string;
 }
@@ -22,13 +22,13 @@ interface FormState {
   openai_api_key: string; openai_api_base: string; openai_llm_model: string; openai_embedding_model: string;
   stripe_secret_key: string; stripe_publishable_key: string; stripe_webhook_secret: string;
   aws_access_key_id: string; aws_secret_access_key: string; aws_region: string; aws_s3_bucket: string;
-  resend_api_key: string; signrequest_api_key: string;
+  resend_api_key: string; resend_from_email: string; signrequest_api_key: string;
 }
 const EMPTY_FORM: FormState = {
   openai_api_key:'',openai_api_base:'',openai_llm_model:'',openai_embedding_model:'',
   stripe_secret_key:'',stripe_publishable_key:'',stripe_webhook_secret:'',
   aws_access_key_id:'',aws_secret_access_key:'',aws_region:'',aws_s3_bucket:'',
-  resend_api_key:'',signrequest_api_key:'',
+  resend_api_key:'',resend_from_email:'',signrequest_api_key:'',
 };
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
@@ -158,7 +158,7 @@ export default function AdminSettingsPage() {
         ...f,
         openai_api_key: '', stripe_secret_key: '', stripe_webhook_secret: '',
         aws_access_key_id: '', aws_secret_access_key: '',
-        resend_api_key: '', signrequest_api_key: '',
+        resend_api_key: '', resend_from_email: '', signrequest_api_key: '',
       }));
     } catch (e: any) {
       setSaveError(e.message);
@@ -323,6 +323,8 @@ export default function AdminSettingsPage() {
               </div>
               <Field id="resend_api_key" label="Resend API Key" type="password" value={form.resend_api_key}
                 onChange={set('resend_api_key')} placeholder="re_… or leave blank to keep existing" />
+              <Field id="resend_from_email" label="From Email Address" value={form.resend_from_email ?? ''}
+                onChange={set('resend_from_email')} placeholder="ProMechDirectory <info@ProMechDirectory.com>" />
             </CardContent>
           </Card>
         </TabsContent>
