@@ -378,6 +378,10 @@ const admin = {
 
   suspendUser: (id: string) =>
     apiClient.post<any>(`/admin/users/${id}/suspend`),
+  getConfig: () =>
+    apiClient.get<any>('/admin/config'),
+  saveConfig: (data: Record<string, string>) =>
+    apiClient.post<any>('/admin/config', data),
 
   resetUserSearchQuota: (userId: string) =>
     apiClient.post<any>(`/admin/users/${userId}/reset-search-quota`),
