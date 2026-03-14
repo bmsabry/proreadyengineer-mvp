@@ -381,6 +381,10 @@ const admin = {
 
   resetUserSearchQuota: (userId: string) =>
     apiClient.post<any>(`/admin/users/${userId}/reset-search-quota`),
+
+  // Debug / Testing
+  testEmail: (toEmail: string) =>
+    apiClient.post<any>('/admin/debug/test-email', { to_email: toEmail }),
 };
 
 // Webhooks (server-side only, usually)

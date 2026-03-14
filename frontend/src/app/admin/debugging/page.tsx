@@ -124,20 +124,15 @@ export default function DebuggingPage() {
     setEmailLoading(true);
     setEmailResult(null);
     try {
-      const res = await fetch("/api/v1/admin/debug/test-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ to_email: emailTo.trim() }),
-      });
-      const data: TestEmailResult = await res.json();
+      const response = await api.admin.testEmail(emailTo.trim());
+      const data: TestEmailResult = response.data;
       setEmailResult(data);
     } catch (err: unknown) {
-      const e = err as { message?: string };
+      const e = err as { message?: string; response?: { data?: { detail?: string } } };
       setEmailResult({
         success: false,
         message_id: null,
-        error: e.message ?? "Request failed",
+        error: e.response?.data?.detail ?? e.message ?? "Request failed",
         api_key_present: false,
         api_key_prefix: "",
         from_address: "",
