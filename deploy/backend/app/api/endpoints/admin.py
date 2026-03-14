@@ -651,6 +651,9 @@ class SystemConfigRequest(_BaseModel):
     aws_s3_bucket: Optional[str] = None
     resend_api_key: Optional[str] = None
     signrequest_api_key: Optional[str] = None
+    signwell_api_key: Optional[str] = None
+    signwell_template_id: Optional[str] = None
+    signwell_webhook_secret: Optional[str] = None
 
 
 def _mask(v: str) -> str:
@@ -683,6 +686,11 @@ async def get_system_config(
         "resend_api_key_set": bool(config.get("RESEND_API_KEY")),
         "signrequest_api_key": _mask(config.get("SIGNREQUEST_API_KEY", "")),
         "signrequest_api_key_set": bool(config.get("SIGNREQUEST_API_KEY")),
+        "signwell_api_key": _mask(config.get("SIGNWELL_API_KEY", "")),
+        "signwell_api_key_set": bool(config.get("SIGNWELL_API_KEY")),
+        "signwell_template_id": config.get("SIGNWELL_TEMPLATE_ID", ""),
+        "signwell_webhook_secret": _mask(config.get("SIGNWELL_WEBHOOK_SECRET", "")),
+        "signwell_webhook_secret_set": bool(config.get("SIGNWELL_WEBHOOK_SECRET")),
         "source": "db_or_env",
     }
 
@@ -707,7 +715,11 @@ async def save_system_config(
     if data.aws_region:             config_map["AWS_REGION"]             = data.aws_region
     if data.aws_s3_bucket:          config_map["AWS_S3_BUCKET"]          = data.aws_s3_bucket
     if data.resend_api_key:         config_map["RESEND_API_KEY"]         = data.resend_api_key
+    if data.resend_from_email:      config_map["RESEND_FROM_EMAIL"]      = data.resend_from_email
     if data.signrequest_api_key:    config_map["SIGNREQUEST_API_KEY"]    = data.signrequest_api_key
+    if data.signwell_api_key:       config_map["SIGNWELL_API_KEY"]       = data.signwell_api_key
+    if data.signwell_template_id:   config_map["SIGNWELL_TEMPLATE_ID"]   = data.signwell_template_id
+    if data.signwell_webhook_secret: config_map["SIGNWELL_WEBHOOK_SECRET"] = data.signwell_webhook_secret
 
     if not config_map:
         return {"status": "no_changes", "keys_saved": [], "message": "No non-empty values provided"}

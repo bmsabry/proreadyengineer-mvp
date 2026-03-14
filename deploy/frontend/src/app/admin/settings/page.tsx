@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Key, CreditCard, Mail, Database, PenTool, Check, X, Loader2, AlertCircle } from 'lucide-react';
+import { Key, CreditCard, Mail, Database, PenTool, Check, X, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 
 interface ServerConfig {
   openai_api_key: string; openai_api_key_set: boolean;
@@ -15,20 +15,24 @@ interface ServerConfig {
   stripe_secret_key: string; stripe_secret_key_set: boolean; stripe_publishable_key: string;
   aws_access_key_id: string; aws_access_key_set: boolean; aws_region: string; aws_s3_bucket: string;
   resend_api_key: string; resend_api_key_set: boolean; resend_from_email?: string;
-  signrequest_api_key: string; signrequest_api_key_set: boolean;
+  signwell_api_key: string; signwell_api_key_set: boolean;
+  signwell_template_id: string;
+  signwell_webhook_secret: string; signwell_webhook_secret_set: boolean;
   source: string;
 }
 interface FormState {
   openai_api_key: string; openai_api_base: string; openai_llm_model: string; openai_embedding_model: string;
   stripe_secret_key: string; stripe_publishable_key: string; stripe_webhook_secret: string;
   aws_access_key_id: string; aws_secret_access_key: string; aws_region: string; aws_s3_bucket: string;
-  resend_api_key: string; resend_from_email: string; signrequest_api_key: string;
+  resend_api_key: string; resend_from_email: string;
+  signwell_api_key: string; signwell_template_id: string; signwell_webhook_secret: string;
 }
 const EMPTY_FORM: FormState = {
   openai_api_key:'',openai_api_base:'',openai_llm_model:'',openai_embedding_model:'',
   stripe_secret_key:'',stripe_publishable_key:'',stripe_webhook_secret:'',
   aws_access_key_id:'',aws_secret_access_key:'',aws_region:'',aws_s3_bucket:'',
-  resend_api_key:'',resend_from_email:'',signrequest_api_key:'',
+  resend_api_key:'',resend_from_email:'',
+  signwell_api_key:'',signwell_template_id:'',signwell_webhook_secret:'',
 };
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
@@ -134,6 +138,8 @@ export default function AdminSettingsPage() {
           stripe_publishable_key: cfg.stripe_publishable_key || '',
           aws_region: cfg.aws_region || '',
           aws_s3_bucket: cfg.aws_s3_bucket || '',
+          resend_from_email: cfg.resend_from_email || '',
+          signwell_template_id: cfg.signwell_template_id || '',
         }));
         setLoadError('');
       })
@@ -158,7 +164,8 @@ export default function AdminSettingsPage() {
         ...f,
         openai_api_key: '', stripe_secret_key: '', stripe_webhook_secret: '',
         aws_access_key_id: '', aws_secret_access_key: '',
-        resend_api_key: '', resend_from_email: '', signrequest_api_key: '',
+        resend_api_key: '',
+        signwell_api_key: '', signwell_webhook_secret: '',
       }));
     } catch (e: any) {
       setSaveError(e.message);
@@ -178,7 +185,7 @@ export default function AdminSettingsPage() {
   const stripeConfigured = serverConfig?.stripe_secret_key_set   ?? false;
   const awsConfigured    = serverConfig?.aws_access_key_set      ?? false;
   const resendConfigured = serverConfig?.resend_api_key_set      ?? false;
-  const signConfigured   = serverConfig?.signrequest_api_key_set ?? false;
+  const signConfigured   = serverConfig?.signwell_api_key_set    ?? false;
   const allConfigured    = aiConfigured && stripeConfigured && awsConfigured && resendConfigured;
   const missingCount     = [aiConfigured,stripeConfigured,awsConfigured,resendConfigured,signConfigured].filter(x=>!x).length;
 
@@ -226,7 +233,7 @@ export default function AdminSettingsPage() {
           <TabsTrigger value="payments">Payments{!stripeConfigured && <span className="ml-1 text-red-500">●</span>}</TabsTrigger>
           <TabsTrigger value="email">Email{!resendConfigured && <span className="ml-1 text-red-500">●</span>}</TabsTrigger>
           <TabsTrigger value="storage">Storage{!awsConfigured && <span className="ml-1 text-red-500">●</span>}</TabsTrigger>
-          <TabsTrigger value="signing">Document Signing</TabsTrigger>
+          <TabsTrigger value="signing">Document Signing{!signConfigured && <span className="ml-1 text-amber-500">●</span>}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -256,8 +263,12 @@ export default function AdminSettingsPage() {
                 { label: 'Bucket', value: serverConfig?.aws_s3_bucket || '—' },
               ]} />
             <StatusCard title="Document Signing" icon={PenTool} configured={signConfigured}
-              description="SignRequest for NDA workflows"
-              details={[{ label: 'API Key', value: serverConfig?.signrequest_api_key || 'Not set' }]} />
+              description="Signwell for NDA embedded signing workflows"
+              details={[
+                { label: 'API Key', value: serverConfig?.signwell_api_key || 'Not set' },
+                { label: 'Template ID', value: serverConfig?.signwell_template_id || '—' },
+                { label: 'Webhook', value: serverConfig?.signwell_webhook_secret_set ? 'Set' : 'Not set' },
+              ]} />
           </div>
         </TabsContent>
 
@@ -355,16 +366,50 @@ export default function AdminSettingsPage() {
         <TabsContent value="signing" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2"><PenTool className="h-5 w-5" />Document Signing</CardTitle>
-              <CardDescription>SignRequest API for NDA embedded signing workflows.</CardDescription>
+              <CardTitle className="flex items-center gap-2"><PenTool className="h-5 w-5" />Signwell — Document Signing</CardTitle>
+              <CardDescription>Signwell API for NDA embedded signing workflows. Used when customers require an NDA before RFQ dispatch.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Current status:</span>
                 <SetBadge isSet={signConfigured} />
               </div>
-              <Field id="signrequest_api_key" label="SignRequest API Key" type="password" value={form.signrequest_api_key}
-                onChange={set('signrequest_api_key')} placeholder="Leave blank to keep existing" />
+              <div className="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-800">
+                <strong>Setup:</strong> Create a free account at{' '}
+                <a href="https://www.signwell.com" target="_blank" rel="noopener noreferrer"
+                   className="underline inline-flex items-center gap-1">
+                  signwell.com <ExternalLink className="h-3 w-3" />
+                </a>
+                , upload your NDA template, and copy the API key and Template ID here.
+              </div>
+              <Field id="signwell_api_key" label="Signwell API Key" type="password" value={form.signwell_api_key}
+                onChange={set('signwell_api_key')} placeholder="Leave blank to keep existing"
+                hint="Found in Signwell dashboard → Account → API Keys." />
+              <Field id="signwell_template_id" label="NDA Template ID" value={form.signwell_template_id}
+                onChange={set('signwell_template_id')} placeholder="e.g. abc123def456"
+                hint="The Template ID of your uploaded NDA document in Signwell." />
+              <Field id="signwell_webhook_secret" label="Webhook Secret" type="password" value={form.signwell_webhook_secret}
+                onChange={set('signwell_webhook_secret')} placeholder="Leave blank to keep existing"
+                hint="Optional. Set in Signwell dashboard → Webhooks to verify incoming events." />
+              <div className="grid grid-cols-3 gap-3 pt-2 text-xs">
+                <div className="bg-gray-50 rounded p-2 text-center">
+                  <div className="font-medium">API Key</div>
+                  <div className="mt-1"><SetBadge isSet={signConfigured} /></div>
+                </div>
+                <div className="bg-gray-50 rounded p-2 text-center">
+                  <div className="font-medium">Template ID</div>
+                  <div className="mt-1">
+                    {serverConfig?.signwell_template_id
+                      ? <Badge className="bg-green-100 text-green-800 text-xs"><Check className="h-3 w-3 mr-1 inline" />Set</Badge>
+                      : <Badge variant="secondary" className="text-xs"><X className="h-3 w-3 mr-1 inline" />Not set</Badge>
+                    }
+                  </div>
+                </div>
+                <div className="bg-gray-50 rounded p-2 text-center">
+                  <div className="font-medium">Webhook</div>
+                  <div className="mt-1"><SetBadge isSet={serverConfig?.signwell_webhook_secret_set ?? false} /></div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
