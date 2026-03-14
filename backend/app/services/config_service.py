@@ -114,7 +114,6 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'SIGNREQUEST_API_KEY'   : _get('SIGNREQUEST_API_KEY'),
         'SIGNWELL_API_KEY'      : _get('SIGNWELL_API_KEY'),
         'SIGNWELL_TEMPLATE_ID'  : _get('SIGNWELL_TEMPLATE_ID'),
-        'SIGNWELL_WEBHOOK_SECRET': _get('SIGNWELL_WEBHOOK_SECRET'),
     }
 
 

@@ -450,3 +450,189 @@ async def get_rfq_files(
     }
 
 
+
+
+# ─── NDA Endpoints ─────────────────────────────────────────────────────────────
+
+@router.post("/{rfq_id}/nda/initiate")
+async def nda_initiate(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Initiate NDA signing for customer after payment.
+
+    Creates a Signwell document from the NDA template and returns
+    the embedded signing URL for the customer iframe flow.
+    """
+    from sqlalchemy import select
+    from app.models.rfq import RFQ
+    from app.models.nda import RFQNDA
+    from app.models.enums import RfqStatus, NdaStatus
+    from app.services.nda_service import create_customer_nda
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    # Must belong to current user
+    if str(rfq.customer_user_id) != str(current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
+
+    # Must require NDA
+    if not rfq.nda_required:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="NDA not required for this RFQ")
+
+    # Check NDA payment has been completed (status must be past awaiting_nda_payment)
+    current_rfq_status = rfq.rfq_status.value if hasattr(rfq.rfq_status, "value") else str(rfq.rfq_status)
+    if current_rfq_status not in ("awaiting_customer_signature", "draft", "submitted"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"NDA cannot be initiated in RFQ status: {current_rfq_status}"
+        )
+
+    # Check no existing pending NDA
+    existing = await db.execute(
+        select(RFQNDA).where(
+            RFQNDA.rfq_id == rfq_id,
+            RFQNDA.provider_id == None,  # noqa: E711
+        )
+    )
+    existing_nda = existing.scalar_one_or_none()
+
+    if existing_nda and existing_nda.nda_status not in (
+        NdaStatus.NOT_REQUIRED, NdaStatus.FAILED, NdaStatus.CANCELLED
+    ):
+        # Return existing signing URL if still pending
+        from app.services.nda_service import get_customer_signing_url
+        signing_url = await get_customer_signing_url(rfq_id, db)
+        return {
+            "document_id": existing_nda.signrequest_document_id,
+            "signing_url": signing_url,
+            "status": existing_nda.nda_status.value if hasattr(existing_nda.nda_status, "value") else str(existing_nda.nda_status),
+            "message": "Existing NDA document found",
+        }
+
+    result = await create_customer_nda(rfq_id, current_user, db)
+    return result
+
+
+@router.get("/{rfq_id}/nda/signing-url")
+async def get_nda_signing_url(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get or refresh the embedded signing URL for the customer NDA."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQ
+    from app.services.nda_service import get_customer_signing_url
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    if str(rfq.customer_user_id) != str(current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
+
+    signing_url = await get_customer_signing_url(rfq_id, db)
+    return {"signing_url": signing_url}
+
+
+@router.get("/{rfq_id}/nda/status")
+async def get_nda_status(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get NDA status for an RFQ."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQ
+    from app.models.nda import RFQNDA
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    if str(rfq.customer_user_id) != str(current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
+
+    result = await db.execute(
+        select(RFQNDA).where(
+            RFQNDA.rfq_id == rfq_id,
+            RFQNDA.provider_id == None,  # noqa: E711
+        )
+    )
+    nda = result.scalar_one_or_none()
+
+    if not nda:
+        return {
+            "rfq_id": rfq_id,
+            "nda_required": rfq.nda_required,
+            "nda_status": None,
+            "customer_signed_at": None,
+            "fully_signed_at": None,
+            "signed_pdf_available": False,
+        }
+
+    return {
+        "rfq_id": rfq_id,
+        "nda_required": rfq.nda_required,
+        "nda_status": nda.nda_status.value if hasattr(nda.nda_status, "value") else str(nda.nda_status),
+        "document_id": nda.signrequest_document_id,
+        "customer_signed_at": nda.customer_signed_at.isoformat() if nda.customer_signed_at else None,
+        "fully_signed_at": nda.fully_signed_at.isoformat() if nda.fully_signed_at else None,
+        "signed_pdf_available": bool(nda.signed_pdf_s3_key),
+    }
+
+
+@router.post("/provider/rfqs/{rfq_id}/nda/signing-url")
+async def get_provider_nda_signing_url(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get provider NDA signing URL after RFQ unlock.
+
+    Called when a provider has paid to unlock an RFQ that requires an NDA.
+    The customer must have already signed. Creates a provider signing
+    document instance and returns the embedded signing URL.
+    """
+    from sqlalchemy import select
+    from app.models.rfq import RFQ, RFQUnlock
+    from app.models.provider import ProviderMembership
+    from app.services.nda_service import add_provider_to_nda
+
+    # Verify provider membership
+    mem_result = await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
+    )
+    membership = mem_result.scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
+
+    # Verify RFQ is unlocked by this provider
+    unlock_result = await db.execute(
+        select(RFQUnlock).where(
+            RFQUnlock.rfq_id == rfq_id,
+            RFQUnlock.provider_id == membership.provider_id,
+            RFQUnlock.unlock_status == "completed",
+        )
+    )
+    if not unlock_result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RFQ not unlocked")
+
+    # Verify RFQ exists and requires NDA
+    rfq_result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = rfq_result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    if not rfq.nda_required:
+        return {"message": "NDA not required for this RFQ", "signing_url": None}
+
+    result = await add_provider_to_nda(rfq_id, membership.provider_id, current_user, db)
+    return result

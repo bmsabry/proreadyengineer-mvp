@@ -17,7 +17,6 @@ interface ServerConfig {
   resend_api_key: string; resend_api_key_set: boolean; resend_from_email?: string;
   signwell_api_key: string; signwell_api_key_set: boolean;
   signwell_template_id: string;
-  signwell_webhook_secret: string; signwell_webhook_secret_set: boolean;
   source: string;
 }
 interface FormState {
@@ -25,14 +24,14 @@ interface FormState {
   stripe_secret_key: string; stripe_publishable_key: string; stripe_webhook_secret: string;
   aws_access_key_id: string; aws_secret_access_key: string; aws_region: string; aws_s3_bucket: string;
   resend_api_key: string; resend_from_email: string;
-  signwell_api_key: string; signwell_template_id: string; signwell_webhook_secret: string;
+  signwell_api_key: string; signwell_template_id: string;
 }
 const EMPTY_FORM: FormState = {
   openai_api_key:'',openai_api_base:'',openai_llm_model:'',openai_embedding_model:'',
   stripe_secret_key:'',stripe_publishable_key:'',stripe_webhook_secret:'',
   aws_access_key_id:'',aws_secret_access_key:'',aws_region:'',aws_s3_bucket:'',
   resend_api_key:'',resend_from_email:'',
-  signwell_api_key:'',signwell_template_id:'',signwell_webhook_secret:'',
+  signwell_api_key:'',signwell_template_id:'',
 };
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
@@ -165,7 +164,7 @@ export default function AdminSettingsPage() {
         openai_api_key: '', stripe_secret_key: '', stripe_webhook_secret: '',
         aws_access_key_id: '', aws_secret_access_key: '',
         resend_api_key: '',
-        signwell_api_key: '', signwell_webhook_secret: '',
+        signwell_api_key: '',
       }));
     } catch (e: any) {
       setSaveError(e.message);
@@ -267,7 +266,7 @@ export default function AdminSettingsPage() {
               details={[
                 { label: 'API Key', value: serverConfig?.signwell_api_key || 'Not set' },
                 { label: 'Template ID', value: serverConfig?.signwell_template_id || '—' },
-                { label: 'Webhook', value: serverConfig?.signwell_webhook_secret_set ? 'Set' : 'Not set' },
+                { label: 'Callback URL', value: 'Configured in Signwell workspace' },
               ]} />
           </div>
         </TabsContent>
@@ -388,9 +387,15 @@ export default function AdminSettingsPage() {
               <Field id="signwell_template_id" label="NDA Template ID" value={form.signwell_template_id}
                 onChange={set('signwell_template_id')} placeholder="e.g. abc123def456"
                 hint="The Template ID of your uploaded NDA document in Signwell." />
-              <Field id="signwell_webhook_secret" label="Webhook Secret" type="password" value={form.signwell_webhook_secret}
-                onChange={set('signwell_webhook_secret')} placeholder="Leave blank to keep existing"
-                hint="Optional. Set in Signwell dashboard → Webhooks to verify incoming events." />
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Workspace Callback URL</label>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 rounded bg-muted px-3 py-2 text-xs font-mono break-all">
+                    {`${process.env.NEXT_PUBLIC_API_BASE_URL || ''}/api/v1/webhooks/signwell`}
+                  </code>
+                </div>
+                <p className="text-xs text-muted-foreground">Add this URL to your Signwell workspace settings under &ldquo;Workspace Callback URL&rdquo;. Listens for <code>document_completed</code> and <code>document_signer_completed</code> events.</p>
+              </div>
               <div className="grid grid-cols-3 gap-3 pt-2 text-xs">
                 <div className="bg-gray-50 rounded p-2 text-center">
                   <div className="font-medium">API Key</div>
@@ -407,7 +412,7 @@ export default function AdminSettingsPage() {
                 </div>
                 <div className="bg-gray-50 rounded p-2 text-center">
                   <div className="font-medium">Webhook</div>
-                  <div className="mt-1"><SetBadge isSet={serverConfig?.signwell_webhook_secret_set ?? false} /></div>
+                  <div className="mt-1 text-xs text-muted-foreground">See Callback URL above</div>
                 </div>
               </div>
             </CardContent>

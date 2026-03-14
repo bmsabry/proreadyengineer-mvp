@@ -66,45 +66,37 @@ async def paypal_webhook(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-@router.post("/webhooks/signrequest")
-async def signrequest_webhook(
+@router.post("/webhooks/signwell")
+async def signwell_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle SignRequest signature completion webhooks."""
-    from sqlalchemy import select
-    from app.models.nda import RFQNDA
-    from app.services.file_service import generate_upload_url
-    import httpx
+    """Handle Signwell document signing webhooks.
 
-    payload = await request.json()
+    Signwell uses a single workspace callback URL (no per-document secrets).
+    Events: document_signer_completed, document_completed.
+    """
+    import logging
+    _log = logging.getLogger(__name__)
 
-    # Extract document info
-    document_id = payload.get("document", {}).get("uuid")
-    status = payload.get("document", {}).get("status")
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
 
-    if status == "signed":
-        # Find NDA
-        result = await db.execute(
-            select(RFQNDA).where(RFQNDA.signrequest_document_id == document_id)
-        )
-        nda = result.scalar_one_or_none()
+    event_type = (
+        payload.get("event_type")
+        or payload.get("type")
+        or payload.get("data", {}).get("event_type")
+        or ""
+    )
+    _log.info("Signwell webhook received: event_type=%s", event_type)
 
-        if nda:
-            nda.nda_status = "fully_signed"
-            nda.fully_signed_at = datetime.utcnow()
+    try:
+        from app.services.nda_service import handle_signwell_webhook
+        await handle_signwell_webhook(event_type, payload, db)
+    except Exception as exc:
+        _log.error("Error processing Signwell webhook: %s", exc)
+        # Return 200 so Signwell does not retry indefinitely
 
-            # Fetch signed PDF (async)
-            async with httpx.AsyncClient() as client:
-                pdf_response = await client.get(
-                    f"https://signrequest.com/api/v1/documents/{document_id}/download",
-                    headers={"Authorization": f"Token {settings.SIGNREQUEST_API_KEY}"}
-                )
-                # Upload to S3
-                key = f"ndas/{nda.rfq_id}/{document_id}.pdf"
-                # ... upload logic
-                nda.signed_pdf_s3_key = key
-
-            await db.commit()
-
-    return {"status": "processed"}
+    return {"status": "received"}
