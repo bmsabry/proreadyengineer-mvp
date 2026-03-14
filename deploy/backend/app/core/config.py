@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     PROJECT_NAME: str = "ProReadyEngineer API"
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3000")
-    FROM_EMAIL: str = os.getenv("FROM_EMAIL", "info@ProMechDirectory.com")
+    FROM_EMAIL: str = os.getenv("FROM_EMAIL", "info@promechdirectory.com")
     VERSION: str = "0.1.0"
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str = "change-me-in-production"
@@ -72,7 +72,7 @@ class Settings(BaseSettings):
     EMAIL_PROVIDER: str = "resend"
     RESEND_API_KEY: Optional[str] = None
     SENDGRID_API_KEY: Optional[str] = None
-    EMAIL_FROM: str = "info@ProMechDirectory.com"
+    EMAIL_FROM: str = "info@promechdirectory.com"
     EMAIL_FROM_NAME: str = "ProMechDirectory"
 
     # OpenAI
