@@ -34,11 +34,15 @@ const EMPTY_FORM: FormState = {
   signwell_api_key:'',signwell_template_id:'',
 };
 
-// Use Next.js API proxy route to avoid CORS issues
-const API_BASE = '/api';
+// Direct backend URL - do NOT use proxy (proxy can't forward auth cookies from backend domain)
+const BACKEND_API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 async function fetchServerConfig(): Promise<ServerConfig> {
-  const res = await fetch(`${API_BASE}/admin/config`, { credentials: 'include', cache: 'no-store' });
+  const res = await fetch(`${BACKEND_API}/api/v1/admin/config`, {
+    credentials: 'include',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+  });
   if (!res.ok) throw new Error(`Failed to load config: ${res.status}`);
   return res.json();
 }
@@ -48,8 +52,9 @@ async function postServerConfig(data: Partial<FormState>): Promise<{ status: str
   for (const [k, v] of Object.entries(data)) {
     if (v && (v as string).trim()) payload[k] = (v as string).trim();
   }
-  const res = await fetch(`${API_BASE}/admin/config`, {
-    method: 'POST', credentials: 'include',
+  const res = await fetch(`${BACKEND_API}/api/v1/admin/config`, {
+    method: 'POST',
+    credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
