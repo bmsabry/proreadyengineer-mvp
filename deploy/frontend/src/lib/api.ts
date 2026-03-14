@@ -385,6 +385,8 @@ const admin = {
   // Debug / Testing
   testEmail: (toEmail: string) =>
     apiClient.post<any>('/admin/debug/test-email', { to_email: toEmail }),
+  checkResendDomains: () =>
+    apiClient.get<any>('/admin/debug/resend-domains'),
 };
 
 // Webhooks (server-side only, usually)

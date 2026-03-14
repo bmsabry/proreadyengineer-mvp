@@ -105,6 +105,17 @@ interface TestEmailResult {
   resend_status_code: number | null;
 }
 
+
+interface ResendDomainResult {
+  success: boolean;
+  error: string | null;
+  domains: Array<{ name: string; status: string; region: string }>;
+  configured_domain: string;
+  from_address: string;
+  domain_verified: boolean;
+  tip: string | null;
+}
+
 export default function DebuggingPage() {
   const [testQuery, setTestQuery] = useState("gas turbine combustion analysis");
   const [searchLoading, setSearchLoading] = useState(false);
@@ -118,6 +129,31 @@ export default function DebuggingPage() {
   const [emailTo, setEmailTo] = useState('');
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailResult, setEmailResult] = useState<TestEmailResult | null>(null);
+
+  const [domainCheckLoading, setDomainCheckLoading] = useState(false);
+  const [domainCheckResult, setDomainCheckResult] = useState<ResendDomainResult | null>(null);
+
+  const checkResendDomain = async () => {
+    setDomainCheckLoading(true);
+    setDomainCheckResult(null);
+    try {
+      const response = await api.admin.checkResendDomains();
+      setDomainCheckResult(response.data as ResendDomainResult);
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setDomainCheckResult({
+        success: false,
+        error: e.message ?? 'Request failed',
+        domains: [],
+        configured_domain: '',
+        from_address: '',
+        domain_verified: false,
+        tip: null,
+      });
+    } finally {
+      setDomainCheckLoading(false);
+    }
+  };
 
   const sendTestEmail = async () => {
     if (!emailTo.trim()) return;
@@ -432,6 +468,65 @@ export default function DebuggingPage() {
               {emailResult.resend_status_code && (
                 <div className="text-xs text-red-500">HTTP Status: {emailResult.resend_status_code}</div>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---- Resend Domain Verification Check ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>🔍</span> Resend Domain Verification
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-gray-600">
+            Check which domains are verified under the currently configured Resend API key.
+            If your domain is missing, add it at{' '}
+            <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="text-blue-600 underline">resend.com/domains</a>.
+          </p>
+          <Button onClick={checkResendDomain} disabled={domainCheckLoading} size="sm">
+            {domainCheckLoading ? 'Checking...' : '🔍 Check Domain Verification'}
+          </Button>
+          {domainCheckResult && (
+            <div className={`rounded-md border p-3 text-sm ${domainCheckResult.domain_verified ? 'bg-green-50 border-green-300' : 'bg-red-50 border-red-300'}`}>
+              <div className="font-semibold mb-2">
+                {domainCheckResult.domain_verified
+                  ? <span>&#x2705; Domain <strong>{domainCheckResult.configured_domain}</strong> is VERIFIED in Resend</span>
+                  : <span>&#x274c; Domain <strong>{domainCheckResult.configured_domain}</strong> is NOT verified in this Resend account</span>
+                }
+              </div>
+              {domainCheckResult.error && (
+                <div className="text-red-700 mb-2">Error: {domainCheckResult.error}</div>
+              )}
+              {domainCheckResult.tip && (
+                <div className="text-orange-700 mb-2 p-2 bg-orange-50 rounded border border-orange-200">
+                  💡 {domainCheckResult.tip}
+                </div>
+              )}
+              {domainCheckResult.domains.length > 0 ? (
+                <div>
+                  <div className="font-medium mb-1">Domains in this Resend account:</div>
+                  <ul className="space-y-1">
+                    {domainCheckResult.domains.map((d) => (
+                      <li key={d.name} className="flex items-center gap-2">
+                        <span className={d.status === 'verified' ? 'text-green-600' : 'text-red-600'}>
+                          {d.status === 'verified' ? '✅' : '⚠️'}
+                        </span>
+                        <span className="font-mono text-xs">{d.name}</span>
+                        <span className="text-xs text-gray-500">({d.status})</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : domainCheckResult.success ? (
+                <div className="text-gray-600">
+                  No domains found. Go to{' '}
+                  <a href="https://resend.com/domains" target="_blank" rel="noreferrer" className="text-blue-600 underline">resend.com/domains</a>{' '}
+                  and add <strong>{domainCheckResult.configured_domain}</strong>.
+                </div>
+              ) : null}
             </div>
           )}
         </CardContent>

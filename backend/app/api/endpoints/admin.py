@@ -835,3 +835,109 @@ async def admin_debug_test_email(
             "to_address": data.to_email,
             "resend_status_code": None,
         }
+
+
+# --- Resend Domain Check Endpoint ---
+
+@router.get("/admin/debug/resend-domains")
+async def admin_check_resend_domains(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> dict:
+    """Admin: Check which domains are verified in the Resend account for the configured API key."""
+    config = await _get_runtime_config(db)
+    api_key: str = config.get("RESEND_API_KEY", "") or ""
+    from_address = config.get("RESEND_FROM_EMAIL", "") or settings.FROM_EMAIL
+
+    if not api_key:
+        return {
+            "success": False,
+            "error": "RESEND_API_KEY is not configured.",
+            "domains": [],
+            "from_address": from_address,
+            "configured_domain": "",
+            "domain_verified": False,
+            "tip": "Add your Resend API key in Admin Settings > Email tab.",
+        }
+
+    configured_domain = from_address.split("@")[1].lower() if "@" in from_address else ""
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                "https://api.resend.com/domains",
+                headers={
+                    "Authorization": "Bearer " + api_key,
+                    "Content-Type": "application/json",
+                },
+            )
+        if response.status_code == 200:
+            data = response.json()
+            domains = data.get("data", [])
+            domain_statuses = {d.get("name", "").lower(): d.get("status", "unknown") for d in domains}
+            domain_verified = (
+                configured_domain in domain_statuses
+                and domain_statuses.get(configured_domain) == "verified"
+            )
+            tip = None
+            if not domain_verified:
+                if configured_domain in domain_statuses:
+                    tip = (
+                        "Domain '{}' is in your Resend account but status is '{}'. ".format(
+                            configured_domain, domain_statuses.get(configured_domain)
+                        )
+                        + "Check DNS records at https://resend.com/domains"
+                    )
+                else:
+                    tip = (
+                        "Domain '{}' is NOT in this Resend account. ".format(configured_domain)
+                        + "Go to https://resend.com/domains, click 'Add Domain', enter '{}', ".format(configured_domain)
+                        + "add the provided DNS records to Cloudflare, then verify. "
+                        + "Make sure you are using the API key from the same Resend workspace."
+                    )
+            return {
+                "success": True,
+                "error": None,
+                "domains": [
+                    {"name": d.get("name"), "status": d.get("status"), "region": d.get("region")}
+                    for d in domains
+                ],
+                "configured_domain": configured_domain,
+                "from_address": from_address,
+                "domain_verified": domain_verified,
+                "tip": tip,
+            }
+        elif response.status_code == 401:
+            return {
+                "success": False,
+                "error": "Invalid Resend API key (401 Unauthorized). Go to https://resend.com/api-keys to get a valid key.",
+                "domains": [],
+                "configured_domain": configured_domain,
+                "from_address": from_address,
+                "domain_verified": False,
+                "tip": "The API key stored in Admin Settings is invalid or revoked.",
+            }
+        else:
+            try:
+                err = response.json().get("message", response.text)
+            except Exception:
+                err = response.text
+            return {
+                "success": False,
+                "error": "Resend API error ({}): {}".format(response.status_code, err),
+                "domains": [],
+                "configured_domain": configured_domain,
+                "from_address": from_address,
+                "domain_verified": False,
+                "tip": None,
+            }
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": "Error contacting Resend: " + str(exc),
+            "domains": [],
+            "configured_domain": configured_domain,
+            "from_address": from_address,
+            "domain_verified": False,
+            "tip": None,
+        }
