@@ -219,7 +219,7 @@ async def create_customer_nda(
     last  = (customer_user.last_name  or "").strip()
     customer_name    = f"{first} {last}".strip() or customer_user.email
     customer_company = getattr(rfq, "business_name", None) or customer_name
-    effective_date   = datetime.utcnow().strftime("%m/%d/%Y")
+    effective_date   = datetime.utcnow().strftime("%Y-%m-%d")
 
     # Fetch actual placeholder names from template (must match exactly)
     customer_placeholder_name, _provider_placeholder_name = await _fetch_template_placeholder_ids(db)
@@ -333,7 +333,7 @@ async def add_provider_to_nda(
 
     customer_company  = getattr(rfq, "business_name", None) or customer_name
     dt = customer_nda.customer_signed_at or datetime.utcnow()
-    effective_date    = dt.strftime("%m/%d/%Y")
+    effective_date    = dt.strftime("%Y-%m-%d")
 
     provider_name     = getattr(provider, "name", None) or getattr(provider, "firm_name", None) or "Provider"
     provider_company  = provider_name
