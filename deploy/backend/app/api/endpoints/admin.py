@@ -1058,61 +1058,93 @@ async def admin_debug_test_signwell_connection(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role(["admin"])),
 ):
-    """Admin: Test Signwell API key validity by listing templates."""
-    import httpx
-    from app.services.config_service import get_config_value
-    from app.services.nda_service import SIGNWELL_BASE_URL
-
+    """Admin: Test Signwell API key validity by listing document templates."""
+    # ALL imports inside try/except to prevent 500s without CORS headers
     try:
+        import httpx
+        from app.services.config_service import get_config_value
+
+        SIGNWELL_BASE = "https://www.signwell.com/api/v1"
+
         api_key = await get_config_value(db, "SIGNWELL_API_KEY")
-        if not api_key:
-            return {"success": False, "error": "Signwell API key not configured in Admin > Settings > Document Signing"}
+        if not api_key or not api_key.strip():
+            return {
+                "success": False,
+                "error": "Signwell API key not configured.",
+                "hint": "Go to Admin > Settings > Document Signing and save your Signwell API key.",
+            }
 
         api_key = api_key.strip()
         key_preview = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
 
-        # Try to list templates - lightweight read-only endpoint
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{SIGNWELL_BASE_URL}/templates",
-                headers={
-                    "X-Api-Token": api_key,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                }
-            )
+        # Try /document_templates - the correct Signwell v1 read-only endpoint
+        endpoints_to_try = [
+            ("/document_templates", "document templates"),
+            ("/templates", "templates"),
+        ]
 
-        if resp.status_code == 200:
-            data = resp.json()
-            templates = data if isinstance(data, list) else data.get("data", data)
-            template_ids = [t.get("id") for t in (templates if isinstance(templates, list) else [])][:5]
-            return {
-                "success": True,
-                "message": "Signwell API key is valid!",
-                "key_preview": key_preview,
-                "key_length": len(api_key),
-                "templates_found": len(template_ids),
-                "template_ids": template_ids,
-            }
-        elif resp.status_code == 401:
-            return {
-                "success": False,
-                "error": "API key is invalid or expired - Signwell returned 401 Unauthorized",
-                "key_preview": key_preview,
-                "key_length": len(api_key),
-                "hint": "Please copy your API key fresh from Signwell dashboard > Account > API Keys",
-                "raw_response": resp.text[:300],
-            }
-        else:
-            return {
-                "success": False,
-                "error": f"Unexpected response from Signwell: {resp.status_code}",
-                "key_preview": key_preview,
-                "raw_response": resp.text[:300],
-            }
+        last_status = None
+        last_body = ""
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for path, label in endpoints_to_try:
+                try:
+                    resp = await client.get(
+                        f"{SIGNWELL_BASE}{path}",
+                        headers={
+                            "X-Api-Token": api_key,
+                            "Content-Type": "application/json",
+                            "Accept": "application/json",
+                        },
+                    )
+                    last_status = resp.status_code
+                    last_body = resp.text[:500]
+
+                    if resp.status_code == 200:
+                        try:
+                            data = resp.json()
+                        except Exception:
+                            data = {}
+                        items = data if isinstance(data, list) else data.get("data", [])
+                        item_ids = [str(t.get("id", "")) for t in (items if isinstance(items, list) else [])][:5]
+                        return {
+                            "success": True,
+                            "message": f"Signwell API key is valid! ({label} endpoint responded 200)",
+                            "key_preview": key_preview,
+                            "key_length": len(api_key),
+                            "endpoint_used": path,
+                            "items_found": len(item_ids),
+                            "item_ids": item_ids,
+                        }
+                    elif resp.status_code == 401:
+                        return {
+                            "success": False,
+                            "error": "API key is invalid or expired (401 Unauthorized from Signwell)",
+                            "key_preview": key_preview,
+                            "key_length": len(api_key),
+                            "hint": "Copy your API key fresh from Signwell dashboard: Account > API Keys",
+                            "raw_response": last_body,
+                        }
+                    # 404 = endpoint not found, try next
+                except httpx.RequestError as req_err:
+                    return {"success": False, "error": f"Network error calling Signwell: {req_err}"}
+
+        # None of the endpoints returned 200
+        return {
+            "success": False,
+            "error": f"Signwell API returned HTTP {last_status} on all tested endpoints",
+            "key_preview": key_preview,
+            "raw_response": last_body,
+            "hint": "If status is 404, the API endpoint path may have changed. If 403, check key permissions.",
+        }
 
     except Exception as exc:
-        return {"success": False, "error": str(exc)}
+        import traceback
+        return {
+            "success": False,
+            "error": str(exc),
+            "detail": traceback.format_exc()[-800:],
+        }
 
 
 # Admin Debug - Signwell NDA End-to-End Test
