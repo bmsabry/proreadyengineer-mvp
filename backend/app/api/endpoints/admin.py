@@ -1252,14 +1252,17 @@ async def admin_debug_test_nda(
     # Step 2: Build template_fields for pre-filling text values
     template_fields = [
         {"api_id": "customer_name",        "value": data.customer_name},
-        {"api_id": "customer_company",     "value": data.customer_name},
+        {"api_id": "customer_name2",       "value": data.customer_name},
+        {"api_id": "customer_company",     "value": getattr(data, 'customer_company', None) or data.customer_name},
         {"api_id": "customer_entity_type", "value": "Individual"},
         {"api_id": "provider_name",        "value": data.provider_name},
         {"api_id": "provider_name2",       "value": data.provider_name},
-        {"api_id": "provider_company",     "value": data.provider_name},
+        {"api_id": "provider_company",     "value": getattr(data, 'provider_company', None) or data.provider_name},
         {"api_id": "provider_entity_type", "value": "Company"},
-        {"api_id": "effective_date",        "value": effective_date},
-        {"api_id": "governing_state",       "value": "Ohio"},
+        {"api_id": "effective_date",       "value": effective_date},
+        {"api_id": "governing_state",      "value": "Ohio"},
+        {"api_id": "customer_signature",   "value": ""},
+        {"api_id": "provider_signature",   "value": ""},
     ]
 
     # Step 3: Build payload using CORRECT Signwell API structure per official SDK
