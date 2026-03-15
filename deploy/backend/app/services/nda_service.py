@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import httpx
-from datetime import datetime
+import json
+import logging
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -12,6 +14,8 @@ from app.models.user import User
 from app.models.provider import Provider
 from app.models.rfq import RFQ
 from app.models.nda import RFQNDA
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Signwell API constants
@@ -26,17 +30,14 @@ SIGNWELL_BASE_URL = "https://www.signwell.com/api/v1"
 async def _headers(db: AsyncSession) -> dict:
     """Return Signwell API auth headers, reading key from DB config."""
     from app.services.config_service import get_config_value
-    import logging
-    _log = logging.getLogger(__name__)
     api_key = await get_config_value(db, "SIGNWELL_API_KEY")
     if not api_key:
         raise ValueError(
             "Signwell API key not configured. "
             "Go to Admin > Settings > Document Signing to add it."
         )
-    # Strip whitespace/newlines that may have been added during paste
     api_key = api_key.strip()
-    _log.info(f"[SIGNWELL] Using API key: length={len(api_key)}, prefix={api_key[:8]}...")
+    logger.info("[SIGNWELL] Using API key: length=%d, prefix=%s...", len(api_key), api_key[:8])
     return {
         "X-Api-Key": api_key,
         "Content-Type": "application/json",
@@ -58,7 +59,7 @@ async def _get_template_id(db: AsyncSession) -> str:
 
 def _extract_signing_url(doc: dict) -> Optional[str]:
     """Extract the first available signing URL from a Signwell document dict."""
-    for signer in (doc.get("signees") or doc.get("signers") or []):
+    for signer in (doc.get("recipients") or doc.get("signees") or doc.get("signers") or []):
         url = signer.get("sign_page_url") or signer.get("embedded_signing_url")
         if url:
             return url
@@ -72,16 +73,12 @@ def _human_date(dt: Optional[datetime]) -> str:
     return dt.strftime("%B %d, %Y")
 
 
-async def _get_template_signing_elements(db: AsyncSession) -> list:
-    """Fetch Signwell template and return its signing_elements.
+async def _fetch_template_placeholder_ids(db: AsyncSession) -> tuple:
+    """Fetch Signwell template and return (customer_placeholder_id, provider_placeholder_id).
 
-    ROOT CAUSE FIX: Signwell API REQUIRES signing_elements in payload.
-    - Empty [] => 500 (overrides template elements with nothing)
-    - Missing entirely => 400 ('signing_elements must be present')
-    - CORRECT: pass the ACTUAL elements from the template.
+    The template has placeholder signers (roles) like "Customer" and "Provider".
+    We need their IDs to map recipients correctly.
     """
-    import logging
-    _log = logging.getLogger(__name__)
     h = await _headers(db)
     tid = await _get_template_id(db)
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -90,22 +87,37 @@ async def _get_template_signing_elements(db: AsyncSession) -> list:
         )
         resp.raise_for_status()
     tmpl = resp.json()
-    _log.info("[SIGNWELL] Template keys: %s", list(tmpl.keys()))
-    elements = (
-        tmpl.get("signing_elements")
-        or tmpl.get("fields")
-        or tmpl.get("form_fields")
-        or tmpl.get("elements")
+    logger.info("[SIGNWELL] Template keys: %s", list(tmpl.keys()))
+
+    # Extract template placeholders (signers/roles)
+    tmpl_placeholders = (
+        tmpl.get("placeholder_signers")
+        or tmpl.get("template_signers")
+        or tmpl.get("placeholders")
+        or tmpl.get("roles")
+        or tmpl.get("recipients")
         or []
     )
-    _log.info("[SIGNWELL] Found %d signing_elements", len(elements))
-    if not elements:
-        _log.error("[SIGNWELL] No signing_elements! Keys: %s", list(tmpl.keys()))
-        for k, v in tmpl.items():
-            if isinstance(v, (list, dict)) and v:
-                _log.info("  tmpl['%s'] type=%s len=%s", k, type(v).__name__,
-                          len(v) if isinstance(v, list) else "dict")
-    return elements
+    logger.info(
+        "[SIGNWELL] Template placeholders (%d): %s",
+        len(tmpl_placeholders),
+        json.dumps(tmpl_placeholders, default=str)[:500],
+    )
+
+    # First placeholder is Customer, second is Provider
+    if len(tmpl_placeholders) >= 2:
+        customer_id = str(tmpl_placeholders[0].get("id", "1"))
+        provider_id = str(tmpl_placeholders[1].get("id", "2"))
+    elif len(tmpl_placeholders) == 1:
+        customer_id = str(tmpl_placeholders[0].get("id", "1"))
+        provider_id = "2"
+    else:
+        logger.warning("[SIGNWELL] No template placeholders found! Using fallback IDs.")
+        customer_id = "1"
+        provider_id = "2"
+
+    logger.info("[SIGNWELL] Placeholder IDs: customer=%s, provider=%s", customer_id, provider_id)
+    return customer_id, provider_id
 
 
 async def get_customer_signing_url(rfq_id, db: AsyncSession) -> str:
@@ -128,8 +140,6 @@ async def get_customer_signing_url(rfq_id, db: AsyncSession) -> str:
         raise ValueError(f"No signing URL in Signwell doc {nda.signrequest_document_id}")
     return url
 
-
-
 async def create_customer_nda(
     rfq_id,
     customer_user: User,
@@ -137,8 +147,8 @@ async def create_customer_nda(
     db: AsyncSession,
 ) -> dict:
     """Create a customer-side NDA document with embedded signing flow.
-    Fetches the template to get actual signer IDs, pre-fills text fields,
-    and returns {document_id, signing_url}.
+    Fetches the template to get placeholder IDs, pre-fills text fields
+    using template_fields, and returns {document_id, signing_url}.
     """
     h   = await _headers(db)
     tid = await _get_template_id(db)
@@ -150,43 +160,34 @@ async def create_customer_nda(
     customer_company = getattr(rfq, "business_name", None) or customer_name
     effective_date   = _human_date(datetime.utcnow())
 
-    # Use simple unique id for signee (Signwell requires id field, any unique string works)
-    customer_signer_id = "1"
+    # Fetch template placeholder IDs
+    customer_placeholder_id, _provider_placeholder_id = await _fetch_template_placeholder_ids(db)
 
-    def _is_signature_field(api_id: str) -> bool:
-        return any(t in api_id.lower() for t in ("signature", "initials", "stamp"))
-
-    field_values = {
-        "customer_name":        customer_name,
-        "customer_name2":       customer_name,
-        "customer_company":     customer_company,
-        "customer_entity_type": "Individual",
-        "effective_date":       effective_date,
-        "governing_state":      "Ohio",
-    }
-    prefill_fields = [
-        {"api_id": api_id, "value": value}
-        for api_id, value in field_values.items()
-        if not _is_signature_field(api_id)
+    # Build template_fields to pre-fill values (NOT signing_elements)
+    template_fields = [
+        {"api_id": "customer_name", "value": customer_name},
+        {"api_id": "customer_company", "value": customer_company},
+        {"api_id": "customer_entity_type", "value": "Individual"},
+        {"api_id": "effective_date", "value": effective_date},
+        {"api_id": "governing_state", "value": "Ohio"},
     ]
 
-    # Fetch signing_elements from template (REQUIRED by Signwell API)
-    signing_elements = await _get_template_signing_elements(db)
-
-    # Build payload with signing_elements from template
+    # CORRECT Signwell format: "recipients" not "signees", "template_fields" not "signing_elements"
     payload = {
         "test_mode": False,
-        "subject":   f"NDA for Engineering RFQ #{rfq_id}",
-        "message":   "Please review and sign the Non-Disclosure Agreement to proceed with your RFQ.",
-        "signees": [{
-            "id":               customer_signer_id,
+        "subject": f"NDA for Engineering RFQ #{rfq_id}",
+        "message": "Please review and sign the Non-Disclosure Agreement to proceed with your RFQ.",
+        "recipients": [{
+            "id":               customer_placeholder_id,
             "name":             customer_name,
             "email":            customer_user.email,
             "send_email":       False,
             "embedded_signing": True,
         }],
-        "signing_elements": signing_elements,
+        "template_fields": template_fields,
     }
+
+    logger.info("[SIGNWELL] create_customer_nda payload: %s", json.dumps(payload, default=str)[:1000])
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
@@ -227,7 +228,7 @@ async def add_provider_to_nda(
     db: AsyncSession,
 ) -> dict:
     """Create provider-side NDA document after customer has signed.
-    Pre-fills customer fields, adds provider fields.
+    Pre-fills customer fields, adds provider fields using template_fields.
     Returns {document_id, signing_url}."""
     h   = await _headers(db)
     tid = await _get_template_id(db)
@@ -275,50 +276,39 @@ async def add_provider_to_nda(
     prov_last  = (provider_user.last_name  or "").strip()
     prov_signer_name = f"{prov_first} {prov_last}".strip() or provider_user.email
 
-    # Use simple unique id for signee (Signwell requires id field, any unique string works)
-    provider_signer_id = "1"
+    # Fetch template placeholder IDs
+    _customer_placeholder_id, provider_placeholder_id = await _fetch_template_placeholder_ids(db)
 
-    def _is_signature_field(api_id: str) -> bool:
-        return any(t in api_id.lower() for t in ("signature", "initials", "stamp"))
-
-    # Build pre-fill fields — skip signature/initials/stamp (cannot be pre-filled)
-    field_values = {
-        "customer_name":        customer_name,
-        "customer_name2":       customer_name,
-        "customer_company":     customer_company,
-        "customer_entity_type": "Individual",
-        "effective_date":       effective_date,
-        "governing_state":      "Ohio",
-        "provider_name":        prov_signer_name,
-        "provider_name2":       prov_signer_name,
-        "provider_company":     provider_company,
-        "provider_entity_type": "Company",
-    }
-    prefill_fields = [
-        {"api_id": api_id, "value": value}
-        for api_id, value in field_values.items()
-        if not _is_signature_field(api_id)
+    # Build template_fields to pre-fill ALL text values (NOT signing_elements)
+    template_fields = [
+        {"api_id": "customer_name", "value": customer_name},
+        {"api_id": "customer_company", "value": customer_company},
+        {"api_id": "customer_entity_type", "value": "Individual"},
+        {"api_id": "effective_date", "value": effective_date},
+        {"api_id": "governing_state", "value": "Ohio"},
+        {"api_id": "provider_name", "value": prov_signer_name},
+        {"api_id": "provider_name2", "value": prov_signer_name},
+        {"api_id": "provider_company", "value": provider_company},
+        {"api_id": "provider_entity_type", "value": "Company"},
     ]
 
-    # Fetch signing_elements from template (REQUIRED by Signwell API)
-    signing_elements = await _get_template_signing_elements(db)
-
-    # Step 2: Build payload with signing_elements from template
+    # CORRECT Signwell format: "recipients" not "signees", "template_fields" not "signing_elements"
     payload = {
         "test_mode":   False,
         "subject":     f"NDA for Engineering RFQ #{rfq_id} - Provider Copy",
         "message":     "Please review and sign the NDA to access the full RFQ details.",
-        "signees": [{
-            "id":               provider_signer_id,
+        "recipients": [{
+            "id":               provider_placeholder_id,
             "name":             prov_signer_name,
             "email":            provider_user.email,
             "send_email":       False,
             "embedded_signing": True,
         }],
-        "signing_elements": signing_elements,
+        "template_fields": template_fields,
     }
 
-    # Step 3: POST to correct endpoint — template_id in URL
+    logger.info("[SIGNWELL] add_provider_to_nda payload: %s", json.dumps(payload, default=str)[:1000])
+
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
             f"{SIGNWELL_BASE_URL}/document_templates/{tid}/documents",
@@ -345,13 +335,12 @@ async def add_provider_to_nda(
         customer_user_id=customer_nda.customer_user_id,
         signrequest_document_id=document_id,
         signrequest_template_id=tid,
-        nda_status=NdaStatus.PROVIDER_SIGNATURE_PENDING,
+        nda_status="provider_signature_pending",
     )
     db.add(prov_nda)
     await db.commit()
     await db.refresh(prov_nda)
     return {"document_id": document_id, "signing_url": signing_url}
-
 
 async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSession) -> None:
     """Process Signwell webhook events.
@@ -384,14 +373,14 @@ async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSessi
         logger.info("Signer completed: doc=%s signer=%s nda_id=%s", document_id, signer_email, nda.id)
         if nda.provider_id is None:
             nda.customer_signed_at = now
-            nda.nda_status = NdaStatus.PROVIDER_SIGNATURE_PENDING
+            nda.nda_status = "provider_signature_pending"
         else:
             nda.provider_signed_at = now
         await db.commit()
 
     elif event_type == "document_completed":
         logger.info("Document fully completed: doc=%s nda_id=%s", document_id, nda.id)
-        nda.nda_status = NdaStatus.FULLY_SIGNED
+        nda.nda_status = "fully_signed"
         nda.fully_signed_at = now
         if not nda.customer_signed_at:
             nda.customer_signed_at = now
@@ -437,6 +426,12 @@ async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSessi
         logger.debug("Unhandled Signwell event type: %s", event_type)
 
 
+async def _s3_upload_bytes(data: bytes, s3_key: str, content_type: str, db: AsyncSession) -> None:
+    """Upload bytes to S3 using the file_service."""
+    from app.services.file_service import upload_file_bytes
+    await upload_file_bytes(data, s3_key, content_type)
+
+
 async def _maybe_open_rfq_for_dispatch(rfq_id, db: AsyncSession) -> None:
     """Advance RFQ to OPEN_FOR_DISPATCH once NDA signing is complete."""
     rfq = (await db.execute(select(RFQ).where(RFQ.id == rfq_id))).scalar_one_or_none()
@@ -444,6 +439,6 @@ async def _maybe_open_rfq_for_dispatch(rfq_id, db: AsyncSession) -> None:
         return
     current = rfq.rfq_status.value if hasattr(rfq.rfq_status, "value") else str(rfq.rfq_status)
     if current in ("awaiting_customer_signature", "awaiting_nda_payment"):
-        rfq.rfq_status = RfqStatus.OPEN_FOR_DISPATCH
+        rfq.rfq_status = "open_for_dispatch"
         await db.commit()
         logger.info("RFQ %s moved to OPEN_FOR_DISPATCH after NDA completion", rfq_id)

@@ -1159,16 +1159,15 @@ class TestNDARequest(_BaseModel):
     provider_email: str
 
 
+
 @router.post("/admin/debug/test-nda")
 async def admin_debug_test_nda(
     data: TestNDARequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["admin"])),
 ) -> dict:
-    """Admin: Create a real Signwell test NDA document and send signing invitations
-    to two email addresses - verifies the full document-signing integration."""
+    """Admin: Create a real Signwell test NDA document and send signing invitations."""
     from datetime import date
-
     try:
         from app.services.nda_service import _headers, _get_template_id, SIGNWELL_BASE_URL
         h = await _headers(db)
@@ -1182,7 +1181,7 @@ async def admin_debug_test_nda(
 
     effective_date = date.today().strftime("%B %d, %Y")
 
-    # Step 1: Fetch template to get actual signer IDs
+    # Step 1: Fetch template to get placeholder IDs and field api_ids
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             tmpl_resp = await client.get(
@@ -1192,7 +1191,7 @@ async def admin_debug_test_nda(
     except httpx.HTTPStatusError as exc:
         return {
             "success": False, "document_id": None,
-            "error": f"Failed to fetch Signwell template {exc.response.status_code}: {exc.response.text}",
+            "error": f"Failed to fetch template {exc.response.status_code}: {exc.response.text}",
             "customer_signing_url": None, "provider_signing_url": None,
         }
     except Exception as exc:
@@ -1205,81 +1204,72 @@ async def admin_debug_test_nda(
     tmpl_data = tmpl_resp.json()
     import logging
     logger = logging.getLogger(__name__)
-    logger.info(f"Signwell template top-level keys: {list(tmpl_data.keys())}")
+    logger.info(f"Template keys: {list(tmpl_data.keys())}")
 
-    # --- Extract template signers ---
-    tmpl_signers = (
+    # Extract template placeholders (signers/roles)
+    tmpl_placeholders = (
+        tmpl_data.get("placeholder_signers") or
         tmpl_data.get("template_signers") or
-        tmpl_data.get("signees") or
-        tmpl_data.get("signers") or
+        tmpl_data.get("placeholders") or
         tmpl_data.get("roles") or
-        tmpl_data.get("signer_roles") or
+        tmpl_data.get("recipients") or
         []
     )
-    logger.info(f"Template signers ({len(tmpl_signers)}): {json.dumps(tmpl_signers, default=str)[:500]}")
+    logger.info(f"Template placeholders ({len(tmpl_placeholders)}): {json.dumps(tmpl_placeholders, default=str)[:500]}")
 
-    # --- CRITICAL: Extract signing_elements from template ---
-    # Signwell API REQUIRES signing_elements in the payload.
-    # Empty [] causes 500 (overrides template). Missing causes 400 (required).
-    # We must pass through the ACTUAL elements from the template.
-    tmpl_signing_elements = (
-        tmpl_data.get("signing_elements") or
-        tmpl_data.get("fields") or
-        tmpl_data.get("form_fields") or
-        tmpl_data.get("elements") or
-        []
-    )
-    logger.info(f"Template signing_elements ({len(tmpl_signing_elements)}): {json.dumps(tmpl_signing_elements, default=str)[:1000]}")
-
-    if not tmpl_signing_elements:
-        logger.error(f"WARNING: No signing_elements found in template! All keys: {list(tmpl_data.keys())}")
-        # Log ALL template data to find the correct key
-        for k, v in tmpl_data.items():
-            if isinstance(v, (list, dict)) and v:
-                logger.info(f"  tmpl_data['{k}'] type={type(v).__name__} len={len(v) if isinstance(v, list) else 'dict'}")
-
-    # Build signer ID mapping from template
-    if len(tmpl_signers) >= 2:
-        customer_signer_id = str(tmpl_signers[0].get("id") or tmpl_signers[0].get("signer_id") or "1")
-        provider_signer_id = str(tmpl_signers[1].get("id") or tmpl_signers[1].get("signer_id") or "2")
-    elif len(tmpl_signers) == 1:
-        customer_signer_id = str(tmpl_signers[0].get("id") or "1")
-        provider_signer_id = "2"
+    # Get placeholder IDs - first is Customer, second is Provider
+    if len(tmpl_placeholders) >= 2:
+        customer_placeholder_id = str(tmpl_placeholders[0].get("id", "1"))
+        provider_placeholder_id = str(tmpl_placeholders[1].get("id", "2"))
     else:
-        logger.warning(f"No template signers found! Using fallback IDs.")
-        customer_signer_id = "1"
-        provider_signer_id = "2"
+        # Fallback - try common naming
+        customer_placeholder_id = "1"
+        provider_placeholder_id = "2"
 
-    logger.info(f"Using signer IDs: customer={customer_signer_id}, provider={provider_signer_id}")
+    logger.info(f"Placeholder IDs: customer={customer_placeholder_id}, provider={provider_placeholder_id}")
 
-    # Step 2: Build payload WITH signing_elements from template
+    # Step 2: Build template_fields to pre-fill values
+    # These use api_id matching the field names in the template
+    template_fields = [
+        {"api_id": "customer_name", "value": data.customer_name},
+        {"api_id": "customer_company", "value": data.customer_name},
+        {"api_id": "customer_entity_type", "value": "Individual"},
+        {"api_id": "effective_date", "value": effective_date},
+        {"api_id": "governing_state", "value": "Ohio"},
+        {"api_id": "provider_name", "value": data.provider_name},
+        {"api_id": "provider_name2", "value": data.provider_name},
+        {"api_id": "provider_company", "value": data.provider_name},
+        {"api_id": "provider_entity_type", "value": "LLC"},
+    ]
+
+    # Step 3: Build payload with CORRECT Signwell format
     payload = {
-        "test_mode": False,
+        "test_mode": True,
         "subject": f"[TEST] ProMechDirectory NDA - {data.customer_name} & {data.provider_name}",
         "message": (
             "This is a test NDA document to verify the document signing "
             "integration. Please sign to confirm the workflow works end-to-end."
         ),
-        "signees": [
+        "recipients": [
             {
-                "id":           customer_signer_id,
-                "name":         data.customer_name,
-                "email":        data.customer_email,
-                "send_email":   True,
+                "id": customer_placeholder_id,
+                "name": data.customer_name,
+                "email": data.customer_email,
+                "send_email": True,
             },
             {
-                "id":           provider_signer_id,
-                "name":         data.provider_name,
-                "email":        data.provider_email,
-                "send_email":   True,
+                "id": provider_placeholder_id,
+                "name": data.provider_name,
+                "email": data.provider_email,
+                "send_email": True,
             },
         ],
-        "signing_elements": tmpl_signing_elements,
+        "template_fields": template_fields,
     }
-    logger.info(f"Final payload: signees={len(payload['signees'])}, signing_elements={len(payload['signing_elements'])}, signer_ids=[{customer_signer_id}, {provider_signer_id}]")
 
+    logger.info(f"Final payload: {json.dumps(payload, default=str)[:1000]}")
 
-    # Step 3: POST to correct endpoint — template_id in URL
+    # Step 4: POST to create document from template
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -1303,9 +1293,9 @@ async def admin_debug_test_nda(
 
     doc = resp.json()
     document_id = doc.get("id")
-    customer_url: Optional[str] = None
-    provider_url: Optional[str] = None
-    for s in (doc.get("signees") or doc.get("signers") or []):
+    customer_url = None
+    provider_url = None
+    for s in (doc.get("recipients") or doc.get("signees") or doc.get("signers") or []):
         url = s.get("sign_page_url") or s.get("embedded_signing_url")
         if s.get("email", "") == data.customer_email:
             customer_url = url
@@ -1318,8 +1308,6 @@ async def admin_debug_test_nda(
         "error": None,
         "customer_signing_url": customer_url,
         "provider_signing_url": provider_url,
-        "signwell_status": doc.get("status"),
-        "created_at": doc.get("created_at"),
     }
 
 
