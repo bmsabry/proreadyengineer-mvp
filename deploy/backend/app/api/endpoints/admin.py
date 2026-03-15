@@ -1242,7 +1242,7 @@ async def admin_debug_test_nda(
         {"api_id": "provider_entity_type", "value": "LLC"},
     ]
 
-    # Step 3: Build payload with CORRECT Signwell format
+    # Step 3: Build payload - Signwell REST API uses "signees" (not "recipients")
     payload = {
         "test_mode": True,
         "subject": f"[TEST] ProMechDirectory NDA - {data.customer_name} & {data.provider_name}",
@@ -1250,7 +1250,7 @@ async def admin_debug_test_nda(
             "This is a test NDA document to verify the document signing "
             "integration. Please sign to confirm the workflow works end-to-end."
         ),
-        "recipients": [
+        "signees": [
             {
                 "id": customer_placeholder_id,
                 "name": data.customer_name,

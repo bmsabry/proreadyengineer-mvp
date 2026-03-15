@@ -172,12 +172,12 @@ async def create_customer_nda(
         {"api_id": "governing_state", "value": "Ohio"},
     ]
 
-    # CORRECT Signwell format: "recipients" not "signees", "template_fields" not "signing_elements"
+    # Signwell REST API uses "signees" and "template_fields"
     payload = {
         "test_mode": False,
         "subject": f"NDA for Engineering RFQ #{rfq_id}",
         "message": "Please review and sign the Non-Disclosure Agreement to proceed with your RFQ.",
-        "recipients": [{
+        "signees": [{
             "id":               customer_placeholder_id,
             "name":             customer_name,
             "email":            customer_user.email,
@@ -292,12 +292,12 @@ async def add_provider_to_nda(
         {"api_id": "provider_entity_type", "value": "Company"},
     ]
 
-    # CORRECT Signwell format: "recipients" not "signees", "template_fields" not "signing_elements"
+    # Signwell REST API uses "signees" and "template_fields"
     payload = {
         "test_mode":   False,
         "subject":     f"NDA for Engineering RFQ #{rfq_id} - Provider Copy",
         "message":     "Please review and sign the NDA to access the full RFQ details.",
-        "recipients": [{
+        "signees": [{
             "id":               provider_placeholder_id,
             "name":             prov_signer_name,
             "email":            provider_user.email,
