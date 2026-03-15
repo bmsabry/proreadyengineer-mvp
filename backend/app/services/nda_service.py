@@ -114,28 +114,8 @@ async def create_customer_nda(
     customer_company = getattr(rfq, "business_name", None) or customer_name
     effective_date   = _human_date(datetime.utcnow())
 
-    # Fetch template to get actual signer IDs
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        tmpl_resp = await client.get(
-            f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h
-        )
-        try:
-            tmpl_resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error("Signwell fetch template failed %s: %s",
-                         exc.response.status_code, exc.response.text)
-            raise
-
-    tmpl_data    = tmpl_resp.json()
-    tmpl_signers = (tmpl_data.get("signees") or tmpl_data.get("signers") or [])
-    if not tmpl_signers:
-        raise ValueError(
-            f"Signwell template {tid} has no signers defined. "
-            f"Template response: {tmpl_data}"
-        )
-
-    # Use the first signer slot for the customer
-    customer_signer_id = tmpl_signers[0]["id"]
+    # Use simple unique id for signee (Signwell requires id field, any unique string works)
+    customer_signer_id = "1"
 
     def _is_signature_field(api_id: str) -> bool:
         return any(t in api_id.lower() for t in ("signature", "initials", "stamp"))
@@ -166,8 +146,6 @@ async def create_customer_nda(
             "send_email":       False,
             "embedded_signing": True,
         }],
-        "fields": prefill_fields,
-        "signing_elements": [],
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -257,28 +235,8 @@ async def add_provider_to_nda(
     prov_last  = (provider_user.last_name  or "").strip()
     prov_signer_name = f"{prov_first} {prov_last}".strip() or provider_user.email
 
-    # Step 1: Fetch template to get actual signer IDs
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        tmpl_resp = await client.get(
-            f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h
-        )
-        try:
-            tmpl_resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error("Signwell fetch template failed %s: %s",
-                         exc.response.status_code, exc.response.text)
-            raise
-
-    tmpl_data = tmpl_resp.json()
-    tmpl_signers = (tmpl_data.get("signees") or tmpl_data.get("signers") or [])
-    if not tmpl_signers:
-        raise ValueError(
-            f"Signwell template {tid} has no signers defined. "
-            f"Template response: {tmpl_data}"
-        )
-
-    # Use the first signer slot from the template (provider signs on their own copy)
-    provider_signer_id = tmpl_signers[0]["id"]
+    # Use simple unique id for signee (Signwell requires id field, any unique string works)
+    provider_signer_id = "1"
 
     def _is_signature_field(api_id: str) -> bool:
         return any(t in api_id.lower() for t in ("signature", "initials", "stamp"))
@@ -314,8 +272,6 @@ async def add_provider_to_nda(
             "send_email":       False,
             "embedded_signing": True,
         }],
-        "fields": prefill_fields,
-        "signing_elements": [],
     }
 
     # Step 3: POST to correct endpoint — template_id in URL
