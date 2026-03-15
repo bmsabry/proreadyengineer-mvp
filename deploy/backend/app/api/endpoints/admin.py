@@ -1071,10 +1071,10 @@ async def admin_debug_test_nda(
 ) -> dict:
     """Admin: Create a real Signwell test NDA document and send signing invitations
     to two email addresses - verifies the full document-signing integration."""
-    from app.services.nda_service import _headers, _get_template_id, SIGNWELL_BASE_URL
     from datetime import date
 
     try:
+        from app.services.nda_service import _headers, _get_template_id, SIGNWELL_BASE_URL
         h = await _headers(db)
         tid = await _get_template_id(db)
     except Exception as exc:

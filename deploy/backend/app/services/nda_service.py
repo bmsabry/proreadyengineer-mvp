@@ -1,3 +1,70 @@
+"""nda_service.py - Signwell NDA integration for ProMechDirectory."""
+from __future__ import annotations
+
+import httpx
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.user import User
+from app.models.provider import Provider
+from app.models.rfq import RFQ
+from app.models.nda import RFQNDA
+
+# ---------------------------------------------------------------------------
+# Signwell API constants
+# ---------------------------------------------------------------------------
+SIGNWELL_BASE_URL = "https://www.signwell.com/api/v1"
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+async def _headers(db: AsyncSession) -> dict:
+    """Return Signwell API auth headers, reading key from DB config."""
+    from app.services.config_service import get_config_value
+    api_key = await get_config_value(db, "signwell_api_key")
+    if not api_key:
+        raise ValueError(
+            "Signwell API key not configured. "
+            "Go to Admin > Settings > Document Signing to add it."
+        )
+    return {
+        "X-Api-Token": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+async def _get_template_id(db: AsyncSession) -> str:
+    """Return the Signwell template ID from DB config."""
+    from app.services.config_service import get_config_value
+    tid = await get_config_value(db, "signwell_template_id")
+    if not tid:
+        raise ValueError(
+            "Signwell template ID not configured. "
+            "Go to Admin > Settings > Document Signing to add it."
+        )
+    return tid
+
+
+def _extract_signing_url(doc: dict) -> Optional[str]:
+    """Extract the first available signing URL from a Signwell document dict."""
+    for signer in doc.get("signers", []):
+        url = signer.get("sign_page_url") or signer.get("embedded_signing_url")
+        if url:
+            return url
+    return None
+
+
+def _human_date(dt: Optional[datetime]) -> str:
+    """Format a datetime as a human-readable date string for NDA documents."""
+    if dt is None:
+        return datetime.utcnow().strftime("%B %d, %Y")
+    return dt.strftime("%B %d, %Y")
 
 
 async def get_customer_signing_url(rfq_id, db: AsyncSession) -> str:
