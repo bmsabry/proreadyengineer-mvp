@@ -1239,16 +1239,16 @@ async def admin_debug_test_nda(
         ),
         "signees": [
             {
-                "name":             data.customer_name,
-                "email":            data.customer_email,
-                "send_email":       True,
-                "embedded_signing": False,
+                "id":           "1",
+                "name":         data.customer_name,
+                "email":        data.customer_email,
+                "send_email":   True,
             },
             {
-                "name":             data.provider_name,
-                "email":            data.provider_email,
-                "send_email":       True,
-                "embedded_signing": False,
+                "id":           "2",
+                "name":         data.provider_name,
+                "email":        data.provider_email,
+                "send_email":   True,
             },
         ],
     }
