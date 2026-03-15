@@ -223,13 +223,15 @@ async def create_customer_nda(
 
     # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
+            "template_id": tid,
         "test_mode": False,
         "subject": f"NDA for Engineering RFQ #{rfq_id}",
         "message": "Please review and sign the Non-Disclosure Agreement to proceed with your RFQ.",
         "recipients": [{
-            "id":               customer_placeholder_id,
+            "id":               "1",
             "name":             customer_name,
             "email":            customer_user.email,
+            "placeholder_name": "Customer",
             "send_email":       False,
             "embedded_signing": True,
         }],
@@ -240,7 +242,7 @@ async def create_customer_nda(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"{SIGNWELL_BASE_URL}/document_templates/{tid}/documents",
+            f"{SIGNWELL_BASE_URL}/document_templates/documents",
             json=payload,
             headers=h,
         )
@@ -343,13 +345,15 @@ async def add_provider_to_nda(
 
     # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
+            "template_id": tid,
         "test_mode":   False,
         "subject":     f"NDA for Engineering RFQ #{rfq_id} - Provider Copy",
         "message":     "Please review and sign the NDA to access the full RFQ details.",
         "recipients": [{
-            "id":               provider_placeholder_id,
+            "id":               "1",
             "name":             prov_signer_name,
             "email":            provider_user.email,
+            "placeholder_name": "Provider",
             "send_email":       False,
             "embedded_signing": True,
         }],
@@ -360,7 +364,7 @@ async def add_provider_to_nda(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"{SIGNWELL_BASE_URL}/document_templates/{tid}/documents",
+            f"{SIGNWELL_BASE_URL}/document_templates/documents",
             json=payload,
             headers=h,
         )

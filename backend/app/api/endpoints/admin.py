@@ -1257,6 +1257,7 @@ async def admin_debug_test_nda(
     # - NO signing_elements (only applies to raw document creation, not template-based)
     # - "template_fields" for pre-filling text values
     payload = {
+        "template_id": tid,
         "test_mode": True,
         "subject": f"[TEST] ProMechDirectory NDA - {data.customer_name} & {data.provider_name}",
         "message": (
@@ -1265,16 +1266,18 @@ async def admin_debug_test_nda(
         ),
         "recipients": [
             {
-                "id": customer_placeholder_id,
+                "id": "1",
                 "name": data.customer_name,
                 "email": data.customer_email,
                 "send_email": True,
+                "placeholder_name": "Customer",
             },
             {
-                "id": provider_placeholder_id,
+                "id": "2",
                 "name": data.provider_name,
                 "email": data.provider_email,
                 "send_email": True,
+                "placeholder_name": "Provider",
             },
         ],
         "template_fields": template_fields,
@@ -1286,7 +1289,7 @@ async def admin_debug_test_nda(
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{SIGNWELL_BASE_URL}/document_templates/{tid}/documents",
+                f"{SIGNWELL_BASE_URL}/document_templates/documents",
                 json=payload,
                 headers=h,
             )
