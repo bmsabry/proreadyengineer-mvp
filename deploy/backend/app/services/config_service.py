@@ -1,10 +1,10 @@
-"""Runtime configuration service.
+"""Runtime configuration service - DEFINITIVE VERSION.
 
-Loads API keys/config from system_config DB table at request time.
-Falls back to environment variables (settings) if not in DB.
+Stores API keys/config in the system_config DB table.
+Falls back to environment variables when DB unavailable.
 
-Uses RAW SQL for all writes to avoid SQLAlchemy ORM inheritance issues
-with the system_config table (mixed Mapped/Column declarations).
+Key design: uses INDEPENDENT database connections for writes
+to avoid session corruption from failed SQL operations.
 """
 import logging
 from datetime import datetime
@@ -18,16 +18,73 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
+async def _ensure_table_exists(db: AsyncSession) -> bool:
+    """Ensure system_config table exists. Returns True if available."""
+    try:
+        await db.execute(text("SELECT 1 FROM system_config LIMIT 0"))
+        return True
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        # Table missing - create it
+        try:
+            await db.execute(text(
+                "CREATE TABLE IF NOT EXISTS system_config ("
+                "  id SERIAL PRIMARY KEY,"
+                "  key VARCHAR(100) NOT NULL UNIQUE,"
+                "  value TEXT,"
+                "  is_secret BOOLEAN DEFAULT TRUE,"
+                "  created_at TIMESTAMP DEFAULT NOW(),"
+                "  updated_at TIMESTAMP DEFAULT NOW(),"
+                "  updated_by VARCHAR(255)"
+                ")"
+            ))
+            await db.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_system_config_key ON system_config (key)"
+            ))
+            await db.commit()
+            logger.info("[CONFIG] Created system_config table")
+            return True
+        except Exception as exc:
+            logger.error(f"[CONFIG] Cannot create system_config: {exc}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            return False
+
+
+async def _get_table_columns(db: AsyncSession) -> set:
+    """Get actual column names of system_config table."""
+    try:
+        result = await db.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'system_config'"
+        ))
+        return {row[0] for row in result.fetchall()}
+    except Exception as exc:
+        logger.warning(f"[CONFIG] Cannot inspect columns: {exc}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return set()
+
+
 async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
-    """Get the full runtime AI/service config from DB with env-var fallbacks."""
+    """Get full runtime config from DB with env-var fallbacks."""
     db_cfg: Dict[str, str] = {}
     try:
-        result = await db.execute(text("SELECT key, value FROM system_config WHERE value IS NOT NULL"))
+        result = await db.execute(
+            text("SELECT key, value FROM system_config WHERE value IS NOT NULL")
+        )
         rows = result.fetchall()
         db_cfg = {row[0]: row[1] for row in rows if row[1]}
-        logger.debug(f'[CONFIG] Loaded {len(db_cfg)} keys from DB')
+        logger.debug(f"[CONFIG] Loaded {len(db_cfg)} keys from DB")
     except Exception as exc:
-        logger.warning(f'[CONFIG] DB config load failed: {exc}')
+        logger.warning(f"[CONFIG] DB config load failed: {exc}")
         try:
             await db.rollback()
         except Exception:
@@ -72,7 +129,7 @@ async def get_config_value(db: AsyncSession, key: str) -> Optional[str]:
         if row and row[0]:
             return row[0]
     except Exception as exc:
-        logger.debug(f'[CONFIG] DB lookup failed for {key}: {exc}')
+        logger.debug(f"[CONFIG] DB lookup failed for {key}: {exc}")
         try:
             await db.rollback()
         except Exception:
@@ -86,63 +143,82 @@ async def save_config_values(
     config: Dict[str, str],
     user_id: Any = None,
 ) -> None:
-    """Upsert config key/value pairs into the system_config table using raw SQL.
+    """Save config key/value pairs to system_config table.
 
-    Uses the most minimal INSERT possible to work with any version of the
-    system_config schema (with or without created_at, regardless of updated_by type).
+    Uses a FRESH independent connection to avoid session corruption.
+    Inspects actual table schema before writing.
     """
-    user_id_str: Optional[str] = str(user_id) if user_id is not None else None
-    now = datetime.utcnow()
-    saved_keys = []
+    from app.db.session import async_engine
+    from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+    from sqlalchemy.orm import sessionmaker
 
-    for key, value in config.items():
-        if value is None:
-            continue
+    user_id_str = str(user_id) if user_id is not None else None
+    now = datetime.utcnow()
+
+    # Use a completely fresh connection - critical for avoiding session corruption
+    _factory = sessionmaker(async_engine, class_=_AsyncSession, expire_on_commit=False)
+
+    async with _factory() as fresh:
         try:
-            # Minimal upsert: only touch columns that definitely exist in all schema versions.
-            # Do NOT include created_at (may not exist) or rely on updated_by type.
-            # First try with updated_at and updated_by:
-            try:
-                await db.execute(
-                    text("""
-                        INSERT INTO system_config (key, value, is_secret, updated_at, updated_by)
-                        VALUES (:key, :value, TRUE, :now, :user_id)
-                        ON CONFLICT (key) DO UPDATE SET
-                            value = EXCLUDED.value,
-                            updated_at = EXCLUDED.updated_at,
-                            updated_by = EXCLUDED.updated_by
-                    """),
-                    {"key": key, "value": value, "now": now, "user_id": user_id_str}
+            # 1. Ensure table exists
+            table_ok = await _ensure_table_exists(fresh)
+            if not table_ok:
+                raise RuntimeError(
+                    "system_config table does not exist and could not be created"
                 )
-            except Exception:
-                # Fallback: absolute minimal upsert with only guaranteed columns
-                await db.rollback()
-                await db.execute(
-                    text("""
-                        INSERT INTO system_config (key, value, is_secret)
-                        VALUES (:key, :value, TRUE)
-                        ON CONFLICT (key) DO UPDATE SET
-                            value = EXCLUDED.value
-                    """),
-                    {"key": key, "value": value}
+
+            # 2. Inspect actual columns once
+            columns = await _get_table_columns(fresh)
+            logger.info(f"[CONFIG] system_config columns: {columns}")
+
+            has_updated_at = 'updated_at' in columns
+            has_updated_by = 'updated_by' in columns
+
+            # 3. Build SQL based on actual schema
+            if has_updated_by and has_updated_at:
+                sql = text(
+                    "INSERT INTO system_config (key, value, is_secret, updated_at, updated_by) "
+                    "VALUES (:key, :value, TRUE, :now, :uid) "
+                    "ON CONFLICT (key) DO UPDATE SET "
+                    "value = EXCLUDED.value, updated_at = EXCLUDED.updated_at, "
+                    "updated_by = EXCLUDED.updated_by"
                 )
-            saved_keys.append(key)
-            logger.info(f'[CONFIG] Upserted key: {key}')
+            elif has_updated_at:
+                sql = text(
+                    "INSERT INTO system_config (key, value, is_secret, updated_at) "
+                    "VALUES (:key, :value, TRUE, :now) "
+                    "ON CONFLICT (key) DO UPDATE SET "
+                    "value = EXCLUDED.value, updated_at = EXCLUDED.updated_at"
+                )
+            else:
+                sql = text(
+                    "INSERT INTO system_config (key, value, is_secret) "
+                    "VALUES (:key, :value, TRUE) "
+                    "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+                )
+
+            # 4. Execute all upserts
+            saved = []
+            for key, value in config.items():
+                if value is None:
+                    continue
+                params: Dict[str, Any] = {"key": key, "value": value}
+                if has_updated_at:
+                    params["now"] = now
+                if has_updated_by:
+                    params["uid"] = user_id_str
+                await fresh.execute(sql, params)
+                saved.append(key)
+                logger.info(f"[CONFIG] Upserted: {key}")
+
+            # 5. Commit
+            await fresh.commit()
+            logger.info(f"[CONFIG] Committed {len(saved)} keys: {saved}")
+
         except Exception as exc:
-            logger.error(f'[CONFIG] Failed to upsert key {key}: {exc}')
+            logger.error(f"[CONFIG] Save failed: {exc}", exc_info=True)
             try:
-                await db.rollback()
+                await fresh.rollback()
             except Exception:
                 pass
-            raise RuntimeError(f'Failed to save config key {key}: {exc}') from exc
-
-    try:
-        await db.commit()
-        logger.info(f'[CONFIG] Committed {len(saved_keys)} config keys to DB')
-    except Exception as exc:
-        logger.error(f'[CONFIG] Commit failed: {exc}')
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-        raise RuntimeError(f'Failed to commit config changes: {exc}') from exc
+            raise RuntimeError(f"Config save failed: {exc}") from exc

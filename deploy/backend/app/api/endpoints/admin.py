@@ -700,6 +700,11 @@ async def save_system_config(
     current_user: User = Depends(require_role(["admin"])),
 ):
     """Save API keys and config to database for runtime use."""
+    import logging
+    _log = logging.getLogger("admin.config.save")
+    _log.info(f"[SAVE] POST /admin/config from user {current_user.id}")
+    _log.info(f"[SAVE] Request data fields: {[f for f in data.__dict__ if getattr(data, f)]}")
+
     config_map: dict = {}
     if data.openai_api_key:         config_map["OPENAI_API_KEY"]         = data.openai_api_key
     if data.openai_api_base:        config_map["OPENAI_API_BASE"]        = data.openai_api_base
@@ -718,14 +723,84 @@ async def save_system_config(
     if data.signwell_api_key:       config_map["SIGNWELL_API_KEY"]       = data.signwell_api_key
     if data.signwell_template_id:   config_map["SIGNWELL_TEMPLATE_ID"]   = data.signwell_template_id
 
+    _log.info(f"[SAVE] Config map keys: {list(config_map.keys())}")
+
     if not config_map:
+        _log.info("[SAVE] No non-empty values, returning no_changes")
         return {"status": "no_changes", "keys_saved": [], "message": "No non-empty values provided"}
     try:
         await _save_config_values(db, config_map, user_id=current_user.id)
+        _log.info(f"[SAVE] SUCCESS: saved {len(config_map)} keys")
     except Exception as exc:
+        _log.error(f"[SAVE] FAILED: {exc}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to save config: {exc}")
     return {"status": "saved", "keys_saved": list(config_map.keys()), "message": f"Saved {len(config_map)} key(s) successfully"}
 
+
+
+
+@router.get("/admin/debug/config-test")
+async def admin_debug_config_test(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Diagnostic: test the config save path step by step."""
+    import traceback
+    results = {"steps": [], "success": False}
+
+    # Step 1: Check if system_config table exists
+    try:
+        from sqlalchemy import text as _t
+        r = await db.execute(_t("SELECT COUNT(*) FROM system_config"))
+        count = r.scalar()
+        results["steps"].append({"step": "table_exists", "ok": True, "count": count})
+    except Exception as e:
+        results["steps"].append({"step": "table_exists", "ok": False, "error": str(e)})
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return results
+
+    # Step 2: Check table columns
+    try:
+        r = await db.execute(_t(
+            "SELECT column_name, data_type FROM information_schema.columns "
+            "WHERE table_name = 'system_config' ORDER BY ordinal_position"
+        ))
+        cols = [{"name": row[0], "type": row[1]} for row in r.fetchall()]
+        results["steps"].append({"step": "columns", "ok": True, "columns": cols})
+    except Exception as e:
+        results["steps"].append({"step": "columns", "ok": False, "error": str(e)})
+
+    # Step 3: Try a test write using the actual save function
+    try:
+        await _save_config_values(db, {"_TEST_KEY": "test_value"}, user_id=current_user.id)
+        results["steps"].append({"step": "test_write", "ok": True})
+    except Exception as e:
+        results["steps"].append({"step": "test_write", "ok": False, "error": str(e), "traceback": traceback.format_exc()})
+
+    # Step 4: Verify the test write
+    try:
+        r = await db.execute(_t("SELECT value FROM system_config WHERE key = '_TEST_KEY'"))
+        row = r.fetchone()
+        if row and row[0] == "test_value":
+            results["steps"].append({"step": "verify_write", "ok": True, "value": row[0]})
+        else:
+            results["steps"].append({"step": "verify_write", "ok": False, "value": str(row)})
+    except Exception as e:
+        results["steps"].append({"step": "verify_write", "ok": False, "error": str(e)})
+
+    # Step 5: Clean up test key
+    try:
+        await db.execute(_t("DELETE FROM system_config WHERE key = '_TEST_KEY'"))
+        await db.commit()
+        results["steps"].append({"step": "cleanup", "ok": True})
+    except Exception as e:
+        results["steps"].append({"step": "cleanup", "ok": False, "error": str(e)})
+
+    results["success"] = all(s.get("ok") for s in results["steps"])
+    return results
 
 # --- Email Debug Endpoint ---
 
