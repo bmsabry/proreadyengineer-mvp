@@ -74,10 +74,11 @@ def _human_date(dt: Optional[datetime]) -> str:
 
 
 async def _fetch_template_placeholder_ids(db: AsyncSession) -> tuple:
-    """Fetch Signwell template and return (customer_placeholder_id, provider_placeholder_id).
+    """Fetch Signwell template and return (customer_placeholder_name, provider_placeholder_name).
 
-    The template has placeholder signers (roles) like "Customer" and "Provider".
-    We need their IDs to map recipients correctly.
+    Returns the EXACT placeholder names as they appear in the Signwell template.
+    These must be passed as placeholder_name in the recipients array.
+    Falls back to ("Customer", "Provider") if template cannot be fetched.
     """
     h = await _headers(db)
     tid = await _get_template_id(db)
@@ -89,7 +90,7 @@ async def _fetch_template_placeholder_ids(db: AsyncSession) -> tuple:
     tmpl = resp.json()
     logger.info("[SIGNWELL] Template keys: %s", list(tmpl.keys()))
 
-    # Extract template placeholders (signers/roles)
+    # Extract template placeholders (signers/roles) - try all known field names
     tmpl_placeholders = (
         tmpl.get("placeholder_signers")
         or tmpl.get("template_signers")
@@ -104,20 +105,31 @@ async def _fetch_template_placeholder_ids(db: AsyncSession) -> tuple:
         json.dumps(tmpl_placeholders, default=str)[:500],
     )
 
-    # First placeholder is Customer, second is Provider
-    if len(tmpl_placeholders) >= 2:
-        customer_id = str(tmpl_placeholders[0].get("id", "1"))
-        provider_id = str(tmpl_placeholders[1].get("id", "2"))
-    elif len(tmpl_placeholders) == 1:
-        customer_id = str(tmpl_placeholders[0].get("id", "1"))
-        provider_id = "2"
-    else:
-        logger.warning("[SIGNWELL] No template placeholders found! Using fallback IDs.")
-        customer_id = "1"
-        provider_id = "2"
+    # Extract the EXACT placeholder name from the template (could be any case)
+    # The name field may be called 'name', 'placeholder_name', or 'role'
+    def get_placeholder_name(p):
+        return (
+            p.get("name")
+            or p.get("placeholder_name")
+            or p.get("role")
+            or p.get("title")
+            or None
+        )
 
-    logger.info("[SIGNWELL] Placeholder IDs: customer=%s, provider=%s", customer_id, provider_id)
-    return customer_id, provider_id
+    if len(tmpl_placeholders) >= 2:
+        customer_name = get_placeholder_name(tmpl_placeholders[0]) or "Customer"
+        provider_name = get_placeholder_name(tmpl_placeholders[1]) or "Provider"
+    elif len(tmpl_placeholders) == 1:
+        customer_name = get_placeholder_name(tmpl_placeholders[0]) or "Customer"
+        provider_name = "Provider"
+    else:
+        logger.warning("[SIGNWELL] No template placeholders found! Using fallback names.")
+        customer_name = "Customer"
+        provider_name = "Provider"
+
+    logger.info("[SIGNWELL] Placeholder names from template: customer=%r, provider=%r",
+                customer_name, provider_name)
+    return customer_name, provider_name
 
 
 async def _get_template_signing_elements(db: AsyncSession) -> dict:
@@ -209,8 +221,8 @@ async def create_customer_nda(
     customer_company = getattr(rfq, "business_name", None) or customer_name
     effective_date   = _human_date(datetime.utcnow())
 
-    # Fetch template placeholder IDs
-    customer_placeholder_id, _provider_placeholder_id = await _fetch_template_placeholder_ids(db)
+    # Fetch actual placeholder names from template (must match exactly)
+    customer_placeholder_name, _provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
     # Build template_fields to pre-fill values (NOT signing_elements)
     template_fields = [
@@ -231,7 +243,7 @@ async def create_customer_nda(
             "id":               "1",
             "name":             customer_name,
             "email":            customer_user.email,
-            "placeholder_name": "Customer",
+            "placeholder_name": customer_placeholder_name,
             "send_email":       False,
             "embedded_signing": True,
         }],
@@ -327,8 +339,8 @@ async def add_provider_to_nda(
     prov_last  = (provider_user.last_name  or "").strip()
     prov_signer_name = f"{prov_first} {prov_last}".strip() or provider_user.email
 
-    # Fetch template placeholder IDs
-    _customer_placeholder_id, provider_placeholder_id = await _fetch_template_placeholder_ids(db)
+    # Fetch actual placeholder names from template (must match exactly)
+    _customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
     # Build template_fields to pre-fill ALL text values (NOT signing_elements)
     template_fields = [
@@ -353,7 +365,7 @@ async def add_provider_to_nda(
             "id":               "1",
             "name":             prov_signer_name,
             "email":            provider_user.email,
-            "placeholder_name": "Provider",
+            "placeholder_name": provider_placeholder_name,
             "send_email":       False,
             "embedded_signing": True,
         }],

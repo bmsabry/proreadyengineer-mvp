@@ -1225,19 +1225,29 @@ async def admin_debug_test_nda(
     )
     logger.info(f"[TEST-NDA] Template placeholders ({len(tmpl_placeholders)}): {json.dumps(tmpl_placeholders, default=str)[:500]}")
 
-    # Assign placeholder IDs - first is Customer, second is Provider
-    if len(tmpl_placeholders) >= 2:
-        customer_placeholder_id = str(tmpl_placeholders[0].get("id", "1"))
-        provider_placeholder_id = str(tmpl_placeholders[1].get("id", "2"))
-    elif len(tmpl_placeholders) == 1:
-        customer_placeholder_id = str(tmpl_placeholders[0].get("id", "1"))
-        provider_placeholder_id = "2"
-    else:
-        logger.warning("[TEST-NDA] No placeholders found in template, using fallback IDs")
-        customer_placeholder_id = "1"
-        provider_placeholder_id = "2"
+    # Helper to extract the EXACT placeholder name from a placeholder object
+    def get_ph_name(p):
+        return (
+            p.get("name")
+            or p.get("placeholder_name")
+            or p.get("role")
+            or p.get("title")
+            or None
+        )
 
-    logger.info(f"[TEST-NDA] Placeholder IDs: customer={customer_placeholder_id}, provider={provider_placeholder_id}")
+    # Extract EXACT placeholder names from template (must match precisely)
+    if len(tmpl_placeholders) >= 2:
+        customer_placeholder_name = get_ph_name(tmpl_placeholders[0]) or "Customer"
+        provider_placeholder_name = get_ph_name(tmpl_placeholders[1]) or "Provider"
+    elif len(tmpl_placeholders) == 1:
+        customer_placeholder_name = get_ph_name(tmpl_placeholders[0]) or "Customer"
+        provider_placeholder_name = "Provider"
+    else:
+        logger.warning("[TEST-NDA] No placeholders found in template, using fallback names")
+        customer_placeholder_name = "Customer"
+        provider_placeholder_name = "Provider"
+
+    logger.info(f"[TEST-NDA] Placeholder names from template: customer={customer_placeholder_name!r}, provider={provider_placeholder_name!r}")
 
     # Step 2: Build template_fields for pre-filling text values
     template_fields = [
@@ -1270,14 +1280,14 @@ async def admin_debug_test_nda(
                 "name": data.customer_name,
                 "email": data.customer_email,
                 "send_email": True,
-                "placeholder_name": "Customer",
+                "placeholder_name": customer_placeholder_name,
             },
             {
                 "id": "2",
                 "name": data.provider_name,
                 "email": data.provider_email,
                 "send_email": True,
-                "placeholder_name": "Provider",
+                "placeholder_name": provider_placeholder_name,
             },
         ],
         "template_fields": template_fields,
