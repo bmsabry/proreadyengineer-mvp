@@ -78,45 +78,55 @@ async def admin_stats(
     except Exception as exc:
         db_stats["total_searches_error"] = str(exc)
 
-    api_keys: Dict[str, bool] = {}
-    try:
-        # Load DB-stored config values (saved via admin settings UI)
-        from app.services.config_service import get_config_values
-        db_config = await get_config_values(db)
+    # Check each API key independently using a FRESH session to avoid transaction corruption.
+    # Each key has its own try/except so one failure never affects others.
+    # Checks DB config first (keys saved via admin UI), then falls back to env vars.
+    async def _key_set(db_key: str, env_val: str = "") -> bool:
+        """Return True if this key is configured in DB or environment."""
+        # Check env var first - always reliable
+        if env_val and env_val.strip() and env_val.strip() not in ("dummy-key", "your-key-here", "none", "null", ""):
+            return True
+        # Try DB with a completely fresh session - never reuse the stats session
+        try:
+            from app.db.session import AsyncSessionLocal
+            async with AsyncSessionLocal() as fresh_db:
+                r = await fresh_db.execute(
+                    text("SELECT value FROM system_config WHERE key = :k AND value IS NOT NULL AND value != ''  LIMIT 1"),
+                    {"k": db_key},
+                )
+                row = r.fetchone()
+                if row and row[0] and str(row[0]).strip() not in ("dummy-key", "your-key-here", ""):
+                    return True
+        except Exception:
+            pass
+        return False
 
-        # Helper: check DB first, fall back to settings env var
-        def cfg(db_key: str, settings_attr: str = "") -> bool:
-            v = db_config.get(db_key, "") or ""
-            if v and v not in ("dummy-key", "your-key-here"):
-                return True
-            if settings_attr:
-                sv = getattr(settings, settings_attr, "") or ""
-                return bool(sv and sv not in ("dummy-key", "your-key-here"))
-            return False
-
-        api_keys = {
-            "openai_configured": cfg("DEEPINFRA_API_KEY", "OPENAI_API_KEY"),
-            "stripe_configured": cfg("STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"),
-            "paypal_configured": bool(
-                (db_config.get("PAYPAL_CLIENT_ID") or getattr(settings, "PAYPAL_CLIENT_ID", ""))
-                and (db_config.get("PAYPAL_CLIENT_SECRET") or getattr(settings, "PAYPAL_CLIENT_SECRET", ""))
-            ),
-            "signwell_configured": cfg("SIGNWELL_API_KEY", "SIGNWELL_API_KEY"),
-            "aws_s3_configured": bool(
-                (db_config.get("AWS_ACCESS_KEY_ID") or getattr(settings, "AWS_ACCESS_KEY_ID", ""))
-                and (db_config.get("AWS_SECRET_ACCESS_KEY") or getattr(settings, "AWS_SECRET_ACCESS_KEY", ""))
-            ),
-            "resend_configured": cfg("RESEND_API_KEY", "RESEND_API_KEY"),
-        }
-    except Exception as e:
-        api_keys = {
-            "openai_configured": False,
-            "stripe_configured": False,
-            "paypal_configured": False,
-            "signwell_configured": False,
-            "aws_s3_configured": False,
-            "resend_configured": False,
-        }
+    api_keys: Dict[str, bool] = {
+        "openai_configured": await _key_set(
+            "DEEPINFRA_API_KEY",
+            getattr(settings, "OPENAI_API_KEY", "") or "",
+        ),
+        "stripe_configured": await _key_set(
+            "STRIPE_SECRET_KEY",
+            getattr(settings, "STRIPE_SECRET_KEY", "") or "",
+        ),
+        "paypal_configured": await _key_set(
+            "PAYPAL_CLIENT_ID",
+            getattr(settings, "PAYPAL_CLIENT_ID", "") or "",
+        ),
+        "signwell_configured": await _key_set(
+            "SIGNWELL_API_KEY",
+            getattr(settings, "SIGNWELL_API_KEY", "") or "",
+        ),
+        "aws_s3_configured": await _key_set(
+            "AWS_ACCESS_KEY_ID",
+            getattr(settings, "AWS_ACCESS_KEY_ID", "") or "",
+        ),
+        "resend_configured": await _key_set(
+            "RESEND_API_KEY",
+            getattr(settings, "RESEND_API_KEY", "") or "",
+        ),
+    }
 
     return {
         "database": db_stats,
