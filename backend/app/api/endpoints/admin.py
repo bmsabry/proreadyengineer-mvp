@@ -80,28 +80,42 @@ async def admin_stats(
 
     api_keys: Dict[str, bool] = {}
     try:
+        # Load DB-stored config values (saved via admin settings UI)
+        from app.services.config_service import get_config_values
+        db_config = await get_config_values(db)
+
+        # Helper: check DB first, fall back to settings env var
+        def cfg(db_key: str, settings_attr: str = "") -> bool:
+            v = db_config.get(db_key, "") or ""
+            if v and v not in ("dummy-key", "your-key-here"):
+                return True
+            if settings_attr:
+                sv = getattr(settings, settings_attr, "") or ""
+                return bool(sv and sv not in ("dummy-key", "your-key-here"))
+            return False
+
         api_keys = {
-            "openai_configured": bool(
-                getattr(settings, "OPENAI_API_KEY", "") not in ("", None, "dummy-key")
-            ),
-            "stripe_configured": bool(getattr(settings, "STRIPE_SECRET_KEY", "")),
+            "openai_configured": cfg("DEEPINFRA_API_KEY", "OPENAI_API_KEY"),
+            "stripe_configured": cfg("STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"),
             "paypal_configured": bool(
-                getattr(settings, "PAYPAL_CLIENT_ID", "")
-                and getattr(settings, "PAYPAL_CLIENT_SECRET", "")
+                (db_config.get("PAYPAL_CLIENT_ID") or getattr(settings, "PAYPAL_CLIENT_ID", ""))
+                and (db_config.get("PAYPAL_CLIENT_SECRET") or getattr(settings, "PAYPAL_CLIENT_SECRET", ""))
             ),
-            "signrequest_configured": bool(getattr(settings, "SIGNREQUEST_API_KEY", "")),
+            "signwell_configured": cfg("SIGNWELL_API_KEY", "SIGNWELL_API_KEY"),
             "aws_s3_configured": bool(
-                getattr(settings, "AWS_ACCESS_KEY_ID", "")
-                and getattr(settings, "AWS_SECRET_ACCESS_KEY", "")
+                (db_config.get("AWS_ACCESS_KEY_ID") or getattr(settings, "AWS_ACCESS_KEY_ID", ""))
+                and (db_config.get("AWS_SECRET_ACCESS_KEY") or getattr(settings, "AWS_SECRET_ACCESS_KEY", ""))
             ),
+            "resend_configured": cfg("RESEND_API_KEY", "RESEND_API_KEY"),
         }
-    except Exception:
+    except Exception as e:
         api_keys = {
             "openai_configured": False,
             "stripe_configured": False,
             "paypal_configured": False,
-            "signrequest_configured": False,
+            "signwell_configured": False,
             "aws_s3_configured": False,
+            "resend_configured": False,
         }
 
     return {

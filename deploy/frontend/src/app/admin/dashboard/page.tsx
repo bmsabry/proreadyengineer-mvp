@@ -1,10 +1,10 @@
-"use client";
+'use client';
 
 import { useState, useEffect } from 'react';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Users, FileText, Building2, Cpu, CheckCircle, XCircle, RefreshCw, AlertTriangle, Search } from 'lucide-react';
+import { Users, FileText, Building2, Cpu, CheckCircle, XCircle, RefreshCw, AlertTriangle, Search, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface AdminStatus {
@@ -21,8 +21,9 @@ interface AdminStatus {
     openai_configured: boolean;
     stripe_configured: boolean;
     paypal_configured: boolean;
-    signrequest_configured: boolean;
+    signwell_configured: boolean;
     aws_s3_configured: boolean;
+    resend_configured: boolean;
   };
   timestamp: string;
 }
@@ -49,7 +50,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // Only fetch AFTER auth has finished loading and user is confirmed
   useEffect(() => {
     if (!authLoading && user) {
       fetchStatus();
@@ -106,8 +106,9 @@ export default function AdminDashboard() {
     { label: 'AI / Search (DeepInfra / OpenAI)', ok: keys?.openai_configured },
     { label: 'Stripe Payments', ok: keys?.stripe_configured },
     { label: 'PayPal / Braintree', ok: keys?.paypal_configured },
-    { label: 'SignRequest (NDA)', ok: keys?.signrequest_configured },
+    { label: 'Signwell (NDA Signing)', ok: keys?.signwell_configured },
     { label: 'AWS S3 (File Storage)', ok: keys?.aws_s3_configured },
+    { label: 'Resend (Transactional Email)', ok: keys?.resend_configured },
   ];
 
   return (
@@ -156,7 +157,7 @@ export default function AdminDashboard() {
       {/* API Keys Status */}
       <Card>
         <CardHeader>
-          <CardTitle>API & Integration Status</CardTitle>
+          <CardTitle>API &amp; Integration Status</CardTitle>
           <CardDescription>
             Configure missing keys in{' '}
             <a href="/admin/settings" className="text-blue-600 underline">Admin Settings</a>
