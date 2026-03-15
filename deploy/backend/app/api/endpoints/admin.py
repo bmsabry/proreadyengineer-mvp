@@ -1226,33 +1226,10 @@ async def admin_debug_test_nda(
         customer_signer_id = "signer_1"
         provider_signer_id = "signer_2"
 
-    # Step 2: Build payload — template_id goes in the URL, NOT the body
-    # Skip signature/initials/stamp fields — they cannot be pre-filled via API
-    SKIP_FIELD_TYPES = {"signature", "initials", "stamp"}
-    tmpl_fields = tmpl_data.get("fields", [])
-
-    def _is_signature_field(api_id: str) -> bool:
-        return any(t in api_id.lower() for t in ("signature", "initials", "stamp"))
-
-    field_values = {
-        "customer_name":        data.customer_name,
-        "customer_name2":       data.customer_name,
-        "customer_company":     data.customer_name,
-        "customer_entity_type": "Individual",
-        "effective_date":       effective_date,
-        "governing_state":      "Ohio",
-        "provider_name":        data.provider_name,
-        "provider_name2":       data.provider_name,
-        "provider_company":     data.provider_name,
-        "provider_entity_type": "Company",
-    }
-
-    prefill_fields = [
-        {"api_id": api_id, "value": value}
-        for api_id, value in field_values.items()
-        if not _is_signature_field(api_id)
-    ]
-
+    # Step 2: Build MINIMAL payload — ROOT CAUSE FIX for Signwell 500 error
+    # REMOVED signing_elements: [] — template already defines them; empty [] OVERRIDES and causes 500
+    # REMOVED fields: [...] — wrong key; use prefill_fields only after confirming api_ids exist in template
+    # REMOVED id from signees — template creation assigns signers by ORDER, not by id
     payload = {
         "test_mode": False,
         "subject": f"[TEST] ProMechDirectory NDA - {data.customer_name} & {data.provider_name}",
@@ -1262,22 +1239,18 @@ async def admin_debug_test_nda(
         ),
         "signees": [
             {
-                "id":               customer_signer_id,
                 "name":             data.customer_name,
                 "email":            data.customer_email,
                 "send_email":       True,
                 "embedded_signing": False,
             },
             {
-                "id":               provider_signer_id,
                 "name":             data.provider_name,
                 "email":            data.provider_email,
                 "send_email":       True,
                 "embedded_signing": False,
             },
         ],
-        "fields": prefill_fields,
-        "signing_elements": [],
     }
 
     # Step 3: POST to correct endpoint — template_id in URL
@@ -1440,4 +1413,57 @@ async def admin_debug_test_nda_void(
         "success": True, "error": None,
         "message": f"Document {document_id} voided successfully.",
         "document_id": document_id,
+    }
+
+
+@router.get("/admin/debug/signwell-template-raw")
+async def admin_debug_signwell_template_raw(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> dict:
+    """Admin: Fetch the raw Signwell template JSON to inspect signer IDs, field api_ids, and structure."""
+    try:
+        from app.services.nda_service import _headers, _get_template_id, SIGNWELL_BASE_URL
+        h = await _headers(db)
+        tid = await _get_template_id(db)
+    except Exception as exc:
+        return {"success": False, "error": f"Signwell not configured: {exc}", "template": None}
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{SIGNWELL_BASE_URL}/document_templates/{tid}",
+                headers=h,
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return {
+            "success": False,
+            "error": f"Signwell API error {exc.response.status_code}: {exc.response.text}",
+            "template": None,
+        }
+    except Exception as exc:
+        return {"success": False, "error": f"Request failed: {exc}", "template": None}
+
+    tmpl = resp.json()
+    # Extract useful debug info
+    top_level_keys = list(tmpl.keys())
+    signers = (
+        tmpl.get("template_signers") or
+        tmpl.get("signees") or
+        tmpl.get("signers") or
+        tmpl.get("roles") or
+        tmpl.get("signer_roles") or []
+    )
+    fields = tmpl.get("fields") or tmpl.get("form_fields") or tmpl.get("signing_elements") or []
+    return {
+        "success": True,
+        "error": None,
+        "template_id": tid,
+        "top_level_keys": top_level_keys,
+        "signer_count": len(signers),
+        "signers": signers,
+        "field_count": len(fields) if isinstance(fields, list) else "(not a list)",
+        "fields_sample": fields[:5] if isinstance(fields, list) else fields,
+        "full_template": tmpl,  # full raw response for inspection
     }
