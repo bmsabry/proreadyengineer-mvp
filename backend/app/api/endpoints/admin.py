@@ -1056,7 +1056,7 @@ async def admin_check_resend_domains(
 @router.get("/admin/debug/test-signwell")
 async def admin_debug_test_signwell_connection(
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_admin),
+    current_user=Depends(require_role(["admin"])),
 ):
     """Admin: Test Signwell API key validity by listing templates."""
     import httpx
