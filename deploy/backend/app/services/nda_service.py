@@ -72,6 +72,42 @@ def _human_date(dt: Optional[datetime]) -> str:
     return dt.strftime("%B %d, %Y")
 
 
+async def _get_template_signing_elements(db: AsyncSession) -> list:
+    """Fetch Signwell template and return its signing_elements.
+
+    ROOT CAUSE FIX: Signwell API REQUIRES signing_elements in payload.
+    - Empty [] => 500 (overrides template elements with nothing)
+    - Missing entirely => 400 ('signing_elements must be present')
+    - CORRECT: pass the ACTUAL elements from the template.
+    """
+    import logging
+    _log = logging.getLogger(__name__)
+    h = await _headers(db)
+    tid = await _get_template_id(db)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h,
+        )
+        resp.raise_for_status()
+    tmpl = resp.json()
+    _log.info("[SIGNWELL] Template keys: %s", list(tmpl.keys()))
+    elements = (
+        tmpl.get("signing_elements")
+        or tmpl.get("fields")
+        or tmpl.get("form_fields")
+        or tmpl.get("elements")
+        or []
+    )
+    _log.info("[SIGNWELL] Found %d signing_elements", len(elements))
+    if not elements:
+        _log.error("[SIGNWELL] No signing_elements! Keys: %s", list(tmpl.keys()))
+        for k, v in tmpl.items():
+            if isinstance(v, (list, dict)) and v:
+                _log.info("  tmpl['%s'] type=%s len=%s", k, type(v).__name__,
+                          len(v) if isinstance(v, list) else "dict")
+    return elements
+
+
 async def get_customer_signing_url(rfq_id, db: AsyncSession) -> str:
     """Get fresh embedded signing URL for customer NDA."""
     nda = (await db.execute(
@@ -134,7 +170,10 @@ async def create_customer_nda(
         if not _is_signature_field(api_id)
     ]
 
-    # Build payload — template_id in URL, NOT in body
+    # Fetch signing_elements from template (REQUIRED by Signwell API)
+    signing_elements = await _get_template_signing_elements(db)
+
+    # Build payload with signing_elements from template
     payload = {
         "test_mode": False,
         "subject":   f"NDA for Engineering RFQ #{rfq_id}",
@@ -146,6 +185,7 @@ async def create_customer_nda(
             "send_email":       False,
             "embedded_signing": True,
         }],
+        "signing_elements": signing_elements,
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -260,7 +300,10 @@ async def add_provider_to_nda(
         if not _is_signature_field(api_id)
     ]
 
-    # Step 2: Build payload — template_id in URL, NOT in body
+    # Fetch signing_elements from template (REQUIRED by Signwell API)
+    signing_elements = await _get_template_signing_elements(db)
+
+    # Step 2: Build payload with signing_elements from template
     payload = {
         "test_mode":   False,
         "subject":     f"NDA for Engineering RFQ #{rfq_id} - Provider Copy",
@@ -272,6 +315,7 @@ async def add_provider_to_nda(
             "send_email":       False,
             "embedded_signing": True,
         }],
+        "signing_elements": signing_elements,
     }
 
     # Step 3: POST to correct endpoint — template_id in URL

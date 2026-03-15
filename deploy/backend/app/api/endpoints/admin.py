@@ -1202,34 +1202,56 @@ async def admin_debug_test_nda(
         }
 
     tmpl_data = tmpl_resp.json()
-    # Signwell may use different keys for template signers depending on API version
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Signwell template top-level keys: {list(tmpl_data.keys())}")
+
+    # --- Extract template signers ---
     tmpl_signers = (
         tmpl_data.get("template_signers") or
-        (tmpl_data.get("signees") or tmpl_data.get("signers")) or
+        tmpl_data.get("signees") or
+        tmpl_data.get("signers") or
         tmpl_data.get("roles") or
         tmpl_data.get("signer_roles") or
         []
     )
-    # Log for debugging (visible in Render logs)
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f"Signwell template keys: {list(tmpl_data.keys())}")
-    logger.info(f"Signwell template signers found ({len(tmpl_signers)}): {tmpl_signers}")
+    logger.info(f"Template signers ({len(tmpl_signers)}): {json.dumps(tmpl_signers, default=str)[:500]}")
 
-    # Use actual signer IDs from the template if available, otherwise fall back to positional IDs
+    # --- CRITICAL: Extract signing_elements from template ---
+    # Signwell API REQUIRES signing_elements in the payload.
+    # Empty [] causes 500 (overrides template). Missing causes 400 (required).
+    # We must pass through the ACTUAL elements from the template.
+    tmpl_signing_elements = (
+        tmpl_data.get("signing_elements") or
+        tmpl_data.get("fields") or
+        tmpl_data.get("form_fields") or
+        tmpl_data.get("elements") or
+        []
+    )
+    logger.info(f"Template signing_elements ({len(tmpl_signing_elements)}): {json.dumps(tmpl_signing_elements, default=str)[:1000]}")
+
+    if not tmpl_signing_elements:
+        logger.error(f"WARNING: No signing_elements found in template! All keys: {list(tmpl_data.keys())}")
+        # Log ALL template data to find the correct key
+        for k, v in tmpl_data.items():
+            if isinstance(v, (list, dict)) and v:
+                logger.info(f"  tmpl_data['{k}'] type={type(v).__name__} len={len(v) if isinstance(v, list) else 'dict'}")
+
+    # Build signer ID mapping from template
     if len(tmpl_signers) >= 2:
-        customer_signer_id = tmpl_signers[0].get("id") or tmpl_signers[0].get("signer_id") or "signer_1"
-        provider_signer_id = tmpl_signers[1].get("id") or tmpl_signers[1].get("signer_id") or "signer_2"
+        customer_signer_id = str(tmpl_signers[0].get("id") or tmpl_signers[0].get("signer_id") or "1")
+        provider_signer_id = str(tmpl_signers[1].get("id") or tmpl_signers[1].get("signer_id") or "2")
+    elif len(tmpl_signers) == 1:
+        customer_signer_id = str(tmpl_signers[0].get("id") or "1")
+        provider_signer_id = "2"
     else:
-        # Fallback: use positional signer IDs (standard Signwell template convention)
-        logger.warning(f"No template signers found in response keys: {list(tmpl_data.keys())}. Using fallback IDs.")
-        customer_signer_id = "signer_1"
-        provider_signer_id = "signer_2"
+        logger.warning(f"No template signers found! Using fallback IDs.")
+        customer_signer_id = "1"
+        provider_signer_id = "2"
 
-    # Step 2: Build MINIMAL payload — ROOT CAUSE FIX for Signwell 500 error
-    # REMOVED signing_elements: [] — template already defines them; empty [] OVERRIDES and causes 500
-    # REMOVED fields: [...] — wrong key; use prefill_fields only after confirming api_ids exist in template
-    # REMOVED id from signees — template creation assigns signers by ORDER, not by id
+    logger.info(f"Using signer IDs: customer={customer_signer_id}, provider={provider_signer_id}")
+
+    # Step 2: Build payload WITH signing_elements from template
     payload = {
         "test_mode": False,
         "subject": f"[TEST] ProMechDirectory NDA - {data.customer_name} & {data.provider_name}",
@@ -1239,19 +1261,22 @@ async def admin_debug_test_nda(
         ),
         "signees": [
             {
-                "name":             data.customer_name,
-                "email":            data.customer_email,
-                "send_email":       True,
-                "embedded_signing": False,
+                "id":           customer_signer_id,
+                "name":         data.customer_name,
+                "email":        data.customer_email,
+                "send_email":   True,
             },
             {
-                "name":             data.provider_name,
-                "email":            data.provider_email,
-                "send_email":       True,
-                "embedded_signing": False,
+                "id":           provider_signer_id,
+                "name":         data.provider_name,
+                "email":        data.provider_email,
+                "send_email":   True,
             },
         ],
+        "signing_elements": tmpl_signing_elements,
     }
+    logger.info(f"Final payload: signees={len(payload['signees'])}, signing_elements={len(payload['signing_elements'])}, signer_ids=[{customer_signer_id}, {provider_signer_id}]")
+
 
     # Step 3: POST to correct endpoint — template_id in URL
     try:
