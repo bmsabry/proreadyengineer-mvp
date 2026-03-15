@@ -11,40 +11,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Loader2, CheckCircle2, XCircle, AlertCircle, Brain, CreditCard, Mail, HardDrive, FileSignature, LayoutDashboard } from 'lucide-react'
-
-// ─── Same-origin proxy helpers (bypass cross-domain cookie issues) ───
-function getAuthHeader(): HeadersInit {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-  const h: HeadersInit = { 'Content-Type': 'application/json' };
-  if (token) h['Authorization'] = `Bearer ${token}`;
-  return h;
-}
-
-async function fetchConfig(): Promise<any> {
-  const res = await fetch('/api/admin-config', { credentials: 'include', cache: 'no-store', headers: getAuthHeader() })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }))
-    const err: any = new Error(body.detail || 'Failed to load config')
-    err.response = { status: res.status, data: body }
-    throw err
-  }
-  return res.json()
-}
-
-async function postConfig(payload: Record<string, string>): Promise<any> {
-  const res = await fetch('/api/admin-config', {
-    method: 'POST', credentials: 'include', cache: 'no-store',
-    headers: getAuthHeader(),
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }))
-    const err: any = new Error(body.detail || 'Save failed')
-    err.response = { status: res.status, data: body }
-    throw err
-  }
-  return res.json()
-}
+import { api } from '@/lib/api'
+import { useRequireAuth } from '@/hooks/useAuth'
 
 interface ServerConfig {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,6 +98,7 @@ function SectionCard({ title, description, children }: { title: string; descript
 }
 
 export default function AdminSettingsPage() {
+  const { isLoading: authLoading, user } = useRequireAuth(['admin']);
   const [config, setConfig] = useState<ServerConfig | null>(null)
   const [form, setForm] = useState<FormFields>(EMPTY_FORM)
   const [loading, setLoading] = useState(true)
@@ -140,11 +109,12 @@ export default function AdminSettingsPage() {
   const [successMsg, setSuccessMsg] = useState<string | null>(null)
 
   useEffect(() => {
+    if (authLoading || !user) return
     let cancelled = false
     setLoading(true); setFetchError(null); setFetchErrorCode(null)
-    fetchConfig()
+    api.admin.getConfig()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then((data: any) => { if (!cancelled) { setConfig(data as ServerConfig); setLoading(false) } })
+      .then((res: any) => { if (!cancelled) { setConfig(res.data as ServerConfig); setLoading(false) } })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .catch((err: any) => {
         if (!cancelled) {
@@ -154,7 +124,7 @@ export default function AdminSettingsPage() {
         }
       })
     return () => { cancelled = true }
-  }, [])
+  }, [authLoading, user])
 
   const handleChange = (name: keyof FormFields, val: string) => {
     setForm((prev) => ({ ...prev, [name]: val }))
@@ -169,10 +139,10 @@ export default function AdminSettingsPage() {
     }
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result: any = await postConfig(payload)
+      const result: any = (await api.admin.saveConfig(payload)).data
       setSuccessMsg(result?.message ?? 'Configuration saved successfully.')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updated: any = await fetchConfig()
+      const updated: any = (await api.admin.getConfig()).data
       setConfig(updated as ServerConfig); setForm(EMPTY_FORM)
     } catch (err: unknown) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
