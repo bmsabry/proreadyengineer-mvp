@@ -1202,17 +1202,29 @@ async def admin_debug_test_nda(
         }
 
     tmpl_data = tmpl_resp.json()
-    tmpl_signers = tmpl_data.get("signers", [])
-    if len(tmpl_signers) < 2:
-        return {
-            "success": False, "document_id": None,
-            "error": f"Template has {len(tmpl_signers)} signer(s); expected at least 2. Signers: {tmpl_signers}",
-            "customer_signing_url": None, "provider_signing_url": None,
-        }
+    # Signwell may use different keys for template signers depending on API version
+    tmpl_signers = (
+        tmpl_data.get("template_signers") or
+        tmpl_data.get("signers") or
+        tmpl_data.get("roles") or
+        tmpl_data.get("signer_roles") or
+        []
+    )
+    # Log for debugging (visible in Render logs)
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Signwell template keys: {list(tmpl_data.keys())}")
+    logger.info(f"Signwell template signers found ({len(tmpl_signers)}): {tmpl_signers}")
 
-    # Use actual signer IDs from the template (first = customer, second = provider)
-    customer_signer_id = tmpl_signers[0]["id"]
-    provider_signer_id = tmpl_signers[1]["id"]
+    # Use actual signer IDs from the template if available, otherwise fall back to positional IDs
+    if len(tmpl_signers) >= 2:
+        customer_signer_id = tmpl_signers[0].get("id") or tmpl_signers[0].get("signer_id") or "signer_1"
+        provider_signer_id = tmpl_signers[1].get("id") or tmpl_signers[1].get("signer_id") or "signer_2"
+    else:
+        # Fallback: use positional signer IDs (standard Signwell template convention)
+        logger.warning(f"No template signers found in response keys: {list(tmpl_data.keys())}. Using fallback IDs.")
+        customer_signer_id = "signer_1"
+        provider_signer_id = "signer_2"
 
     # Step 2: Build payload — template_id goes in the URL, NOT the body
     # Skip signature/initials/stamp fields — they cannot be pre-filled via API
