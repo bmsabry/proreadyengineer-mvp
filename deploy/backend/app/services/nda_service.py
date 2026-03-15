@@ -38,7 +38,7 @@ async def _headers(db: AsyncSession) -> dict:
     api_key = api_key.strip()
     _log.info(f"[SIGNWELL] Using API key: length={len(api_key)}, prefix={api_key[:8]}...")
     return {
-        "X-Api-Token": api_key,
+        "X-Api-Key": api_key,
         "Content-Type": "application/json",
         "Accept": "application/json",
     }

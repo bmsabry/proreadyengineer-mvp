@@ -1092,7 +1092,7 @@ async def admin_debug_test_signwell_connection(
                     resp = await client.get(
                         f"{SIGNWELL_BASE}{path}",
                         headers={
-                            "X-Api-Token": api_key,
+                            "X-Api-Key": api_key,
                             "Content-Type": "application/json",
                             "Accept": "application/json",
                         },
