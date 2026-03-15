@@ -650,6 +650,7 @@ class SystemConfigRequest(_BaseModel):
     aws_region: Optional[str] = None
     aws_s3_bucket: Optional[str] = None
     resend_api_key: Optional[str] = None
+    resend_from_email: Optional[str] = None
     signrequest_api_key: Optional[str] = None
     signwell_api_key: Optional[str] = None
     signwell_template_id: Optional[str] = None

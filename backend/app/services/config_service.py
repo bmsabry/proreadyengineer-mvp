@@ -88,50 +88,44 @@ async def save_config_values(
 ) -> None:
     """Upsert config key/value pairs into the system_config table using raw SQL.
 
-    Uses raw SQL to avoid SQLAlchemy ORM inheritance issues with mixed
-    Mapped/Column declarations on the system_config table.
+    Uses the most minimal INSERT possible to work with any version of the
+    system_config schema (with or without created_at, regardless of updated_by type).
     """
     user_id_str: Optional[str] = str(user_id) if user_id is not None else None
     now = datetime.utcnow()
     saved_keys = []
 
-    # Ensure table exists (safety net)
-    try:
-        await db.execute(text("""
-            CREATE TABLE IF NOT EXISTS system_config (
-                id SERIAL PRIMARY KEY,
-                key VARCHAR(100) UNIQUE NOT NULL,
-                value TEXT,
-                is_secret BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW(),
-                updated_by VARCHAR(100)
-            )
-        """))
-        await db.execute(text("CREATE INDEX IF NOT EXISTS ix_system_config_key ON system_config (key)"))
-    except Exception as exc:
-        logger.debug(f'[CONFIG] Table ensure skipped: {exc}')
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-
     for key, value in config.items():
         if value is None:
             continue
         try:
-            # Use INSERT ... ON CONFLICT (upsert) - works in PostgreSQL
-            await db.execute(
-                text("""
-                    INSERT INTO system_config (key, value, is_secret, created_at, updated_at, updated_by)
-                    VALUES (:key, :value, TRUE, :now, :now, :user_id)
-                    ON CONFLICT (key) DO UPDATE SET
-                        value = EXCLUDED.value,
-                        updated_at = EXCLUDED.updated_at,
-                        updated_by = EXCLUDED.updated_by
-                """),
-                {"key": key, "value": value, "now": now, "user_id": user_id_str}
-            )
+            # Minimal upsert: only touch columns that definitely exist in all schema versions.
+            # Do NOT include created_at (may not exist) or rely on updated_by type.
+            # First try with updated_at and updated_by:
+            try:
+                await db.execute(
+                    text("""
+                        INSERT INTO system_config (key, value, is_secret, updated_at, updated_by)
+                        VALUES (:key, :value, TRUE, :now, :user_id)
+                        ON CONFLICT (key) DO UPDATE SET
+                            value = EXCLUDED.value,
+                            updated_at = EXCLUDED.updated_at,
+                            updated_by = EXCLUDED.updated_by
+                    """),
+                    {"key": key, "value": value, "now": now, "user_id": user_id_str}
+                )
+            except Exception:
+                # Fallback: absolute minimal upsert with only guaranteed columns
+                await db.rollback()
+                await db.execute(
+                    text("""
+                        INSERT INTO system_config (key, value, is_secret)
+                        VALUES (:key, :value, TRUE)
+                        ON CONFLICT (key) DO UPDATE SET
+                            value = EXCLUDED.value
+                    """),
+                    {"key": key, "value": value}
+                )
             saved_keys.append(key)
             logger.info(f'[CONFIG] Upserted key: {key}')
         except Exception as exc:
