@@ -1277,6 +1277,7 @@ async def admin_debug_test_nda(
             },
         ],
         "fields": prefill_fields,
+        "signing_elements": [],
     }
 
     # Step 3: POST to correct endpoint — template_id in URL

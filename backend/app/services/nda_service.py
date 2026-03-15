@@ -167,6 +167,7 @@ async def create_customer_nda(
             "embedded_signing": True,
         }],
         "fields": prefill_fields,
+        "signing_elements": [],
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -314,6 +315,7 @@ async def add_provider_to_nda(
             "embedded_signing": True,
         }],
         "fields": prefill_fields,
+        "signing_elements": [],
     }
 
     # Step 3: POST to correct endpoint — template_id in URL
