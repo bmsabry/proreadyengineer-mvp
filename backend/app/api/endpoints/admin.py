@@ -1217,6 +1217,29 @@ async def admin_debug_test_nda(
     )
     logger.info(f"Template placeholders ({len(tmpl_placeholders)}): {json.dumps(tmpl_placeholders, default=str)[:500]}")
 
+    # CHECKLIST RESTORE: Signwell requires signing_elements in the payload.
+    # We must pass through the ACTUAL template elements.
+    tmpl_signing_elements = (
+        tmpl_data.get("signing_elements") or
+        tmpl_data.get("fields") or
+        tmpl_data.get("form_fields") or
+        tmpl_data.get("elements") or
+        []
+    )
+    logger.info(
+        f"Template signing_elements ({len(tmpl_signing_elements)}): "
+        f"{json.dumps(tmpl_signing_elements, default=str)[:1000]}"
+    )
+
+    if not tmpl_signing_elements:
+        logger.error(f"WARNING: No signing_elements found in template! All keys: {list(tmpl_data.keys())}")
+        for k, v in tmpl_data.items():
+            if isinstance(v, (list, dict)) and v:
+                logger.info(
+                    f"  tmpl_data['{k}'] type={type(v).__name__} "
+                    f"len={len(v) if isinstance(v, list) else 'dict'}"
+                )
+
     # Get placeholder IDs - first is Customer, second is Provider
     if len(tmpl_placeholders) >= 2:
         customer_placeholder_id = str(tmpl_placeholders[0].get("id", "1"))
@@ -1264,6 +1287,7 @@ async def admin_debug_test_nda(
                 "send_email": True,
             },
         ],
+        "signing_elements": tmpl_signing_elements,
         "template_fields": template_fields,
     }
 

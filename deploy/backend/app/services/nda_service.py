@@ -120,6 +120,46 @@ async def _fetch_template_placeholder_ids(db: AsyncSession) -> tuple:
     return customer_id, provider_id
 
 
+async def _get_template_signing_elements(db: AsyncSession) -> list:
+    """Fetch Signwell template and return its signing_elements.
+
+    Checklist comparison with the prior root-cause fix shows these must be
+    passed through from the template. When omitted, Signwell returns:
+    `Invalid parameter: signing_elements must be present`.
+    """
+    h = await _headers(db)
+    tid = await _get_template_id(db)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h,
+        )
+        resp.raise_for_status()
+
+    tmpl = resp.json()
+    logger.info("[SIGNWELL] Template keys for signing elements: %s", list(tmpl.keys()))
+
+    elements = (
+        tmpl.get("signing_elements")
+        or tmpl.get("fields")
+        or tmpl.get("form_fields")
+        or tmpl.get("elements")
+        or []
+    )
+
+    logger.info("[SIGNWELL] Found %d signing_elements", len(elements))
+    if not elements:
+        logger.error("[SIGNWELL] No signing_elements found in template response")
+        for k, v in tmpl.items():
+            if isinstance(v, (list, dict)) and v:
+                logger.info(
+                    "[SIGNWELL] tmpl[%s] type=%s len=%s",
+                    k,
+                    type(v).__name__,
+                    len(v) if isinstance(v, list) else "dict",
+                )
+    return elements
+
+
 async def get_customer_signing_url(rfq_id, db: AsyncSession) -> str:
     """Get fresh embedded signing URL for customer NDA."""
     nda = (await db.execute(
@@ -162,6 +202,7 @@ async def create_customer_nda(
 
     # Fetch template placeholder IDs
     customer_placeholder_id, _provider_placeholder_id = await _fetch_template_placeholder_ids(db)
+    signing_elements = await _get_template_signing_elements(db)
 
     # Build template_fields to pre-fill values (NOT signing_elements)
     template_fields = [
@@ -184,6 +225,7 @@ async def create_customer_nda(
             "send_email":       False,
             "embedded_signing": True,
         }],
+        "signing_elements": signing_elements,
         "template_fields": template_fields,
     }
 
@@ -278,6 +320,7 @@ async def add_provider_to_nda(
 
     # Fetch template placeholder IDs
     _customer_placeholder_id, provider_placeholder_id = await _fetch_template_placeholder_ids(db)
+    signing_elements = await _get_template_signing_elements(db)
 
     # Build template_fields to pre-fill ALL text values (NOT signing_elements)
     template_fields = [
@@ -304,6 +347,7 @@ async def add_provider_to_nda(
             "send_email":       False,
             "embedded_signing": True,
         }],
+        "signing_elements": signing_elements,
         "template_fields": template_fields,
     }
 
