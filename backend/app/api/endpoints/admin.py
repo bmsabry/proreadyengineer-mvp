@@ -1049,3 +1049,235 @@ async def admin_check_resend_domains(
             "domain_verified": False,
             "tip": None,
         }
+
+
+# ---------------------------------------------------------------------------
+# Admin Debug - Signwell NDA End-to-End Test
+# ---------------------------------------------------------------------------
+
+
+class TestNDARequest(_BaseModel):
+    customer_name: str
+    customer_email: str
+    provider_name: str
+    provider_email: str
+
+
+@router.post("/admin/debug/test-nda")
+async def admin_debug_test_nda(
+    data: TestNDARequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> dict:
+    """Admin: Create a real Signwell test NDA document and send signing invitations
+    to two email addresses - verifies the full document-signing integration."""
+    from app.services.nda_service import _headers, _get_template_id, SIGNWELL_BASE_URL
+    from datetime import date
+
+    try:
+        h = await _headers(db)
+        tid = await _get_template_id(db)
+    except Exception as exc:
+        return {
+            "success": False, "document_id": None,
+            "error": f"Signwell not configured: {exc}",
+            "customer_signing_url": None, "provider_signing_url": None,
+        }
+
+    effective_date = date.today().strftime("%B %d, %Y")
+    payload = {
+        "test_mode": False,
+        "template_id": tid,
+        "subject": f"[TEST] ProMechDirectory NDA - {data.customer_name} & {data.provider_name}",
+        "message": (
+            "This is a test NDA document to verify the document signing "
+            "integration. Please sign to confirm the workflow works end-to-end."
+        ),
+        "signers": [
+            {
+                "id": "signer_1",
+                "name": data.customer_name,
+                "email": data.customer_email,
+                "embedded_signing": False,
+            },
+            {
+                "id": "signer_2",
+                "name": data.provider_name,
+                "email": data.provider_email,
+                "embedded_signing": False,
+            },
+        ],
+        "fields": [
+            {"api_id": "customer_name",        "value": data.customer_name},
+            {"api_id": "customer_name2",       "value": data.customer_name},
+            {"api_id": "customer_company",     "value": data.customer_name},
+            {"api_id": "customer_entity_type", "value": "Individual"},
+            {"api_id": "customer_signature",   "value": ""},
+            {"api_id": "effective_date",       "value": effective_date},
+            {"api_id": "governing_state",      "value": "Ohio"},
+            {"api_id": "provider_name",        "value": data.provider_name},
+            {"api_id": "provider_name2",       "value": data.provider_name},
+            {"api_id": "provider_company",     "value": data.provider_name},
+            {"api_id": "provider_entity_type", "value": "Company"},
+            {"api_id": "provider_signature",   "value": ""},
+        ],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{SIGNWELL_BASE_URL}/documents", json=payload, headers=h
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return {
+            "success": False, "document_id": None,
+            "error": f"Signwell API error {exc.response.status_code}: {exc.response.text}",
+            "customer_signing_url": None, "provider_signing_url": None,
+        }
+    except Exception as exc:
+        return {
+            "success": False, "document_id": None,
+            "error": f"Request failed: {exc}",
+            "customer_signing_url": None, "provider_signing_url": None,
+        }
+
+    doc = resp.json()
+    document_id = doc.get("id")
+    customer_url: Optional[str] = None
+    provider_url: Optional[str] = None
+    for s in doc.get("signers", []):
+        url = s.get("sign_page_url") or s.get("embedded_signing_url")
+        if s.get("email", "") == data.customer_email:
+            customer_url = url
+        elif s.get("email", "") == data.provider_email:
+            provider_url = url
+
+    return {
+        "success": True,
+        "document_id": document_id,
+        "error": None,
+        "customer_signing_url": customer_url,
+        "provider_signing_url": provider_url,
+        "signwell_status": doc.get("status"),
+        "created_at": doc.get("created_at"),
+    }
+
+
+@router.get("/admin/debug/test-nda/{document_id}/status")
+async def admin_debug_test_nda_status(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> dict:
+    """Admin: Poll Signwell for per-signer signing status and check S3 for completed PDF."""
+    from app.services.nda_service import _headers, SIGNWELL_BASE_URL
+    from app.services.file_service import check_file_exists, generate_download_url
+
+    try:
+        h = await _headers(db)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{SIGNWELL_BASE_URL}/documents/{document_id}", headers=h
+            )
+            resp.raise_for_status()
+        doc = resp.json()
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Failed to fetch document from Signwell: {exc}",
+            "document_id": document_id,
+            "document_status": None,
+            "customer_signed": False, "customer_signed_at": None,
+            "provider_signed": False, "provider_signed_at": None,
+            "fully_signed": False,
+            "s3_saved": False, "s3_key_checked": None, "s3_download_url": None,
+        }
+
+    doc_status = doc.get("status", "unknown")
+    signers = doc.get("signers", [])
+    customer_signed, customer_signed_at = False, None
+    provider_signed, provider_signed_at = False, None
+
+    if len(signers) >= 1:
+        s = signers[0]
+        customer_signed = s.get("status") == "signed" or bool(s.get("signed_at"))
+        customer_signed_at = s.get("signed_at")
+    if len(signers) >= 2:
+        s = signers[1]
+        provider_signed = s.get("status") == "signed" or bool(s.get("signed_at"))
+        provider_signed_at = s.get("signed_at")
+
+    fully_signed = customer_signed and provider_signed
+    s3_saved = False
+    s3_download_url: Optional[str] = None
+    s3_key_checked: Optional[str] = None
+
+    try:
+        for key in [
+            f"ndas/test/nda_signed_{document_id}.pdf",
+            f"ndas/test_{document_id}/nda_signed_{document_id}.pdf",
+        ]:
+            if check_file_exists(key):
+                s3_saved = True
+                s3_key_checked = key
+                s3_download_url = generate_download_url(key, expire_seconds=3600)
+                break
+    except Exception:
+        pass  # S3 not configured - non-fatal
+
+    return {
+        "success": True,
+        "error": None,
+        "document_id": document_id,
+        "document_status": doc_status,
+        "customer_signed": customer_signed,
+        "customer_signed_at": customer_signed_at,
+        "provider_signed": provider_signed,
+        "provider_signed_at": provider_signed_at,
+        "fully_signed": fully_signed,
+        "s3_saved": s3_saved,
+        "s3_key_checked": s3_key_checked,
+        "s3_download_url": s3_download_url,
+    }
+
+
+@router.post("/admin/debug/test-nda/{document_id}/void")
+async def admin_debug_test_nda_void(
+    document_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> dict:
+    """Admin: Void/cancel a test NDA document in Signwell to clean up after testing."""
+    from app.services.nda_service import _headers, SIGNWELL_BASE_URL
+
+    try:
+        h = await _headers(db)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(
+                f"{SIGNWELL_BASE_URL}/documents/{document_id}", headers=h
+            )
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            return {
+                "success": True, "error": None,
+                "message": "Document not found (may already be void/completed)",
+                "document_id": document_id,
+            }
+        return {
+            "success": False,
+            "error": f"Signwell API error {exc.response.status_code}: {exc.response.text}",
+            "message": None, "document_id": document_id,
+        }
+    except Exception as exc:
+        return {
+            "success": False, "error": f"Request failed: {exc}",
+            "message": None, "document_id": document_id,
+        }
+
+    return {
+        "success": True, "error": None,
+        "message": f"Document {document_id} voided successfully.",
+        "document_id": document_id,
+    }

@@ -425,6 +425,17 @@ const admin = {
     apiClient.post<any>('/admin/debug/test-email', { to_email: toEmail }),
   checkResendDomains: () =>
     apiClient.get<any>('/admin/debug/resend-domains'),
+  testNda: (customerName: string, customerEmail: string, providerName: string, providerEmail: string) =>
+    apiClient.post<any>('/admin/debug/test-nda', {
+      customer_name: customerName,
+      customer_email: customerEmail,
+      provider_name: providerName,
+      provider_email: providerEmail,
+    }),
+  testNdaStatus: (documentId: string) =>
+    apiClient.get<any>(`/admin/debug/test-nda/${documentId}/status`),
+  testNdaVoid: (documentId: string) =>
+    apiClient.post<any>(`/admin/debug/test-nda/${documentId}/void`),
 };
 
 // Webhooks (server-side only, usually)

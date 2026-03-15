@@ -7,7 +7,7 @@ import { PipelineInfo } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertCircle, CheckCircle, Database, Search, RefreshCw, Activity, Zap, Mail } from "lucide-react";
+import { AlertCircle, CheckCircle, Database, Search, RefreshCw, Activity, Zap, Mail, FileSignature } from "lucide-react";
 
 interface DatabaseStatus {
   connection_ok: boolean;
@@ -79,6 +79,158 @@ function AIPipelineBanner({ pipeline }: { pipeline: PipelineInfo }) {
           <span className="font-medium">Fallback Reason:</span> {pipeline.fallback_reason}
         </div>
       )}
+
+      {/* ---- Signwell NDA End-to-End Test ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileSignature className="h-5 w-5" />
+            Signwell NDA End-to-End Test
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Creates a real Signwell NDA using the configured template and sends signing invitations
+            to both parties. Verify the full document-signing flow end-to-end.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Customer Name</label>
+              <Input value={ndaCustomerName} onChange={(e) => setNdaCustomerName(e.target.value)} placeholder="e.g. Alice Johnson" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Customer Email</label>
+              <Input type="email" value={ndaCustomerEmail} onChange={(e) => setNdaCustomerEmail(e.target.value)} placeholder="e.g. alice@example.com" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Provider Name</label>
+              <Input value={ndaProviderName} onChange={(e) => setNdaProviderName(e.target.value)} placeholder="e.g. Acme Engineering LLC" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Provider Email</label>
+              <Input type="email" value={ndaProviderEmail} onChange={(e) => setNdaProviderEmail(e.target.value)} placeholder="e.g. contracts@acme.com" />
+            </div>
+          </div>
+
+          <Button
+            onClick={sendTestNDA}
+            disabled={ndaLoading || !ndaCustomerName.trim() || !ndaCustomerEmail.trim() || !ndaProviderName.trim() || !ndaProviderEmail.trim()}
+          >
+            <FileSignature className="h-4 w-4 mr-2" />
+            {ndaLoading ? 'Creating NDA...' : 'Create & Send Test NDA'}
+          </Button>
+
+          {/* Creation result */}
+          {ndaResult && ndaResult.success && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-4 space-y-3">
+              <div className="flex items-center gap-2 text-green-700 font-semibold">
+                <CheckCircle className="h-4 w-4" />
+                NDA document created successfully!
+              </div>
+              <div className="text-xs space-y-1">
+                <div><span className="font-medium">Document ID:</span>{' '}
+                  <span className="font-mono bg-white border border-green-200 px-2 py-0.5 rounded">{ndaResult.document_id}</span>
+                </div>
+                <div><span className="font-medium">Signwell Status:</span> {ndaResult.signwell_status}</div>
+                <div><span className="font-medium">Created:</span> {ndaResult.created_at}</div>
+              </div>
+              {ndaResult.customer_signing_url && (
+                <div className="text-xs">
+                  <span className="font-medium">Customer signing link:</span>{' '}
+                  <a href={ndaResult.customer_signing_url} target="_blank" rel="noreferrer"
+                     className="text-blue-600 underline break-all">{ndaResult.customer_signing_url}</a>
+                </div>
+              )}
+              {ndaResult.provider_signing_url && (
+                <div className="text-xs">
+                  <span className="font-medium">Provider signing link:</span>{' '}
+                  <a href={ndaResult.provider_signing_url} target="_blank" rel="noreferrer"
+                     className="text-blue-600 underline break-all">{ndaResult.provider_signing_url}</a>
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" variant="outline" onClick={checkNDAStatus} disabled={ndaStatusLoading}>
+                  <RefreshCw className={`h-3 w-3 mr-1 ${ndaStatusLoading ? 'animate-spin' : ''}`} />
+                  {ndaStatusLoading ? 'Checking...' : 'Check Status'}
+                </Button>
+                <Button size="sm" variant="outline"
+                  className="border-red-300 text-red-700 hover:bg-red-50"
+                  onClick={voidTestNDA} disabled={ndaVoidLoading}>
+                  {ndaVoidLoading ? 'Voiding...' : 'Void / Cancel'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {ndaResult && !ndaResult.success && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm">
+              <div className="flex items-center gap-2 text-red-700 font-medium">
+                <AlertCircle className="h-4 w-4" />
+                Failed: {ndaResult.error}
+              </div>
+            </div>
+          )}
+
+          {/* Status result */}
+          {ndaStatusResult && (
+            <div className={`border rounded-md p-4 space-y-2 text-sm ${
+              ndaStatusResult.fully_signed ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'
+            }`}>
+              <div className="font-semibold">
+                {ndaStatusResult.fully_signed ? 'Fully Signed' : 'Awaiting Signatures'}
+              </div>
+              {ndaStatusResult.error && (
+                <div className="text-red-700">Error: {ndaStatusResult.error}</div>
+              )}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div><span className="font-medium">Signwell Status:</span> {ndaStatusResult.document_status ?? 'n/a'}</div>
+                <div><span className="font-medium">Fully Signed:</span> {ndaStatusResult.fully_signed ? 'Yes' : 'No'}</div>
+                <div className={ndaStatusResult.customer_signed ? 'text-green-700' : 'text-amber-700'}>
+                  <span className="font-medium">Customer:</span>{' '}
+                  {ndaStatusResult.customer_signed ? 'Signed' : 'Pending'}
+                  {ndaStatusResult.customer_signed_at ? ` (${new Date(ndaStatusResult.customer_signed_at).toLocaleString()})` : ''}
+                </div>
+                <div className={ndaStatusResult.provider_signed ? 'text-green-700' : 'text-amber-700'}>
+                  <span className="font-medium">Provider:</span>{' '}
+                  {ndaStatusResult.provider_signed ? 'Signed' : 'Pending'}
+                  {ndaStatusResult.provider_signed_at ? ` (${new Date(ndaStatusResult.provider_signed_at).toLocaleString()})` : ''}
+                </div>
+                <div><span className="font-medium">S3 PDF Saved:</span> {ndaStatusResult.s3_saved ? 'Yes' : 'No'}</div>
+                {ndaStatusResult.s3_key_checked && (
+                  <div className="col-span-2 font-mono text-xs text-muted-foreground">{ndaStatusResult.s3_key_checked}</div>
+                )}
+              </div>
+              {ndaStatusResult.s3_download_url && (
+                <a href={ndaStatusResult.s3_download_url} target="_blank" rel="noreferrer"
+                   className="inline-flex items-center gap-1 text-xs text-blue-600 underline">
+                  Download Signed PDF
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Void result */}
+          {ndaVoidResult && (
+            <div className={`border rounded-md p-3 text-sm ${
+              ndaVoidResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+            }`}>
+              {ndaVoidResult.success ? (
+                <div className="flex items-center gap-2 text-green-700">
+                  <CheckCircle className="h-4 w-4" />
+                  {ndaVoidResult.message}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-red-700">
+                  <AlertCircle className="h-4 w-4" />
+                  Void failed: {ndaVoidResult.error}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
     </div>
   );
 }
@@ -116,6 +268,36 @@ interface ResendDomainResult {
   tip: string | null;
 }
 
+interface TestNDAResult {
+  success: boolean;
+  document_id: string | null;
+  error: string | null;
+  customer_signing_url: string | null;
+  provider_signing_url: string | null;
+  signwell_status: string | null;
+  created_at: string | null;
+}
+interface NDAStatusResult {
+  success: boolean;
+  error: string | null;
+  document_id: string | null;
+  document_status: string | null;
+  customer_signed: boolean;
+  customer_signed_at: string | null;
+  provider_signed: boolean;
+  provider_signed_at: string | null;
+  fully_signed: boolean;
+  s3_saved: boolean;
+  s3_key_checked: string | null;
+  s3_download_url: string | null;
+}
+interface NDAVoidResult {
+  success: boolean;
+  error: string | null;
+  message: string | null;
+  document_id: string | null;
+}
+
 export default function DebuggingPage() {
   const [testQuery, setTestQuery] = useState("gas turbine combustion analysis");
   const [searchLoading, setSearchLoading] = useState(false);
@@ -132,6 +314,55 @@ export default function DebuggingPage() {
 
   const [domainCheckLoading, setDomainCheckLoading] = useState(false);
   const [domainCheckResult, setDomainCheckResult] = useState<ResendDomainResult | null>(null);
+  const [ndaCustomerName, setNdaCustomerName] = useState('');
+  const [ndaCustomerEmail, setNdaCustomerEmail] = useState('');
+  const [ndaProviderName, setNdaProviderName] = useState('');
+  const [ndaProviderEmail, setNdaProviderEmail] = useState('');
+  const [ndaLoading, setNdaLoading] = useState(false);
+  const [ndaResult, setNdaResult] = useState<TestNDAResult | null>(null);
+  const [ndaStatusLoading, setNdaStatusLoading] = useState(false);
+  const [ndaStatusResult, setNdaStatusResult] = useState<NDAStatusResult | null>(null);
+  const [ndaVoidLoading, setNdaVoidLoading] = useState(false);
+  const [ndaVoidResult, setNdaVoidResult] = useState<NDAVoidResult | null>(null);
+
+  const sendTestNDA = async () => {
+    if (!ndaCustomerName.trim() || !ndaCustomerEmail.trim() || !ndaProviderName.trim() || !ndaProviderEmail.trim()) return;
+    setNdaLoading(true); setNdaResult(null); setNdaStatusResult(null); setNdaVoidResult(null);
+    try {
+      const r = await api.admin.testNda(ndaCustomerName.trim(), ndaCustomerEmail.trim(), ndaProviderName.trim(), ndaProviderEmail.trim());
+      setNdaResult(r.data as TestNDAResult);
+    } catch (err: unknown) {
+      const e = err as { message?: string; response?: { data?: { detail?: string } } };
+      setNdaResult({ success: false, document_id: null, error: e.response?.data?.detail ?? e.message ?? 'Request failed', customer_signing_url: null, provider_signing_url: null, signwell_status: null, created_at: null });
+    } finally { setNdaLoading(false); }
+  };
+
+  const checkNDAStatus = async () => {
+    const docId = ndaResult?.document_id;
+    if (!docId) return;
+    setNdaStatusLoading(true); setNdaStatusResult(null);
+    try {
+      const r = await api.admin.testNdaStatus(docId);
+      setNdaStatusResult(r.data as NDAStatusResult);
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setNdaStatusResult({ success: false, error: e.message ?? 'Request failed', document_id: docId, document_status: null, customer_signed: false, customer_signed_at: null, provider_signed: false, provider_signed_at: null, fully_signed: false, s3_saved: false, s3_key_checked: null, s3_download_url: null });
+    } finally { setNdaStatusLoading(false); }
+  };
+
+  const voidTestNDA = async () => {
+    const docId = ndaResult?.document_id;
+    if (!docId) return;
+    if (!window.confirm('Void document ' + docId + '? This cannot be undone.')) return;
+    setNdaVoidLoading(true); setNdaVoidResult(null);
+    try {
+      const r = await api.admin.testNdaVoid(docId);
+      setNdaVoidResult(r.data as NDAVoidResult);
+    } catch (err: unknown) {
+      const e = err as { message?: string };
+      setNdaVoidResult({ success: false, error: e.message ?? 'Request failed', message: null, document_id: docId });
+    } finally { setNdaVoidLoading(false); }
+  };
 
   const checkResendDomain = async () => {
     setDomainCheckLoading(true);
@@ -531,6 +762,158 @@ export default function DebuggingPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* ---- Signwell NDA End-to-End Test ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileSignature className="h-5 w-5" />
+            Signwell NDA End-to-End Test
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Creates a real Signwell NDA using the configured template and sends signing invitations
+            to both parties. Verify the full document-signing flow end-to-end.
+          </p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Customer Name</label>
+              <Input value={ndaCustomerName} onChange={(e) => setNdaCustomerName(e.target.value)} placeholder="e.g. Alice Johnson" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Customer Email</label>
+              <Input type="email" value={ndaCustomerEmail} onChange={(e) => setNdaCustomerEmail(e.target.value)} placeholder="e.g. alice@example.com" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Provider Name</label>
+              <Input value={ndaProviderName} onChange={(e) => setNdaProviderName(e.target.value)} placeholder="e.g. Acme Engineering LLC" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Provider Email</label>
+              <Input type="email" value={ndaProviderEmail} onChange={(e) => setNdaProviderEmail(e.target.value)} placeholder="e.g. contracts@acme.com" />
+            </div>
+          </div>
+
+          <Button
+            onClick={sendTestNDA}
+            disabled={ndaLoading || !ndaCustomerName.trim() || !ndaCustomerEmail.trim() || !ndaProviderName.trim() || !ndaProviderEmail.trim()}
+          >
+            <FileSignature className="h-4 w-4 mr-2" />
+            {ndaLoading ? 'Creating NDA...' : 'Create & Send Test NDA'}
+          </Button>
+
+          {/* Creation result */}
+          {ndaResult && ndaResult.success && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-4 space-y-3">
+              <div className="flex items-center gap-2 text-green-700 font-semibold">
+                <CheckCircle className="h-4 w-4" />
+                NDA document created successfully!
+              </div>
+              <div className="text-xs space-y-1">
+                <div><span className="font-medium">Document ID:</span>{' '}
+                  <span className="font-mono bg-white border border-green-200 px-2 py-0.5 rounded">{ndaResult.document_id}</span>
+                </div>
+                <div><span className="font-medium">Signwell Status:</span> {ndaResult.signwell_status}</div>
+                <div><span className="font-medium">Created:</span> {ndaResult.created_at}</div>
+              </div>
+              {ndaResult.customer_signing_url && (
+                <div className="text-xs">
+                  <span className="font-medium">Customer signing link:</span>{' '}
+                  <a href={ndaResult.customer_signing_url} target="_blank" rel="noreferrer"
+                     className="text-blue-600 underline break-all">{ndaResult.customer_signing_url}</a>
+                </div>
+              )}
+              {ndaResult.provider_signing_url && (
+                <div className="text-xs">
+                  <span className="font-medium">Provider signing link:</span>{' '}
+                  <a href={ndaResult.provider_signing_url} target="_blank" rel="noreferrer"
+                     className="text-blue-600 underline break-all">{ndaResult.provider_signing_url}</a>
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" variant="outline" onClick={checkNDAStatus} disabled={ndaStatusLoading}>
+                  <RefreshCw className={`h-3 w-3 mr-1 ${ndaStatusLoading ? 'animate-spin' : ''}`} />
+                  {ndaStatusLoading ? 'Checking...' : 'Check Status'}
+                </Button>
+                <Button size="sm" variant="outline"
+                  className="border-red-300 text-red-700 hover:bg-red-50"
+                  onClick={voidTestNDA} disabled={ndaVoidLoading}>
+                  {ndaVoidLoading ? 'Voiding...' : 'Void / Cancel'}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {ndaResult && !ndaResult.success && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm">
+              <div className="flex items-center gap-2 text-red-700 font-medium">
+                <AlertCircle className="h-4 w-4" />
+                Failed: {ndaResult.error}
+              </div>
+            </div>
+          )}
+
+          {/* Status result */}
+          {ndaStatusResult && (
+            <div className={`border rounded-md p-4 space-y-2 text-sm ${
+              ndaStatusResult.fully_signed ? 'bg-green-50 border-green-200' : 'bg-blue-50 border-blue-200'
+            }`}>
+              <div className="font-semibold">
+                {ndaStatusResult.fully_signed ? 'Fully Signed' : 'Awaiting Signatures'}
+              </div>
+              {ndaStatusResult.error && (
+                <div className="text-red-700">Error: {ndaStatusResult.error}</div>
+              )}
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div><span className="font-medium">Signwell Status:</span> {ndaStatusResult.document_status ?? 'n/a'}</div>
+                <div><span className="font-medium">Fully Signed:</span> {ndaStatusResult.fully_signed ? 'Yes' : 'No'}</div>
+                <div className={ndaStatusResult.customer_signed ? 'text-green-700' : 'text-amber-700'}>
+                  <span className="font-medium">Customer:</span>{' '}
+                  {ndaStatusResult.customer_signed ? 'Signed' : 'Pending'}
+                  {ndaStatusResult.customer_signed_at ? ` (${new Date(ndaStatusResult.customer_signed_at).toLocaleString()})` : ''}
+                </div>
+                <div className={ndaStatusResult.provider_signed ? 'text-green-700' : 'text-amber-700'}>
+                  <span className="font-medium">Provider:</span>{' '}
+                  {ndaStatusResult.provider_signed ? 'Signed' : 'Pending'}
+                  {ndaStatusResult.provider_signed_at ? ` (${new Date(ndaStatusResult.provider_signed_at).toLocaleString()})` : ''}
+                </div>
+                <div><span className="font-medium">S3 PDF Saved:</span> {ndaStatusResult.s3_saved ? 'Yes' : 'No'}</div>
+                {ndaStatusResult.s3_key_checked && (
+                  <div className="col-span-2 font-mono text-xs text-muted-foreground">{ndaStatusResult.s3_key_checked}</div>
+                )}
+              </div>
+              {ndaStatusResult.s3_download_url && (
+                <a href={ndaStatusResult.s3_download_url} target="_blank" rel="noreferrer"
+                   className="inline-flex items-center gap-1 text-xs text-blue-600 underline">
+                  Download Signed PDF
+                </a>
+              )}
+            </div>
+          )}
+
+          {/* Void result */}
+          {ndaVoidResult && (
+            <div className={`border rounded-md p-3 text-sm ${
+              ndaVoidResult.success ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'
+            }`}>
+              {ndaVoidResult.success ? (
+                <div className="flex items-center gap-2 text-green-700">
+                  <CheckCircle className="h-4 w-4" />
+                  {ndaVoidResult.message}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-red-700">
+                  <AlertCircle className="h-4 w-4" />
+                  Void failed: {ndaVoidResult.error}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
     </div>
   );
 }
