@@ -1219,13 +1219,23 @@ async def admin_debug_test_nda(
 
     # CHECKLIST RESTORE: Signwell requires signing_elements in the payload.
     # We must pass through the ACTUAL template elements.
-    tmpl_signing_elements = (
+    tmpl_signing_elements_raw = (
         tmpl_data.get("signing_elements") or
         tmpl_data.get("fields") or
         tmpl_data.get("form_fields") or
         tmpl_data.get("elements") or
         []
     )
+
+    # Signwell API requires signing_elements to be a hash (dict), not a list
+    tmpl_signing_elements = {}
+    if isinstance(tmpl_signing_elements_raw, dict):
+        tmpl_signing_elements = tmpl_signing_elements_raw
+    elif isinstance(tmpl_signing_elements_raw, list):
+        for idx, el in enumerate(tmpl_signing_elements_raw):
+            if isinstance(el, dict):
+                key = el.get("id") or el.get("api_id") or f"element_{idx}"
+                tmpl_signing_elements[str(key)] = el
     logger.info(
         f"Template signing_elements ({len(tmpl_signing_elements)}): "
         f"{json.dumps(tmpl_signing_elements, default=str)[:1000]}"
