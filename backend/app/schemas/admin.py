@@ -396,3 +396,37 @@ class AdminAuditLogListItem(ResponseSchema):
 class AdminAuditLogListResponse(PaginatedResponse):
     """Paginated audit log."""
     items: list[AdminAuditLogListItem]
+
+
+# === System Configuration (Admin Settings) ===
+
+class SystemConfigRequest(BaseSchema):
+    """Request body for saving API keys and service credentials to database."""
+    # AI / Search
+    openai_api_key: Optional[str] = None
+    openai_api_base: Optional[str] = None
+    openai_llm_model: Optional[str] = None
+    openai_embedding_model: Optional[str] = None
+    # Payments
+    stripe_secret_key: Optional[str] = None
+    stripe_publishable_key: Optional[str] = None
+    stripe_webhook_secret: Optional[str] = None
+    # Storage
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_region: Optional[str] = None
+    aws_s3_bucket: Optional[str] = None
+    # Email
+    resend_api_key: Optional[str] = None
+    resend_from_email: Optional[str] = None
+    # Document signing
+    signrequest_api_key: Optional[str] = None
+    signwell_api_key: Optional[str] = None
+    signwell_template_id: Optional[str] = None
+
+
+class SystemConfigResponse(BaseSchema):
+    """Response after saving config values."""
+    status: str
+    keys_saved: list[str]
+    message: str
