@@ -76,3 +76,6 @@ frontend/tsconfig.tsbuildinfo
 # Agent memory files
 .a0proj/memory/index.faiss
 .a0proj/memory/index.pkl
+*.backup
+*.backup2
+*.bak
