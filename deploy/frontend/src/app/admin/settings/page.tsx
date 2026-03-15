@@ -3,7 +3,6 @@
 export const dynamic = 'force-dynamic'
 
 import { useState, useEffect } from 'react'
-import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,6 +11,33 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Loader2, CheckCircle2, XCircle, AlertCircle, Brain, CreditCard, Mail, HardDrive, FileSignature, LayoutDashboard } from 'lucide-react'
+
+// ─── Same-origin proxy helpers (bypass cross-domain cookie issues) ───
+async function fetchConfig(): Promise<any> {
+  const res = await fetch('/api/admin-config', { credentials: 'include', cache: 'no-store' })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }))
+    const err: any = new Error(body.detail || 'Failed to load config')
+    err.response = { status: res.status, data: body }
+    throw err
+  }
+  return res.json()
+}
+
+async function postConfig(payload: Record<string, string>): Promise<any> {
+  const res = await fetch('/api/admin-config', {
+    method: 'POST', credentials: 'include', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }))
+    const err: any = new Error(body.detail || 'Save failed')
+    err.response = { status: res.status, data: body }
+    throw err
+  }
+  return res.json()
+}
 
 interface ServerConfig {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -109,7 +135,7 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     let cancelled = false
     setLoading(true); setFetchError(null); setFetchErrorCode(null)
-    api.admin.getConfig()
+    fetchConfig()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then((data: any) => { if (!cancelled) { setConfig(data as ServerConfig); setLoading(false) } })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -136,10 +162,10 @@ export default function AdminSettingsPage() {
     }
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result: any = await api.admin.saveConfig(payload)
+      const result: any = await postConfig(payload)
       setSuccessMsg(result?.message ?? 'Configuration saved successfully.')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const updated: any = await api.admin.getConfig()
+      const updated: any = await fetchConfig()
       setConfig(updated as ServerConfig); setForm(EMPTY_FORM)
     } catch (err: unknown) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
