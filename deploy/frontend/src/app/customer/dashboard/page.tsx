@@ -1,4 +1,12 @@
-'use client';
+'use client'
+
+// Auth helper for raw fetch calls
+function getAuthHeaders(): HeadersInit {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+  const h: HeadersInit = {};
+  if (token) h['Authorization'] = `Bearer ${token}`;
+  return h;
+};
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';

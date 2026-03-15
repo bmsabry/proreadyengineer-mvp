@@ -13,8 +13,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Loader2, CheckCircle2, XCircle, AlertCircle, Brain, CreditCard, Mail, HardDrive, FileSignature, LayoutDashboard } from 'lucide-react'
 
 // ─── Same-origin proxy helpers (bypass cross-domain cookie issues) ───
+function getAuthHeader(): HeadersInit {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+  const h: HeadersInit = { 'Content-Type': 'application/json' };
+  if (token) h['Authorization'] = `Bearer ${token}`;
+  return h;
+}
+
 async function fetchConfig(): Promise<any> {
-  const res = await fetch('/api/admin-config', { credentials: 'include', cache: 'no-store' })
+  const res = await fetch('/api/admin-config', { credentials: 'include', cache: 'no-store', headers: getAuthHeader() })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }))
     const err: any = new Error(body.detail || 'Failed to load config')
@@ -27,7 +34,7 @@ async function fetchConfig(): Promise<any> {
 async function postConfig(payload: Record<string, string>): Promise<any> {
   const res = await fetch('/api/admin-config', {
     method: 'POST', credentials: 'include', cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: getAuthHeader(),
     body: JSON.stringify(payload),
   })
   if (!res.ok) {
