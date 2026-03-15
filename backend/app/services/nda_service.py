@@ -26,7 +26,7 @@ SIGNWELL_BASE_URL = "https://www.signwell.com/api/v1"
 async def _headers(db: AsyncSession) -> dict:
     """Return Signwell API auth headers, reading key from DB config."""
     from app.services.config_service import get_config_value
-    api_key = await get_config_value(db, "signwell_api_key")
+    api_key = await get_config_value(db, "SIGNWELL_API_KEY")
     if not api_key:
         raise ValueError(
             "Signwell API key not configured. "
@@ -42,7 +42,7 @@ async def _headers(db: AsyncSession) -> dict:
 async def _get_template_id(db: AsyncSession) -> str:
     """Return the Signwell template ID from DB config."""
     from app.services.config_service import get_config_value
-    tid = await get_config_value(db, "signwell_template_id")
+    tid = await get_config_value(db, "SIGNWELL_TEMPLATE_ID")
     if not tid:
         raise ValueError(
             "Signwell template ID not configured. "
