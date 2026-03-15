@@ -211,7 +211,6 @@ async def create_customer_nda(
 
     # Fetch template placeholder IDs
     customer_placeholder_id, _provider_placeholder_id = await _fetch_template_placeholder_ids(db)
-    signing_elements = await _get_template_signing_elements(db)
 
     # Build template_fields to pre-fill values (NOT signing_elements)
     template_fields = [
@@ -222,19 +221,18 @@ async def create_customer_nda(
         {"api_id": "governing_state", "value": "Ohio"},
     ]
 
-    # Signwell REST API uses "signees" and "template_fields"
+    # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
         "test_mode": False,
         "subject": f"NDA for Engineering RFQ #{rfq_id}",
         "message": "Please review and sign the Non-Disclosure Agreement to proceed with your RFQ.",
-        "signees": [{
+        "recipients": [{
             "id":               customer_placeholder_id,
             "name":             customer_name,
             "email":            customer_user.email,
             "send_email":       False,
             "embedded_signing": True,
         }],
-        "signing_elements": signing_elements,
         "template_fields": template_fields,
     }
 
@@ -329,7 +327,6 @@ async def add_provider_to_nda(
 
     # Fetch template placeholder IDs
     _customer_placeholder_id, provider_placeholder_id = await _fetch_template_placeholder_ids(db)
-    signing_elements = await _get_template_signing_elements(db)
 
     # Build template_fields to pre-fill ALL text values (NOT signing_elements)
     template_fields = [
@@ -344,19 +341,18 @@ async def add_provider_to_nda(
         {"api_id": "provider_entity_type", "value": "Company"},
     ]
 
-    # Signwell REST API uses "signees" and "template_fields"
+    # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
         "test_mode":   False,
         "subject":     f"NDA for Engineering RFQ #{rfq_id} - Provider Copy",
         "message":     "Please review and sign the NDA to access the full RFQ details.",
-        "signees": [{
+        "recipients": [{
             "id":               provider_placeholder_id,
             "name":             prov_signer_name,
             "email":            provider_user.email,
             "send_email":       False,
             "embedded_signing": True,
         }],
-        "signing_elements": signing_elements,
         "template_fields": template_fields,
     }
 
