@@ -1188,7 +1188,7 @@ async def admin_debug_test_nda(
             "customer_signing_url": None, "provider_signing_url": None,
         }
 
-    effective_date = date.today().strftime("%B %d, %Y")
+    effective_date = date.today().strftime("%Y-%m-%d")
 
     # Step 1: Fetch template to get placeholder IDs
     try:
