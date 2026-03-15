@@ -178,12 +178,27 @@ export default function DebuggingPage() {
   const [ndaCustomerEmail, setNdaCustomerEmail] = useState('');
   const [ndaProviderName, setNdaProviderName] = useState('');
   const [ndaProviderEmail, setNdaProviderEmail] = useState('');
+  const [signwellTestLoading, setSignwellTestLoading] = useState(false);
+  const [signwellTestResult, setSignwellTestResult] = useState<any | null>(null);
   const [ndaLoading, setNdaLoading] = useState(false);
   const [ndaResult, setNdaResult] = useState<TestNDAResult | null>(null);
   const [ndaStatusLoading, setNdaStatusLoading] = useState(false);
   const [ndaStatusResult, setNdaStatusResult] = useState<NDAStatusResult | null>(null);
   const [ndaVoidLoading, setNdaVoidLoading] = useState(false);
   const [ndaVoidResult, setNdaVoidResult] = useState<NDAVoidResult | null>(null);
+
+  const testSignwellConnection = async () => {
+    setSignwellTestLoading(true);
+    setSignwellTestResult(null);
+    try {
+      const r = await api.admin.testSignwellConnection();
+      setSignwellTestResult(r.data);
+    } catch (e: any) {
+      setSignwellTestResult({ success: false, error: e.response?.data?.detail ?? e.message ?? 'Request failed' });
+    } finally {
+      setSignwellTestLoading(false);
+    }
+  };
 
   const sendTestNDA = async () => {
     if (!ndaCustomerName.trim() || !ndaCustomerEmail.trim() || !ndaProviderName.trim() || !ndaProviderEmail.trim()) return;
@@ -618,6 +633,55 @@ export default function DebuggingPage() {
                   and add <strong>{domainCheckResult.configured_domain}</strong>.
                 </div>
               ) : null}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---- Signwell Connection Test ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>🔑</span> Signwell API Connection Test
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Verifies your Signwell API key is valid by listing available templates.
+            Use this to diagnose 401 errors before running the full NDA test.
+          </p>
+          <Button onClick={testSignwellConnection} disabled={signwellTestLoading}>
+            {signwellTestLoading ? 'Testing...' : '🔌 Test Signwell Connection'}
+          </Button>
+          {signwellTestResult && (
+            <div className={`p-4 rounded border ${
+              signwellTestResult.success
+                ? 'bg-green-50 border-green-200'
+                : 'bg-red-50 border-red-200'
+            }`}>
+              {signwellTestResult.success ? (
+                <div className="space-y-1 text-sm text-green-800">
+                  <div className="font-semibold">✅ {signwellTestResult.message}</div>
+                  <div>Key preview: <code className="bg-green-100 px-1 rounded">{signwellTestResult.key_preview}</code> (length: {signwellTestResult.key_length})</div>
+                  <div>Templates found: <strong>{signwellTestResult.templates_found}</strong></div>
+                  {signwellTestResult.template_ids?.length > 0 && (
+                    <div>Template IDs: {signwellTestResult.template_ids.join(', ')}</div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1 text-sm text-red-800">
+                  <div className="font-semibold">❌ {signwellTestResult.error}</div>
+                  {signwellTestResult.key_preview && (
+                    <div>Key being used: <code className="bg-red-100 px-1 rounded">{signwellTestResult.key_preview}</code> (length: {signwellTestResult.key_length})</div>
+                  )}
+                  {signwellTestResult.hint && (
+                    <div className="text-yellow-700">💡 {signwellTestResult.hint}</div>
+                  )}
+                  {signwellTestResult.raw_response && (
+                    <div className="text-xs text-gray-500 mt-1">API response: {signwellTestResult.raw_response}</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </CardContent>

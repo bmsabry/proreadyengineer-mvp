@@ -1052,6 +1052,69 @@ async def admin_check_resend_domains(
 
 
 # ---------------------------------------------------------------------------
+# Admin Debug - Signwell Connection Test
+@router.get("/admin/debug/test-signwell")
+async def admin_debug_test_signwell_connection(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    """Admin: Test Signwell API key validity by listing templates."""
+    import httpx
+    from app.services.config_service import get_config_value
+    from app.services.nda_service import SIGNWELL_BASE_URL
+
+    try:
+        api_key = await get_config_value(db, "SIGNWELL_API_KEY")
+        if not api_key:
+            return {"success": False, "error": "Signwell API key not configured in Admin > Settings > Document Signing"}
+
+        api_key = api_key.strip()
+        key_preview = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+
+        # Try to list templates - lightweight read-only endpoint
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{SIGNWELL_BASE_URL}/templates",
+                headers={
+                    "X-Api-Token": api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                }
+            )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            templates = data if isinstance(data, list) else data.get("data", data)
+            template_ids = [t.get("id") for t in (templates if isinstance(templates, list) else [])][:5]
+            return {
+                "success": True,
+                "message": "Signwell API key is valid!",
+                "key_preview": key_preview,
+                "key_length": len(api_key),
+                "templates_found": len(template_ids),
+                "template_ids": template_ids,
+            }
+        elif resp.status_code == 401:
+            return {
+                "success": False,
+                "error": "API key is invalid or expired - Signwell returned 401 Unauthorized",
+                "key_preview": key_preview,
+                "key_length": len(api_key),
+                "hint": "Please copy your API key fresh from Signwell dashboard > Account > API Keys",
+                "raw_response": resp.text[:300],
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Unexpected response from Signwell: {resp.status_code}",
+                "key_preview": key_preview,
+                "raw_response": resp.text[:300],
+            }
+
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
 # Admin Debug - Signwell NDA End-to-End Test
 # ---------------------------------------------------------------------------
 

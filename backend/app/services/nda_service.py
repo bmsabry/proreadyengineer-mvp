@@ -26,12 +26,17 @@ SIGNWELL_BASE_URL = "https://www.signwell.com/api/v1"
 async def _headers(db: AsyncSession) -> dict:
     """Return Signwell API auth headers, reading key from DB config."""
     from app.services.config_service import get_config_value
+    import logging
+    _log = logging.getLogger(__name__)
     api_key = await get_config_value(db, "SIGNWELL_API_KEY")
     if not api_key:
         raise ValueError(
             "Signwell API key not configured. "
             "Go to Admin > Settings > Document Signing to add it."
         )
+    # Strip whitespace/newlines that may have been added during paste
+    api_key = api_key.strip()
+    _log.info(f"[SIGNWELL] Using API key: length={len(api_key)}, prefix={api_key[:8]}...")
     return {
         "X-Api-Token": api_key,
         "Content-Type": "application/json",
@@ -48,7 +53,7 @@ async def _get_template_id(db: AsyncSession) -> str:
             "Signwell template ID not configured. "
             "Go to Admin > Settings > Document Signing to add it."
         )
-    return tid
+    return tid.strip()
 
 
 def _extract_signing_url(doc: dict) -> Optional[str]:
