@@ -120,7 +120,7 @@ async def _fetch_template_placeholder_ids(db: AsyncSession) -> tuple:
     return customer_id, provider_id
 
 
-async def _get_template_signing_elements(db: AsyncSession) -> list:
+async def _get_template_signing_elements(db: AsyncSession) -> dict:
     """Fetch Signwell template and return its signing_elements.
 
     Checklist comparison with the prior root-cause fix shows these must be
@@ -157,7 +157,16 @@ async def _get_template_signing_elements(db: AsyncSession) -> list:
                     type(v).__name__,
                     len(v) if isinstance(v, list) else "dict",
                 )
-    return elements
+    if isinstance(elements, dict):
+        return elements
+
+    elements_dict = {}
+    if isinstance(elements, list):
+        for idx, el in enumerate(elements):
+            if isinstance(el, dict):
+                key = el.get("id") or el.get("api_id") or f"element_{idx}"
+                elements_dict[key] = el
+    return elements_dict
 
 
 async def get_customer_signing_url(rfq_id, db: AsyncSession) -> str:
