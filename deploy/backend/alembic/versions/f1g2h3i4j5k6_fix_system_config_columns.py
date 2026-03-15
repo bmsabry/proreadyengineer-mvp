@@ -3,6 +3,9 @@
 Revision ID: f1g2h3i4j5k6
 Revises: e1f2g3h4i5j6
 Create Date: 2026-03-15
+
+Uses SAVEPOINTS around each DDL statement so that if a statement fails
+(e.g. column already exists), the PostgreSQL transaction is NOT aborted.
 """
 from alembic import op
 import sqlalchemy as sa
@@ -16,25 +19,27 @@ depends_on = None
 def upgrade():
     conn = op.get_bind()
 
-    # Add created_at column if missing
+    # Add created_at if missing - SAVEPOINT prevents transaction abort on failure
+    conn.execute(sa.text("SAVEPOINT sp_created_at"))
     try:
-        op.add_column('system_config',
-            sa.Column('created_at', sa.DateTime(), nullable=True,
-                      server_default=sa.text('NOW()')),
-        )
+        conn.execute(sa.text(
+            "ALTER TABLE system_config ADD COLUMN created_at TIMESTAMP DEFAULT NOW()"
+        ))
+        conn.execute(sa.text("RELEASE SAVEPOINT sp_created_at"))
     except Exception:
-        pass  # Column already exists
+        conn.execute(sa.text("ROLLBACK TO SAVEPOINT sp_created_at"))
 
-    # Fix updated_by column type from INTEGER to VARCHAR(100)
-    # Use raw SQL to handle type casting safely
+    # Fix updated_by type INTEGER -> VARCHAR(100) - SAVEPOINT prevents abort
+    conn.execute(sa.text("SAVEPOINT sp_updated_by"))
     try:
         conn.execute(sa.text(
             "ALTER TABLE system_config "
             "ALTER COLUMN updated_by TYPE VARCHAR(100) "
             "USING COALESCE(updated_by::TEXT, NULL)"
         ))
+        conn.execute(sa.text("RELEASE SAVEPOINT sp_updated_by"))
     except Exception:
-        pass  # Column already correct type or doesn't exist
+        conn.execute(sa.text("ROLLBACK TO SAVEPOINT sp_updated_by"))
 
 
 def downgrade():
