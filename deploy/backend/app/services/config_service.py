@@ -2,14 +2,14 @@
 
 Loads API keys/config from system_config DB table at request time.
 Falls back to environment variables (settings) if not in DB.
-This allows admin UI to save keys to DB and have them take effect immediately
-without restarting the server.
+The system_config table is fully managed by Alembic migrations - 
+this service does NOT perform any DDL operations.
 """
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -17,64 +17,9 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-async def _ensure_table(db: AsyncSession) -> None:
-    """Create system_config table if it does not exist, and add/fix missing columns."""
-    try:
-        await db.execute(text("""
-            CREATE TABLE IF NOT EXISTS system_config (
-                id SERIAL PRIMARY KEY,
-                key VARCHAR(100) UNIQUE NOT NULL,
-                value TEXT,
-                is_secret BOOLEAN DEFAULT TRUE,
-                created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW(),
-                updated_by VARCHAR(100)
-            )
-        """))
-        await db.execute(text(
-            "CREATE INDEX IF NOT EXISTS ix_system_config_key ON system_config (key)"
-        ))
-        # Add created_at if missing (tables created without it)
-        await db.execute(text("""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name='system_config' AND column_name='created_at'
-                ) THEN
-                    ALTER TABLE system_config ADD COLUMN created_at TIMESTAMP DEFAULT NOW();
-                END IF;
-            END$$;
-        """))
-        # CRITICAL FIX: migrate updated_by from INTEGER to VARCHAR if needed
-        # Handles existing production tables created with INTEGER type
-        await db.execute(text("""
-            DO $$
-            BEGIN
-                IF EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_name='system_config'
-                      AND column_name='updated_by'
-                      AND data_type IN ('integer', 'bigint', 'smallint')
-                ) THEN
-                    ALTER TABLE system_config
-                        ALTER COLUMN updated_by TYPE VARCHAR(100)
-                        USING COALESCE(updated_by::TEXT, NULL);
-                END IF;
-            END$$;
-        """))
-        await db.commit()
-    except Exception as exc:
-        logger.warning(f'[CONFIG] Could not ensure system_config table: {exc}')
-        try:
-            await db.rollback()
-        except Exception:
-            pass
-
-
 async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
     """Get the full runtime AI/service config from DB with env-var fallbacks."""
-    await _ensure_table(db)
+    db_cfg: Dict[str, str] = {}
     try:
         from app.models.system_config import SystemConfig
         result = await db.execute(select(SystemConfig))
@@ -87,7 +32,6 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
             await db.rollback()
         except Exception:
             pass
-        db_cfg = {}
 
     def _get(key: str, default: str = '') -> str:
         return (
@@ -104,7 +48,7 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'OPENAI_EMBEDDING_MODEL': _get('OPENAI_EMBEDDING_MODEL', 'BAAI/bge-large-en-v1.5'),
         'STRIPE_SECRET_KEY'     : _get('STRIPE_SECRET_KEY'),
         'STRIPE_PUBLISHABLE_KEY': _get('STRIPE_PUBLISHABLE_KEY'),
-        'STRIPE_WEBHOOK_SECRET' : _get('STRIPE_WEBHOOK_SECRET'),
+        'STRIPE_WEBHOOK_SECRET'  : _get('STRIPE_WEBHOOK_SECRET'),
         'AWS_ACCESS_KEY_ID'     : _get('AWS_ACCESS_KEY_ID'),
         'AWS_SECRET_ACCESS_KEY' : _get('AWS_SECRET_ACCESS_KEY'),
         'AWS_REGION'            : _get('AWS_REGION', 'us-east-1'),
@@ -119,7 +63,6 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
 
 async def get_config_value(db: AsyncSession, key: str) -> Optional[str]:
     """Get a single config value from DB, fall back to env/settings."""
-    await _ensure_table(db)
     try:
         from app.models.system_config import SystemConfig
         result = await db.execute(
@@ -144,13 +87,11 @@ async def save_config_values(
     user_id: Any = None,
 ) -> None:
     """Upsert config key/value pairs into the system_config table."""
-    await _ensure_table(db)
     from app.models.system_config import SystemConfig
 
-    # Always convert user_id to string — handles UUID, int, str, or None safely
     user_id_str: Optional[str] = str(user_id) if user_id is not None else None
+    saved_keys = []
 
-    errors = []
     for key, value in config.items():
         if value is None:
             continue
@@ -173,12 +114,22 @@ async def save_config_values(
                     updated_by=user_id_str,
                 ))
                 logger.info(f'[CONFIG] Inserted key: {key}')
+            saved_keys.append(key)
         except Exception as exc:
             logger.error(f'[CONFIG] Failed to stage key {key}: {exc}')
-            errors.append(f'{key}: {exc}')
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            raise RuntimeError(f'Failed to save config key {key}: {exc}') from exc
 
-    if errors:
-        raise RuntimeError("Failed to save config keys: " + ", ".join(errors))
-
-    await db.commit()
-    logger.info(f'[CONFIG] Committed {len(config)} config keys to DB')
+    try:
+        await db.commit()
+        logger.info(f'[CONFIG] Committed {len(saved_keys)} config keys to DB')
+    except Exception as exc:
+        logger.error(f'[CONFIG] Commit failed: {exc}')
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        raise RuntimeError(f'Failed to commit config changes: {exc}') from exc
