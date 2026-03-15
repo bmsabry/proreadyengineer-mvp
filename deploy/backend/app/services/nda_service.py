@@ -58,7 +58,7 @@ async def _get_template_id(db: AsyncSession) -> str:
 
 def _extract_signing_url(doc: dict) -> Optional[str]:
     """Extract the first available signing URL from a Signwell document dict."""
-    for signer in doc.get("signers", []):
+    for signer in (doc.get("signees") or doc.get("signers") or []):
         url = signer.get("sign_page_url") or signer.get("embedded_signing_url")
         if url:
             return url
@@ -127,7 +127,7 @@ async def create_customer_nda(
             raise
 
     tmpl_data    = tmpl_resp.json()
-    tmpl_signers = tmpl_data.get("signers", [])
+    tmpl_signers = (tmpl_data.get("signees") or tmpl_data.get("signers") or [])
     if not tmpl_signers:
         raise ValueError(
             f"Signwell template {tid} has no signers defined. "
@@ -159,7 +159,7 @@ async def create_customer_nda(
         "test_mode": False,
         "subject":   f"NDA for Engineering RFQ #{rfq_id}",
         "message":   "Please review and sign the Non-Disclosure Agreement to proceed with your RFQ.",
-        "signers": [{
+        "signees": [{
             "id":               customer_signer_id,
             "name":             customer_name,
             "email":            customer_user.email,
@@ -269,7 +269,7 @@ async def add_provider_to_nda(
             raise
 
     tmpl_data = tmpl_resp.json()
-    tmpl_signers = tmpl_data.get("signers", [])
+    tmpl_signers = (tmpl_data.get("signees") or tmpl_data.get("signers") or [])
     if not tmpl_signers:
         raise ValueError(
             f"Signwell template {tid} has no signers defined. "
@@ -306,7 +306,7 @@ async def add_provider_to_nda(
         "test_mode":   False,
         "subject":     f"NDA for Engineering RFQ #{rfq_id} - Provider Copy",
         "message":     "Please review and sign the NDA to access the full RFQ details.",
-        "signers": [{
+        "signees": [{
             "id":               provider_signer_id,
             "name":             prov_signer_name,
             "email":            provider_user.email,

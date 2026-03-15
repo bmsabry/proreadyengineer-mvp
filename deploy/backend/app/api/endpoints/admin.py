@@ -1105,7 +1105,7 @@ async def admin_debug_test_signwell_connection(
                             data = resp.json()
                         except Exception:
                             data = {}
-                        items = data if isinstance(data, list) else data.get("data", [])
+                        items = data if isinstance(data, list) else (data.get("document_templates") or data.get("templates") or data.get("data") or [])
                         item_ids = [str(t.get("id", "")) for t in (items if isinstance(items, list) else [])][:5]
                         return {
                             "success": True,
@@ -1205,7 +1205,7 @@ async def admin_debug_test_nda(
     # Signwell may use different keys for template signers depending on API version
     tmpl_signers = (
         tmpl_data.get("template_signers") or
-        tmpl_data.get("signers") or
+        (tmpl_data.get("signees") or tmpl_data.get("signers")) or
         tmpl_data.get("roles") or
         tmpl_data.get("signer_roles") or
         []
@@ -1260,7 +1260,7 @@ async def admin_debug_test_nda(
             "This is a test NDA document to verify the document signing "
             "integration. Please sign to confirm the workflow works end-to-end."
         ),
-        "signers": [
+        "signees": [
             {
                 "id":               customer_signer_id,
                 "name":             data.customer_name,
@@ -1305,7 +1305,7 @@ async def admin_debug_test_nda(
     document_id = doc.get("id")
     customer_url: Optional[str] = None
     provider_url: Optional[str] = None
-    for s in doc.get("signers", []):
+    for s in (doc.get("signees") or doc.get("signers") or []):
         url = s.get("sign_page_url") or s.get("embedded_signing_url")
         if s.get("email", "") == data.customer_email:
             customer_url = url
@@ -1354,7 +1354,7 @@ async def admin_debug_test_nda_status(
         }
 
     doc_status = doc.get("status", "unknown")
-    signers = doc.get("signers", [])
+    signers = (doc.get("signees") or doc.get("signers") or [])
     customer_signed, customer_signed_at = False, None
     provider_signed, provider_signed_at = False, None
 
