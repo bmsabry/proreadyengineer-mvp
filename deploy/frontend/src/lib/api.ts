@@ -13,6 +13,24 @@ import {
 // API Configuration
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+// Token storage helpers (localStorage for cross-domain auth)
+const TOKEN_KEY = 'access_token';
+
+export const getStoredToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+};
+
+export const setStoredToken = (token: string): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(TOKEN_KEY, token);
+};
+
+export const clearStoredToken = (): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_KEY);
+};
+
 // Create Axios instance
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_URL + '/api/v1',
@@ -22,10 +40,13 @@ const apiClient: AxiosInstance = axios.create({
   withCredentials: true,
 });
 
-// Request interceptor - add auth token
+// Request interceptor - send stored token as Authorization Bearer header
 apiClient.interceptors.request.use(
   (config) => {
-    // Token is handled via cookies (httpOnly)
+    const token = getStoredToken();
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -90,30 +111,43 @@ apiClient.interceptors.response.use(
   }
 );
 
-// Auth API
+// Auth API - stores/clears token on auth events
 const auth = {
-  register: (data: RegisterRequest) => 
-    apiClient.post<AuthResponse>('/auth/register', data),
-  
-  login: (data: LoginRequest) => 
-    apiClient.post<AuthResponse>('/auth/login', data),
-  
-  refresh: () => 
-    apiClient.post('/auth/refresh'),
-  
-  logout: () => 
-    apiClient.post('/auth/logout'),
-  
-  logoutAll: () => 
-    apiClient.post('/auth/logout-all'),
-  
-  forgotPassword: (data: PasswordResetRequest) => 
+  register: async (data: RegisterRequest) => {
+    const response = await apiClient.post<AuthResponse>('/auth/register', data);
+    if ((response.data as any)?.access_token) setStoredToken((response.data as any).access_token);
+    return response;
+  },
+
+  login: async (data: LoginRequest) => {
+    const response = await apiClient.post<AuthResponse>('/auth/login', data);
+    if ((response.data as any)?.access_token) setStoredToken((response.data as any).access_token);
+    return response;
+  },
+
+  refresh: async () => {
+    const response = await apiClient.post('/auth/refresh');
+    if (response.data?.access_token) setStoredToken(response.data.access_token);
+    return response;
+  },
+
+  logout: async () => {
+    clearStoredToken();
+    return apiClient.post('/auth/logout');
+  },
+
+  logoutAll: async () => {
+    clearStoredToken();
+    return apiClient.post('/auth/logout-all');
+  },
+
+  forgotPassword: (data: PasswordResetRequest) =>
     apiClient.post('/auth/password/forgot', data),
-  
-  resetPassword: (data: PasswordResetConfirm) => 
+
+  resetPassword: (data: PasswordResetConfirm) =>
     apiClient.post('/auth/password/reset', data),
-  
-  me: () => 
+
+  me: () =>
     apiClient.get<User>('/auth/me'),
 };
 
