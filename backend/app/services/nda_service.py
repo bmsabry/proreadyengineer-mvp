@@ -226,18 +226,13 @@ async def create_customer_nda(
 
     # Build template_fields to pre-fill values (NOT signing_elements)
     template_fields = [
-        {"api_id": "customer_name",        "value": customer_name},
-        {"api_id": "customer_name2",       "value": customer_name},
-        {"api_id": "customer_company",     "value": customer_company},
-        {"api_id": "customer_entity_type", "value": "Individual"},
-        {"api_id": "effective_date",       "value": effective_date},
-        {"api_id": "governing_state",      "value": "Ohio"},
-        {"api_id": "provider_name",        "value": ""},
-        {"api_id": "provider_name2",       "value": ""},
-        {"api_id": "provider_company",     "value": ""},
-        {"api_id": "provider_entity_type", "value": ""},
-        {"api_id": "customer_signature",   "value": ""},
-        {"api_id": "provider_signature",   "value": ""},
+        {"api_id": "customer_name",    "value": customer_name},
+        {"api_id": "customer_name2",   "value": customer_name},
+        {"api_id": "customer_company", "value": customer_company},
+        {"api_id": "effective_date",   "value": effective_date},
+        {"api_id": "provider_name",    "value": ""},
+        {"api_id": "provider_name2",   "value": ""},
+        {"api_id": "provider_company", "value": ""},
     ]
 
     # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
@@ -351,18 +346,13 @@ async def add_provider_to_nda(
 
     # Build template_fields to pre-fill ALL text values (NOT signing_elements)
     template_fields = [
-        {"api_id": "customer_name",        "value": customer_name},
-        {"api_id": "customer_name2",       "value": customer_name},
-        {"api_id": "customer_company",     "value": customer_company},
-        {"api_id": "customer_entity_type", "value": "Individual"},
-        {"api_id": "effective_date",       "value": effective_date},
-        {"api_id": "governing_state",      "value": "Ohio"},
-        {"api_id": "provider_name",        "value": prov_signer_name},
-        {"api_id": "provider_name2",       "value": prov_signer_name},
-        {"api_id": "provider_company",     "value": provider_company},
-        {"api_id": "provider_entity_type", "value": "Company"},
-        {"api_id": "customer_signature",   "value": ""},
-        {"api_id": "provider_signature",   "value": ""},
+        {"api_id": "customer_name",    "value": customer_name},
+        {"api_id": "customer_name2",   "value": customer_name},
+        {"api_id": "customer_company", "value": customer_company},
+        {"api_id": "effective_date",   "value": effective_date},
+        {"api_id": "provider_name",    "value": prov_signer_name},
+        {"api_id": "provider_name2",   "value": prov_signer_name},
+        {"api_id": "provider_company", "value": provider_company},
     ]
 
     # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
