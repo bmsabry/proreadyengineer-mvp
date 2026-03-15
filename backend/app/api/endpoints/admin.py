@@ -1180,9 +1180,69 @@ async def admin_debug_test_nda(
         }
 
     effective_date = date.today().strftime("%B %d, %Y")
+
+    # Step 1: Fetch template to get actual signer IDs
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            tmpl_resp = await client.get(
+                f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h
+            )
+            tmpl_resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        return {
+            "success": False, "document_id": None,
+            "error": f"Failed to fetch Signwell template {exc.response.status_code}: {exc.response.text}",
+            "customer_signing_url": None, "provider_signing_url": None,
+        }
+    except Exception as exc:
+        return {
+            "success": False, "document_id": None,
+            "error": f"Template fetch failed: {exc}",
+            "customer_signing_url": None, "provider_signing_url": None,
+        }
+
+    tmpl_data = tmpl_resp.json()
+    tmpl_signers = tmpl_data.get("signers", [])
+    if len(tmpl_signers) < 2:
+        return {
+            "success": False, "document_id": None,
+            "error": f"Template has {len(tmpl_signers)} signer(s); expected at least 2. Signers: {tmpl_signers}",
+            "customer_signing_url": None, "provider_signing_url": None,
+        }
+
+    # Use actual signer IDs from the template (first = customer, second = provider)
+    customer_signer_id = tmpl_signers[0]["id"]
+    provider_signer_id = tmpl_signers[1]["id"]
+
+    # Step 2: Build payload — template_id goes in the URL, NOT the body
+    # Skip signature/initials/stamp fields — they cannot be pre-filled via API
+    SKIP_FIELD_TYPES = {"signature", "initials", "stamp"}
+    tmpl_fields = tmpl_data.get("fields", [])
+
+    def _is_signature_field(api_id: str) -> bool:
+        return any(t in api_id.lower() for t in ("signature", "initials", "stamp"))
+
+    field_values = {
+        "customer_name":        data.customer_name,
+        "customer_name2":       data.customer_name,
+        "customer_company":     data.customer_name,
+        "customer_entity_type": "Individual",
+        "effective_date":       effective_date,
+        "governing_state":      "Ohio",
+        "provider_name":        data.provider_name,
+        "provider_name2":       data.provider_name,
+        "provider_company":     data.provider_name,
+        "provider_entity_type": "Company",
+    }
+
+    prefill_fields = [
+        {"api_id": api_id, "value": value}
+        for api_id, value in field_values.items()
+        if not _is_signature_field(api_id)
+    ]
+
     payload = {
         "test_mode": False,
-        "template_id": tid,
         "subject": f"[TEST] ProMechDirectory NDA - {data.customer_name} & {data.provider_name}",
         "message": (
             "This is a test NDA document to verify the document signing "
@@ -1190,38 +1250,30 @@ async def admin_debug_test_nda(
         ),
         "signers": [
             {
-                "id": "signer_1",
-                "name": data.customer_name,
-                "email": data.customer_email,
+                "id":               customer_signer_id,
+                "name":             data.customer_name,
+                "email":            data.customer_email,
+                "send_email":       True,
                 "embedded_signing": False,
             },
             {
-                "id": "signer_2",
-                "name": data.provider_name,
-                "email": data.provider_email,
+                "id":               provider_signer_id,
+                "name":             data.provider_name,
+                "email":            data.provider_email,
+                "send_email":       True,
                 "embedded_signing": False,
             },
         ],
-        "fields": [
-            {"api_id": "customer_name",        "value": data.customer_name},
-            {"api_id": "customer_name2",       "value": data.customer_name},
-            {"api_id": "customer_company",     "value": data.customer_name},
-            {"api_id": "customer_entity_type", "value": "Individual"},
-            {"api_id": "customer_signature",   "value": ""},
-            {"api_id": "effective_date",       "value": effective_date},
-            {"api_id": "governing_state",      "value": "Ohio"},
-            {"api_id": "provider_name",        "value": data.provider_name},
-            {"api_id": "provider_name2",       "value": data.provider_name},
-            {"api_id": "provider_company",     "value": data.provider_name},
-            {"api_id": "provider_entity_type", "value": "Company"},
-            {"api_id": "provider_signature",   "value": ""},
-        ],
+        "fields": prefill_fields,
     }
 
+    # Step 3: POST to correct endpoint — template_id in URL
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
-                f"{SIGNWELL_BASE_URL}/documents", json=payload, headers=h
+                f"{SIGNWELL_BASE_URL}/document_templates/{tid}/documents",
+                json=payload,
+                headers=h,
             )
             resp.raise_for_status()
     except httpx.HTTPStatusError as exc:

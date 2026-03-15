@@ -93,6 +93,114 @@ async def get_customer_signing_url(rfq_id, db: AsyncSession) -> str:
     return url
 
 
+
+async def create_customer_nda(
+    rfq_id,
+    customer_user: User,
+    rfq: "RFQ",
+    db: AsyncSession,
+) -> dict:
+    """Create a customer-side NDA document with embedded signing flow.
+    Fetches the template to get actual signer IDs, pre-fills text fields,
+    and returns {document_id, signing_url}.
+    """
+    h   = await _headers(db)
+    tid = await _get_template_id(db)
+
+    # Resolve customer display name
+    first = (customer_user.first_name or "").strip()
+    last  = (customer_user.last_name  or "").strip()
+    customer_name    = f"{first} {last}".strip() or customer_user.email
+    customer_company = getattr(rfq, "business_name", None) or customer_name
+    effective_date   = _human_date(datetime.utcnow())
+
+    # Fetch template to get actual signer IDs
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        tmpl_resp = await client.get(
+            f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h
+        )
+        try:
+            tmpl_resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.error("Signwell fetch template failed %s: %s",
+                         exc.response.status_code, exc.response.text)
+            raise
+
+    tmpl_data    = tmpl_resp.json()
+    tmpl_signers = tmpl_data.get("signers", [])
+    if not tmpl_signers:
+        raise ValueError(
+            f"Signwell template {tid} has no signers defined. "
+            f"Template response: {tmpl_data}"
+        )
+
+    # Use the first signer slot for the customer
+    customer_signer_id = tmpl_signers[0]["id"]
+
+    def _is_signature_field(api_id: str) -> bool:
+        return any(t in api_id.lower() for t in ("signature", "initials", "stamp"))
+
+    field_values = {
+        "customer_name":        customer_name,
+        "customer_name2":       customer_name,
+        "customer_company":     customer_company,
+        "customer_entity_type": "Individual",
+        "effective_date":       effective_date,
+        "governing_state":      "Ohio",
+    }
+    prefill_fields = [
+        {"api_id": api_id, "value": value}
+        for api_id, value in field_values.items()
+        if not _is_signature_field(api_id)
+    ]
+
+    # Build payload — template_id in URL, NOT in body
+    payload = {
+        "test_mode": False,
+        "subject":   f"NDA for Engineering RFQ #{rfq_id}",
+        "message":   "Please review and sign the Non-Disclosure Agreement to proceed with your RFQ.",
+        "signers": [{
+            "id":               customer_signer_id,
+            "name":             customer_name,
+            "email":            customer_user.email,
+            "send_email":       False,
+            "embedded_signing": True,
+        }],
+        "fields": prefill_fields,
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{SIGNWELL_BASE_URL}/document_templates/{tid}/documents",
+            json=payload,
+            headers=h,
+        )
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.error("Signwell create_customer_nda failed %s: %s",
+                         exc.response.status_code, exc.response.text)
+            raise
+
+    doc_data    = resp.json()
+    document_id = doc_data["id"]
+    signing_url = _extract_signing_url(doc_data)
+    logger.info("Created customer NDA doc %s for RFQ %s", document_id, rfq_id)
+
+    # Persist NDA record
+    nda = RFQNDA(
+        rfq_id=rfq_id,
+        provider_id=None,
+        customer_user_id=customer_user.id,
+        signrequest_document_id=document_id,
+        signrequest_template_id=tid,
+        nda_status="customer_signature_pending",
+    )
+    db.add(nda)
+    await db.commit()
+    await db.refresh(nda)
+    return {"document_id": document_id, "signing_url": signing_url}
+
 async def add_provider_to_nda(
     rfq_id,
     provider_id: int,
@@ -148,36 +256,72 @@ async def add_provider_to_nda(
     prov_last  = (provider_user.last_name  or "").strip()
     prov_signer_name = f"{prov_first} {prov_last}".strip() or provider_user.email
 
+    # Step 1: Fetch template to get actual signer IDs
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        tmpl_resp = await client.get(
+            f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h
+        )
+        try:
+            tmpl_resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.error("Signwell fetch template failed %s: %s",
+                         exc.response.status_code, exc.response.text)
+            raise
+
+    tmpl_data = tmpl_resp.json()
+    tmpl_signers = tmpl_data.get("signers", [])
+    if not tmpl_signers:
+        raise ValueError(
+            f"Signwell template {tid} has no signers defined. "
+            f"Template response: {tmpl_data}"
+        )
+
+    # Use the first signer slot from the template (provider signs on their own copy)
+    provider_signer_id = tmpl_signers[0]["id"]
+
+    def _is_signature_field(api_id: str) -> bool:
+        return any(t in api_id.lower() for t in ("signature", "initials", "stamp"))
+
+    # Build pre-fill fields — skip signature/initials/stamp (cannot be pre-filled)
+    field_values = {
+        "customer_name":        customer_name,
+        "customer_name2":       customer_name,
+        "customer_company":     customer_company,
+        "customer_entity_type": "Individual",
+        "effective_date":       effective_date,
+        "governing_state":      "Ohio",
+        "provider_name":        prov_signer_name,
+        "provider_name2":       prov_signer_name,
+        "provider_company":     provider_company,
+        "provider_entity_type": "Company",
+    }
+    prefill_fields = [
+        {"api_id": api_id, "value": value}
+        for api_id, value in field_values.items()
+        if not _is_signature_field(api_id)
+    ]
+
+    # Step 2: Build payload — template_id in URL, NOT in body
     payload = {
         "test_mode":   False,
-        "template_id": tid,
         "subject":     f"NDA for Engineering RFQ #{rfq_id} - Provider Copy",
         "message":     "Please review and sign the NDA to access the full RFQ details.",
         "signers": [{
-            "id":               "signer_1",
+            "id":               provider_signer_id,
             "name":             prov_signer_name,
             "email":            provider_user.email,
+            "send_email":       False,
             "embedded_signing": True,
         }],
-        "fields": [
-            {"api_id": "customer_name",        "value": customer_name},
-            {"api_id": "customer_name2",       "value": customer_name},
-            {"api_id": "customer_company",     "value": customer_company},
-            {"api_id": "customer_entity_type", "value": "Individual"},
-            {"api_id": "customer_signature",   "value": customer_name},
-            {"api_id": "effective_date",       "value": effective_date},
-            {"api_id": "governing_state",      "value": "Ohio"},
-            {"api_id": "provider_name",        "value": prov_signer_name},
-            {"api_id": "provider_name2",       "value": prov_signer_name},
-            {"api_id": "provider_company",     "value": provider_company},
-            {"api_id": "provider_entity_type", "value": "Company"},
-            {"api_id": "provider_signature",   "value": ""},
-        ],
+        "fields": prefill_fields,
     }
 
+    # Step 3: POST to correct endpoint — template_id in URL
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"{SIGNWELL_BASE_URL}/documents", json=payload, headers=h
+            f"{SIGNWELL_BASE_URL}/document_templates/{tid}/documents",
+            json=payload,
+            headers=h,
         )
         try:
             resp.raise_for_status()
