@@ -534,14 +534,16 @@ def _score_notable_projects(provider, intent: dict, raw_query: str = '') -> floa
     # Evaluate each project individually - take best match to prevent score dilution
     best_ratio = max(_score_item(str(item)) for item in all_items)
 
-    if best_ratio >= 0.5:
+    # FIX: Tightened thresholds - old 0.5/0.3/0.15 too loose.
+    # Parts suppliers with gas turbine in project text were getting +15.
+    if best_ratio >= 0.65:
         return 15.0
-    elif best_ratio >= 0.3:
+    elif best_ratio >= 0.45:
         return 10.0
-    elif best_ratio >= 0.15:
+    elif best_ratio >= 0.28:
         return 5.0
-    elif best_ratio > 0:
-        return 3.0
+    elif best_ratio >= 0.15:
+        return 2.0
     return 0.0
 
 
@@ -845,16 +847,24 @@ def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, An
 
 
 def _provider_summary_for_llm(provider, idx: int) -> dict:
-    """Build condensed provider summary dict for LLM reranking prompt."""
-    caps = _safe_list(getattr(provider, 'capabilities', []))[:3]
-    notable = _safe_list(getattr(provider, 'proven_experience_notable_projects', []))[:2]
-    case_studies = _safe_list(getattr(provider, 'proven_experience_case_studies', []))[:2]
+    """Build condensed provider summary for LLM reranking.
+    FIX: 100-char truncation hid installation/commissioning text,
+    letting parts suppliers score 100/100 on design queries.
+    """
+    caps = _safe_list(getattr(provider, 'capabilities', []))[:8]
+    notable = _safe_list(getattr(provider, 'proven_experience_notable_projects', []))[:3]
+    case_studies = _safe_list(getattr(provider, 'proven_experience_case_studies', []))[:3]
     projects = notable + case_studies
-    proj_texts = [str(p)[:100] for p in projects[:3]]
+    proj_texts = [str(p)[:300] for p in projects[:5]]  # 300 chars exposes service vs design
+    description = _safe_str(getattr(provider, 'business_description', ''))[:300]
+    tier = (getattr(provider, 'business_evaluation_tier', None)
+            or getattr(provider, 'tier', None) or 'unknown')
     return {
         'id': provider.id,
         'name': _display_name(provider)[:60],
+        'tier': str(tier),
         'specialty': _safe_str(getattr(provider, 'primary_specialty', ''))[:80],
+        'description': description,
         'capabilities': caps,
         'projects': proj_texts,
     }
@@ -886,32 +896,69 @@ async def llm_rerank_candidates(
         caps_str = ', '.join(capabilities_needed[:6]) if capabilities_needed else '(not specified)'
         n = len(summaries)
 
+
+        # Determine query intent for targeted scoring guidance
+        _ql = query.lower()
+        _is_design = any(w in _ql for w in [
+            'design', 'develop', 'engineer', 'analyze', 'model', 'simulate',
+            'calculate', 'optimize', 'cfd', 'fea', 'analysis', 'modeling',
+            'combustor', 'probe', 'instrumentation',
+        ])
+        _is_mfg = any(w in _ql for w in ['manufacture', 'fabricate', 'machine', 'cast', 'forge'])
+        _is_test = any(w in _ql for w in ['test', 'measure', 'instrument', 'probe', 'sensor'])
+
+        if _is_design:
+            _intent_guide = (
+                "QUERY TYPE: DESIGN/ANALYSIS/ENGINEERING. "
+                "Score HIGH (80-100): Firms that DESIGN, ANALYZE, SIMULATE, or ENGINEER. "
+                "Score MED (40-70): Related industry but unclear if they do design/analysis work. "
+                "Score LOW (0-35): Parts suppliers, distributors, OEM part sellers, "
+                "installation contractors, commissioning/IC&E firms, repair/overhaul/maintenance firms. "
+                "RULE: If company description mentions parts/supply/OEM/installation/commissioning/"
+                "overhaul/repair/maintenance as PRIMARY function -> score MAX 35."
+            )
+        elif _is_mfg:
+            _intent_guide = (
+                "QUERY TYPE: MANUFACTURING/FABRICATION. "
+                "Score HIGH (80-100): Firms with machining, fabrication, or manufacturing capabilities. "
+                "Score LOW (0-30): Pure design/analysis firms with no manufacturing."
+            )
+        elif _is_test:
+            _intent_guide = (
+                "QUERY TYPE: TEST/MEASUREMENT/INSTRUMENTATION. "
+                "Score HIGH (80-100): Firms with testing, measurement, or instrumentation capabilities. "
+                "Score MED (40-70): Engineering firms that test as part of broader services. "
+                "Score LOW (0-30): Pure design firms, parts suppliers."
+            )
+        else:
+            _intent_guide = "Score based on technical domain match and specific capabilities needed."
+
         prompt_lines = [
-            'You are evaluating engineering service providers for a customer query.',
-            '',
-            f'Customer query: {query}',
+            'You are an expert engineering services procurement specialist.',
+            f'CUSTOMER QUERY: "{query}"',
             f'Required specialty: {inferred_specialty or "(not specified)"}',
             f'Required capabilities: {caps_str}',
             '',
-            'For each provider below, assign a relevance score 0-100 where:',
-            '- 90-100: Perfect match - clearly has the right specialty AND demonstrated similar project experience',
-            '- 70-89: Strong match - right specialty, likely capable',
-            '- 50-69: Partial match - related field but not exact',
-            '- 20-49: Weak match - tangential relevance only',
-            '- 0-19: No match - wrong industry/service type',
+            'SCORING INTENT:',
+            _intent_guide,
             '',
-            (
-                'IMPORTANT: Parts suppliers, maintenance contractors, IC&E contractors, and installation '
-                'firms should score LOW for design/engineering queries. Only firms that actually DESIGN, '
-                'ANALYZE, or ENGINEER should score high for design queries.'
-            ),
+            'SCORING SCALE:',
+            '- 90-100: Perfect - exact specialty + demonstrated similar project',
+            '- 75-89:  Strong  - right specialty, likely capable',
+            '- 50-74:  Partial - related field or adjacent capability',
+            '- 25-49:  Weak    - same broad industry but wrong service type',
+            '- 0-24:   No match',
             '',
-            'Providers:',
-            json.dumps(summaries, separators=(',', ': '))[:40000],
+            'CRITICAL: Study each provider description and projects fields.',
+            'Parts suppliers, OEM distributors, installation/commissioning/IC&E/overhaul firms',
+            'are NOT design/engineering firms - score them 0-35 for design queries.',
             '',
-            'Return ONLY a JSON array:',
-            '[{"id": 123, "score": 85, "reason": "one sentence", "similar_project": true}, ...]',
-            f'Return all {n} providers. No markdown.',
+            f'PROVIDERS ({n} total):',
+            json.dumps(summaries, separators=(',', ': '))[:50000],
+            '',
+            'Return ONLY a JSON array with ALL providers:',
+            '[{"id": 123, "score": 85, "reason": "one sentence", "similar_project": true/false}, ...]',
+            f'Must contain all {n} entries. No markdown.',
         ]
         prompt = '\n'.join(prompt_lines)
 
@@ -1585,20 +1632,28 @@ async def search_providers(
             llm_entry = llm_scores.get(pid) if llm_scores else None
 
             if llm_entry is not None:
-                # LLM reranking path: llm_score + deterministic tier score
-                tier_pts = _tier_score(provider)
-                final_score = min(100.0, float(llm_entry['llm_score']) + tier_pts)
+                # FIX: Use LLM score directly - do NOT add tier_pts.
+                # Old bug: LLM scored parts supplier 75 + tier 25 = 100/100.
+                llm_raw = float(llm_entry['llm_score'])
+                final_score = min(100.0, llm_raw)
                 sim_matched = bool(llm_entry.get('similar_project', False))
-                sim_title = ''
+                _kw_matched, sim_title, _ratio = _detect_similar_project(
+                    provider, intent, raw_query=query
+                )
+                if not sim_matched and _kw_matched:
+                    sim_matched = True
                 explanation = (
                     f"{name}: {llm_entry['reason']} "
-                    f"(LLM score {llm_entry['llm_score']:.0f} + tier {tier_pts:.0f} = {final_score:.0f}/100)"
+                    f"(AI Relevance Score: {final_score:.0f}/100)"
                 )
+                if sim_title and sim_matched:
+                    short = sim_title[:120] + ('...' if len(sim_title) > 120 else '')
+                    explanation = f'Similar project: {short} | ' + explanation
                 scores = {
                     'total': round(final_score, 2),
                     'specialty': 0.0,
-                    'capabilities': round(float(llm_entry['llm_score']), 2),
-                    'tier': round(tier_pts, 2),
+                    'capabilities': round(llm_raw, 2),
+                    'tier': 0.0,
                     'software_bonus': 0.0,
                     'similarity': round(similarity, 4),
                 }
