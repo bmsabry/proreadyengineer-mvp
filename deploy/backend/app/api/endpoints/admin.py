@@ -1641,7 +1641,8 @@ async def admin_data_export(
             headers={"Content-Disposition": f'attachment; filename="{fname}.json"'}
         )
 
-    try:        if export_type == "search_queries":
+    try:
+        if export_type == "search_queries":
             sql = text(
                 "SELECT sr.id, sr.user_id, u.email AS user_email, "
                 "sr.ip_address, sr.raw_query_text, sr.normalized_query_text, "
