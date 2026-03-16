@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_client_ip, get_current_user_optional, get_db
 from app.core.config import settings
 from app.models.provider import Provider
+from app.models.search import SearchRequest as SearchRequestModel
 from app.models.user import User
 from app.schemas.provider import ProviderPublicResponse
 from app.schemas.search import SearchRequest, SearchResponse, SearchResult
@@ -258,6 +259,36 @@ async def search_query(
             logger.error(
                 "[SEARCH] Failed to increment quota (non-fatal): %s", exc, exc_info=True
             )
+
+        # -------------------------------------------------------------------
+        # Step 3b: Log search request to DB for analytics - NON-FATAL
+        # -------------------------------------------------------------------
+        try:
+            import uuid as _uuid
+            sr = SearchRequestModel(
+                id=_uuid.uuid4(),
+                user_id=user_id,
+                ip_address=ip,
+                raw_query_text=data.query,
+                normalized_query_text=pipeline_info.get("inferred_specialty") or data.query,
+                llm_structured_output=pipeline_info.get("llm_structured_output") if isinstance(pipeline_info, dict) else None,
+                embedding_model=pipeline_info.get("embedding_model") if isinstance(pipeline_info, dict) else None,
+                llm_model=pipeline_info.get("llm_model") if isinstance(pipeline_info, dict) else None,
+                search_status=pipeline_info.get("pipeline_used") if isinstance(pipeline_info, dict) else "completed",
+                fallback_reason=pipeline_info.get("fallback_reason") if isinstance(pipeline_info, dict) else None,
+                results_count=len(results),
+            )
+            db.add(sr)
+            await db.commit()
+            logger.info("[SEARCH] Logged search request id=%s", sr.id)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "[SEARCH] Failed to log search request (non-fatal): %s", exc, exc_info=True
+            )
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
         # -------------------------------------------------------------------
         # Step 4: Build response - validate each provider individually (BUG-2)

@@ -1663,7 +1663,7 @@ async def admin_data_export(
 
         elif export_type == "users_basic":
             sql = text(
-                "SELECT u.id, u.email, u.full_name, u.company_name, u.phone, "
+                "SELECT u.id, u.email, u.full_name, u.business_name, "
                 "u.roles::text, u.is_super_admin, u.monthly_search_count, "
                 "u.created_at, u.last_login_at, "
                 "sub.subscription_type, sub.subscription_status, sub.current_period_end, "
@@ -1688,7 +1688,7 @@ async def admin_data_export(
                 " ORDER BY u.created_at DESC"
             )
             rows = (await db.execute(sql, _dp())).fetchall()
-            cols = ["id","email","full_name","company_name","phone","roles",
+            cols = ["id","email","full_name","business_name","roles",
                     "is_super_admin","monthly_search_count","created_at","last_login_at",
                     "subscription_type","subscription_status","current_period_end",
                     "total_payments","payment_count","ndas_signed"]
@@ -1698,7 +1698,7 @@ async def admin_data_export(
 
         elif export_type == "users_full":
             sql = text(
-                "SELECT u.id, u.email, u.full_name, u.company_name, u.phone, "
+                "SELECT u.id, u.email, u.full_name, u.business_name, "
                 "u.roles::text, u.is_super_admin, u.monthly_search_count, "
                 "u.created_at, u.last_login_at, "
                 "sub.subscription_type, sub.subscription_status, sub.current_period_end, "
@@ -1738,7 +1738,7 @@ async def admin_data_export(
                 " ORDER BY u.created_at DESC"
             )
             rows = (await db.execute(sql, _dp())).fetchall()
-            cols = ["id","email","full_name","company_name","phone","roles",
+            cols = ["id","email","full_name","business_name","roles",
                     "is_super_admin","monthly_search_count","created_at","last_login_at",
                     "subscription_type","subscription_status","current_period_end",
                     "total_payments","payment_count","ndas_signed",
