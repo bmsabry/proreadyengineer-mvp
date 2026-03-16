@@ -88,6 +88,16 @@ interface NDAVoidResult {
   document_id: string | null;
 }
 
+interface StripeTestResult {
+  status: 'success' | 'error' | 'not_configured';
+  account_id?: string;
+  account_name?: string;
+  test_payment_intent_id?: string;
+  mode?: 'test' | 'live';
+  message?: string;
+  error?: string;
+}
+
 function StatusBadge({ ok, label }: { ok: boolean; label?: string }) {
   return ok ? (
     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-300">
@@ -147,6 +157,7 @@ function AIPipelineBanner({ pipeline }: { pipeline: PipelineInfo }) {
         </div>
       )}
 
+
     </div>
   );
 }
@@ -186,6 +197,11 @@ export default function DebuggingPage() {
   const [ndaStatusResult, setNdaStatusResult] = useState<NDAStatusResult | null>(null);
   const [ndaVoidLoading, setNdaVoidLoading] = useState(false);
   const [ndaVoidResult, setNdaVoidResult] = useState<NDAVoidResult | null>(null);
+  // Stripe test state
+  const [stripeLoading, setStripeLoading] = useState(false);
+  const [stripeResult, setStripeResult] = useState<StripeTestResult | null>(null);
+
+
 
   const testSignwellConnection = async () => {
     setSignwellTestLoading(true);
@@ -237,6 +253,19 @@ export default function DebuggingPage() {
       const e = err as { message?: string };
       setNdaVoidResult({ success: false, error: e.message ?? 'Request failed', message: null, document_id: docId });
     } finally { setNdaVoidLoading(false); }
+  };
+
+  const testStripeConnection = async () => {
+    setStripeLoading(true);
+    setStripeResult(null);
+    try {
+      const r = await api.admin.testStripeConnection();
+      setStripeResult(r.data as StripeTestResult);
+    } catch (e: any) {
+      setStripeResult({ status: 'error', error: e.response?.data?.detail ?? e.message ?? 'Request failed' });
+    } finally {
+      setStripeLoading(false);
+    }
   };
 
   const checkResendDomain = async () => {
@@ -833,6 +862,71 @@ export default function DebuggingPage() {
                   Void failed: {ndaVoidResult.error}
                 </div>
               )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---- Stripe Payment Integration ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>&#x1F4B3;</span> Stripe Payment Integration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Verifies your Stripe API key is valid by retrieving account info and creating
+            (then immediately cancelling) a $1.00 test PaymentIntent.
+          </p>
+          <Button onClick={testStripeConnection} disabled={stripeLoading}>
+            {stripeLoading ? 'Testing...' : '&#x1F50C; Test Stripe Connection'}
+          </Button>
+          {stripeResult && stripeResult.status === 'success' && (
+            <div className="bg-green-50 border border-green-200 rounded-md p-4 space-y-2 text-sm">
+              <div className="flex items-center gap-2 text-green-700 font-semibold">
+                <CheckCircle className="h-4 w-4" />
+                &#x2705; Connected successfully
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-green-800">
+                <div><span className="font-medium">Account Name:</span> {stripeResult.account_name}</div>
+                <div>
+                  <span className="font-medium">Account ID:</span>{' '}
+                  <code className="bg-green-100 px-1 rounded">{stripeResult.account_id}</code>
+                </div>
+                <div>
+                  <span className="font-medium">Mode:</span>{' '}
+                  <span className={`font-semibold ${
+                    stripeResult.mode === 'live' ? 'text-orange-700' : 'text-green-700'
+                  }`}>
+                    {stripeResult.mode === 'live' ? '&#x26A0;&#xFE0F; LIVE' : '&#x1F9EA; Test'}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-medium">Test PaymentIntent:</span>{' '}
+                  <code className="bg-green-100 px-1 rounded text-xs">{stripeResult.test_payment_intent_id}</code>
+                </div>
+              </div>
+            </div>
+          )}
+          {stripeResult && stripeResult.status === 'not_configured' && (
+            <div className="bg-yellow-50 border border-yellow-300 rounded-md p-3 text-sm">
+              <div className="flex items-center gap-2 text-yellow-800 font-medium">
+                <AlertCircle className="h-4 w-4" />
+                &#x26A0;&#xFE0F; Not Configured
+              </div>
+              <div className="text-xs text-yellow-700 mt-1">{stripeResult.message}</div>
+              <div className="text-xs text-yellow-600 mt-1">
+                Go to Admin &gt; Settings and add your Stripe Secret Key.
+              </div>
+            </div>
+          )}
+          {stripeResult && stripeResult.status === 'error' && (
+            <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm">
+              <div className="flex items-center gap-2 text-red-700 font-medium">
+                <AlertCircle className="h-4 w-4" />
+                &#x274C; Error: {stripeResult.error}
+              </div>
             </div>
           )}
         </CardContent>

@@ -438,6 +438,8 @@ const admin = {
     apiClient.post<any>(`/admin/debug/test-nda/${documentId}/void`),
   testSignwellConnection: () =>
     apiClient.get<any>('/admin/debug/test-signwell'),
+  testStripeConnection: () =>
+    apiClient.get<any>('/admin/debug/test-stripe'),
 };
 
 // Webhooks (server-side only, usually)
