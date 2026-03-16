@@ -2001,7 +2001,7 @@ async def admin_data_export(
         raise HTTPException(status_code=500, detail=f"Export failed: {exc}\n{tb}")
 
 
-@router.post("/debug/test-paypal")
+@router.get("/admin/debug/test-paypal")
 async def test_paypal_connection(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["admin"])),
