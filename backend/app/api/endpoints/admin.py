@@ -1986,7 +1986,7 @@ async def admin_data_export(
 @router.post("/debug/test-paypal")
 async def test_paypal_connection(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_admin),
+    current_user: User = Depends(require_role(["admin"])),
 ):
     """Test PayPal API connectivity using stored credentials."""
     import httpx
