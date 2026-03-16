@@ -679,6 +679,15 @@ class SystemConfigRequest(_BaseModel):
     signrequest_api_key: Optional[str] = None
     signwell_api_key: Optional[str] = None
     signwell_template_id: Optional[str] = None
+    # PayPal
+    paypal_client_id: Optional[str] = None
+    paypal_client_secret: Optional[str] = None
+    paypal_mode: Optional[str] = None
+    paypal_webhook_id: Optional[str] = None
+    paypal_plan_search_tier1: Optional[str] = None
+    paypal_plan_search_tier2: Optional[str] = None
+    paypal_plan_provider_profile: Optional[str] = None
+    paypal_plan_advertisement: Optional[str] = None
 
 
 def _mask(v: str) -> str:
@@ -727,48 +736,49 @@ async def save_system_config(
     """Save API keys and config to database for runtime use."""
     import logging
     _log = logging.getLogger("admin.config.save")
-    _log.info(f"[SAVE] POST /admin/config from user {current_user.id}")
-    _log.info(f"[SAVE] Request data fields: {[f for f in data.__dict__ if getattr(data, f)]}")
-
-    config_map: dict = {}
-    if data.openai_api_key:         config_map["OPENAI_API_KEY"]         = data.openai_api_key
-    if data.openai_api_base:        config_map["OPENAI_API_BASE"]        = data.openai_api_base
-    if data.openai_llm_model:       config_map["OPENAI_LLM_MODEL"]       = data.openai_llm_model
-    if data.openai_embedding_model: config_map["OPENAI_EMBEDDING_MODEL"] = data.openai_embedding_model
-    if data.stripe_secret_key:      config_map["STRIPE_SECRET_KEY"]      = data.stripe_secret_key
-    if data.stripe_publishable_key: config_map["STRIPE_PUBLISHABLE_KEY"] = data.stripe_publishable_key
-    if data.stripe_webhook_secret:  config_map["STRIPE_WEBHOOK_SECRET"]  = data.stripe_webhook_secret
-    if data.aws_access_key_id:      config_map["AWS_ACCESS_KEY_ID"]      = data.aws_access_key_id
-    if data.aws_secret_access_key:  config_map["AWS_SECRET_ACCESS_KEY"]  = data.aws_secret_access_key
-    if data.aws_region:             config_map["AWS_REGION"]             = data.aws_region
-    if data.aws_s3_bucket:          config_map["AWS_S3_BUCKET"]          = data.aws_s3_bucket
-    if data.resend_api_key:         config_map["RESEND_API_KEY"]         = data.resend_api_key
-    if data.resend_from_email:      config_map["RESEND_FROM_EMAIL"]      = data.resend_from_email
-    if data.signrequest_api_key:    config_map["SIGNREQUEST_API_KEY"]    = data.signrequest_api_key
-    if data.signwell_api_key:       config_map["SIGNWELL_API_KEY"]       = data.signwell_api_key
-    if data.signwell_template_id:   config_map["SIGNWELL_TEMPLATE_ID"]   = data.signwell_template_id
-    if data.paypal_client_id:             config_map["PAYPAL_CLIENT_ID"]             = data.paypal_client_id
-    if data.paypal_client_secret:         config_map["PAYPAL_CLIENT_SECRET"]         = data.paypal_client_secret
-    if data.paypal_mode:                  config_map["PAYPAL_MODE"]                  = data.paypal_mode
-    if data.paypal_webhook_id:            config_map["PAYPAL_WEBHOOK_ID"]            = data.paypal_webhook_id
-    if data.paypal_plan_search_tier1:     config_map["PAYPAL_PLAN_SEARCH_TIER1"]     = data.paypal_plan_search_tier1
-    if data.paypal_plan_search_tier2:     config_map["PAYPAL_PLAN_SEARCH_TIER2"]     = data.paypal_plan_search_tier2
-    if data.paypal_plan_provider_profile: config_map["PAYPAL_PLAN_PROVIDER_PROFILE"] = data.paypal_plan_provider_profile
-    if data.paypal_plan_advertisement:    config_map["PAYPAL_PLAN_ADVERTISEMENT"]    = data.paypal_plan_advertisement
-
-    _log.info(f"[SAVE] Config map keys: {list(config_map.keys())}")
-
-    if not config_map:
-        _log.info("[SAVE] No non-empty values, returning no_changes")
-        return {"status": "no_changes", "keys_saved": [], "message": "No non-empty values provided"}
     try:
+        _log.info(f"[SAVE] POST /admin/config from user {current_user.id}")
+        config_map: dict = {}
+        if data.openai_api_key:         config_map["OPENAI_API_KEY"]         = data.openai_api_key
+        if data.openai_api_base:        config_map["OPENAI_API_BASE"]        = data.openai_api_base
+        if data.openai_llm_model:       config_map["OPENAI_LLM_MODEL"]       = data.openai_llm_model
+        if data.openai_embedding_model: config_map["OPENAI_EMBEDDING_MODEL"] = data.openai_embedding_model
+        if data.stripe_secret_key:      config_map["STRIPE_SECRET_KEY"]      = data.stripe_secret_key
+        if data.stripe_publishable_key: config_map["STRIPE_PUBLISHABLE_KEY"] = data.stripe_publishable_key
+        if data.stripe_webhook_secret:  config_map["STRIPE_WEBHOOK_SECRET"]  = data.stripe_webhook_secret
+        if data.aws_access_key_id:      config_map["AWS_ACCESS_KEY_ID"]      = data.aws_access_key_id
+        if data.aws_secret_access_key:  config_map["AWS_SECRET_ACCESS_KEY"]  = data.aws_secret_access_key
+        if data.aws_region:             config_map["AWS_REGION"]             = data.aws_region
+        if data.aws_s3_bucket:          config_map["AWS_S3_BUCKET"]          = data.aws_s3_bucket
+        if data.resend_api_key:         config_map["RESEND_API_KEY"]         = data.resend_api_key
+        if data.resend_from_email:      config_map["RESEND_FROM_EMAIL"]      = data.resend_from_email
+        if data.signrequest_api_key:    config_map["SIGNREQUEST_API_KEY"]    = data.signrequest_api_key
+        if data.signwell_api_key:       config_map["SIGNWELL_API_KEY"]       = data.signwell_api_key
+        if data.signwell_template_id:   config_map["SIGNWELL_TEMPLATE_ID"]   = data.signwell_template_id
+        if data.paypal_client_id:             config_map["PAYPAL_CLIENT_ID"]             = data.paypal_client_id
+        if data.paypal_client_secret:         config_map["PAYPAL_CLIENT_SECRET"]         = data.paypal_client_secret
+        if data.paypal_mode:                  config_map["PAYPAL_MODE"]                  = data.paypal_mode
+        if data.paypal_webhook_id:            config_map["PAYPAL_WEBHOOK_ID"]            = data.paypal_webhook_id
+        if data.paypal_plan_search_tier1:     config_map["PAYPAL_PLAN_SEARCH_TIER1"]     = data.paypal_plan_search_tier1
+        if data.paypal_plan_search_tier2:     config_map["PAYPAL_PLAN_SEARCH_TIER2"]     = data.paypal_plan_search_tier2
+        if data.paypal_plan_provider_profile: config_map["PAYPAL_PLAN_PROVIDER_PROFILE"] = data.paypal_plan_provider_profile
+        if data.paypal_plan_advertisement:    config_map["PAYPAL_PLAN_ADVERTISEMENT"]    = data.paypal_plan_advertisement
+
+        _log.info(f"[SAVE] Config map keys: {list(config_map.keys())}")
+
+        if not config_map:
+            return {"status": "no_changes", "keys_saved": [], "message": "No non-empty values provided"}
+
         await _save_config_values(db, config_map, user_id=current_user.id)
         _log.info(f"[SAVE] SUCCESS: saved {len(config_map)} keys")
-    except Exception as exc:
-        _log.error(f"[SAVE] FAILED: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to save config: {exc}")
-    return {"status": "saved", "keys_saved": list(config_map.keys()), "message": f"Saved {len(config_map)} key(s) successfully"}
+        return {"status": "saved", "keys_saved": list(config_map.keys()), "message": f"Saved {len(config_map)} key(s) successfully"}
 
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import logging as _l
+        _l.getLogger("admin.config.save").error(f"[SAVE] FAILED: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save config: {str(exc)}")
 
 
 
