@@ -425,6 +425,17 @@ class SystemConfigRequest(BaseSchema):
     signwell_template_id: Optional[str] = None
 
 
+
+    # PayPal
+    paypal_client_id: Optional[str] = None
+    paypal_client_secret: Optional[str] = None
+    paypal_mode: Optional[str] = None
+    paypal_webhook_id: Optional[str] = None
+    paypal_plan_search_tier1: Optional[str] = None
+    paypal_plan_search_tier2: Optional[str] = None
+    paypal_plan_provider_profile: Optional[str] = None
+    paypal_plan_advertisement: Optional[str] = None
+
 class SystemConfigResponse(BaseSchema):
     """Response after saving config values."""
     status: str

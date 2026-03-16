@@ -747,6 +747,14 @@ async def save_system_config(
     if data.signrequest_api_key:    config_map["SIGNREQUEST_API_KEY"]    = data.signrequest_api_key
     if data.signwell_api_key:       config_map["SIGNWELL_API_KEY"]       = data.signwell_api_key
     if data.signwell_template_id:   config_map["SIGNWELL_TEMPLATE_ID"]   = data.signwell_template_id
+    if data.paypal_client_id:             config_map["PAYPAL_CLIENT_ID"]             = data.paypal_client_id
+    if data.paypal_client_secret:         config_map["PAYPAL_CLIENT_SECRET"]         = data.paypal_client_secret
+    if data.paypal_mode:                  config_map["PAYPAL_MODE"]                  = data.paypal_mode
+    if data.paypal_webhook_id:            config_map["PAYPAL_WEBHOOK_ID"]            = data.paypal_webhook_id
+    if data.paypal_plan_search_tier1:     config_map["PAYPAL_PLAN_SEARCH_TIER1"]     = data.paypal_plan_search_tier1
+    if data.paypal_plan_search_tier2:     config_map["PAYPAL_PLAN_SEARCH_TIER2"]     = data.paypal_plan_search_tier2
+    if data.paypal_plan_provider_profile: config_map["PAYPAL_PLAN_PROVIDER_PROFILE"] = data.paypal_plan_provider_profile
+    if data.paypal_plan_advertisement:    config_map["PAYPAL_PLAN_ADVERTISEMENT"]    = data.paypal_plan_advertisement
 
     _log.info(f"[SAVE] Config map keys: {list(config_map.keys())}")
 
