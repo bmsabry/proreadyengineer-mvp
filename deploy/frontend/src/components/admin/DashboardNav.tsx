@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FileText, Building2, DollarSign, Megaphone, Users, Settings, LogOut, Home, Activity } from 'lucide-react';
+import { LayoutDashboard, FileText, Building2, DollarSign, Megaphone, Users, Settings, LogOut, Home, Activity, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,6 +14,7 @@ const navItems = [
   { href: '/admin/payments', label: 'Payments', icon: DollarSign },
   { href: '/admin/ads', label: 'Ads', icon: Megaphone },
   { href: '/admin/users', label: 'Users', icon: Users },
+  { href: '/admin/data-extraction', label: 'Data Extraction', icon: Download },
   { href: '/admin/settings', label: 'Settings', icon: Settings },
   { href: '/admin/debugging', label: 'Debugging', icon: Activity },
 ];

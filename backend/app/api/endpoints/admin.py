@@ -1578,3 +1578,405 @@ async def admin_debug_test_stripe(
         }
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
+
+
+# ─── Data Export Endpoint ────────────────────────────────────────────────────
+
+@router.get("/admin/data-export")
+async def admin_data_export(
+    export_type: str = Query(..., description="Type of data export"),
+    format: str = Query("csv", description="Output format: csv or json"),
+    date_from: Optional[str] = Query(None, description="ISO date filter start"),
+    date_to: Optional[str] = Query(None, description="ISO date filter end"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin: Export platform data as CSV or JSON download.
+
+    Supported export_type values:
+      search_queries, users_basic, users_full, financial_transactions,
+      rfq_analytics, provider_activity, nda_records, advertising_performance,
+      audit_logs, full_platform_snapshot
+    """
+    today_str = datetime.utcnow().strftime("%Y-%m-%d")
+    filename_base = f"{export_type}_{today_str}"
+
+    def _df(col: str) -> str:
+        parts = []
+        if date_from:
+            parts.append(f"{col} >= :df_from")
+        if date_to:
+            parts.append(f"{col} <= :df_to")
+        return (" AND " + " AND ".join(parts)) if parts else ""
+
+    def _dp() -> dict:
+        p: dict = {}
+        if date_from:
+            p["df_from"] = date_from
+        if date_to:
+            p["df_to"] = date_to + " 23:59:59"
+        return p
+
+    def _safe(v) -> str:
+        return "" if v is None else str(v)
+
+    def _csv_resp(headers: list, rows: list, fname: str):
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(headers)
+        for row in rows:
+            w.writerow([_safe(c) for c in row])
+        buf.seek(0)
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{fname}.csv"'}
+        )
+
+    def _json_resp(data, fname: str):
+        content = json.dumps(data, default=str, indent=2)
+        return StreamingResponse(
+            iter([content]),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{fname}.json"'}
+        )
+
+    try:        if export_type == "search_queries":
+            sql = text(
+                "SELECT sr.id, sr.user_id, u.email AS user_email, "
+                "sr.ip_address, sr.raw_query_text, sr.normalized_query_text, "
+                "sr.search_status, sr.llm_model, sr.embedding_model, "
+                "sr.fallback_reason, sr.created_at "
+                "FROM search_requests sr "
+                "LEFT JOIN users u ON u.id = sr.user_id "
+                "WHERE 1=1 " + _df("sr.created_at") +
+                " ORDER BY sr.created_at DESC"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","user_id","user_email","ip_address","raw_query_text",
+                    "normalized_query_text","search_status","llm_model",
+                    "embedding_model","fallback_reason","created_at"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+
+        elif export_type == "users_basic":
+            sql = text(
+                "SELECT u.id, u.email, u.full_name, u.company_name, u.phone, "
+                "u.roles::text, u.is_super_admin, u.monthly_search_count, "
+                "u.created_at, u.last_login_at, "
+                "sub.subscription_type, sub.subscription_status, sub.current_period_end, "
+                "COALESCE(pa.total_payments, 0), COALESCE(pa.payment_count, 0), "
+                "COALESCE(nda.ndas_signed, 0) "
+                "FROM users u "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT subscription_type, subscription_status, current_period_end "
+                "  FROM subscriptions WHERE user_id = u.id "
+                "  ORDER BY created_at DESC LIMIT 1 "
+                ") sub ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT SUM(amount) AS total_payments, COUNT(*) AS payment_count "
+                "  FROM payment_attempts "
+                "  WHERE initiated_by_user_id = u.id AND payment_status = 'confirmed' "
+                ") pa ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT COUNT(*) AS ndas_signed FROM rfq_ndas "
+                "  WHERE customer_user_id = u.id AND nda_status = 'fully_signed' "
+                ") nda ON true "
+                "WHERE 1=1 " + _df("u.created_at") +
+                " ORDER BY u.created_at DESC"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","email","full_name","company_name","phone","roles",
+                    "is_super_admin","monthly_search_count","created_at","last_login_at",
+                    "subscription_type","subscription_status","current_period_end",
+                    "total_payments","payment_count","ndas_signed"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+
+        elif export_type == "users_full":
+            sql = text(
+                "SELECT u.id, u.email, u.full_name, u.company_name, u.phone, "
+                "u.roles::text, u.is_super_admin, u.monthly_search_count, "
+                "u.created_at, u.last_login_at, "
+                "sub.subscription_type, sub.subscription_status, sub.current_period_end, "
+                "COALESCE(pa.total_payments,0), COALESCE(pa.payment_count,0), "
+                "COALESCE(nda.ndas_signed,0), COALESCE(sc.search_count,0), "
+                "COALESCE(rc.rfq_count,0), COALESCE(qc.quote_count,0), "
+                "ls.last_search_query, ls.last_search_at "
+                "FROM users u "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT subscription_type, subscription_status, current_period_end "
+                "  FROM subscriptions WHERE user_id = u.id ORDER BY created_at DESC LIMIT 1 "
+                ") sub ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT SUM(amount) AS total_payments, COUNT(*) AS payment_count "
+                "  FROM payment_attempts WHERE initiated_by_user_id = u.id AND payment_status = 'confirmed' "
+                ") pa ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT COUNT(*) AS ndas_signed FROM rfq_ndas "
+                "  WHERE customer_user_id = u.id AND nda_status = 'fully_signed' "
+                ") nda ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT COUNT(*) AS search_count FROM search_requests WHERE user_id = u.id "
+                ") sc ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT COUNT(*) AS rfq_count FROM rfqs WHERE customer_user_id = u.id "
+                ") rc ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT COUNT(*) AS quote_count FROM quotes q "
+                "  JOIN provider_memberships pm ON pm.provider_id = q.provider_id "
+                "  WHERE pm.user_id = u.id "
+                ") qc ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT raw_query_text AS last_search_query, created_at AS last_search_at "
+                "  FROM search_requests WHERE user_id = u.id ORDER BY created_at DESC LIMIT 1 "
+                ") ls ON true "
+                "WHERE 1=1 " + _df("u.created_at") +
+                " ORDER BY u.created_at DESC"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","email","full_name","company_name","phone","roles",
+                    "is_super_admin","monthly_search_count","created_at","last_login_at",
+                    "subscription_type","subscription_status","current_period_end",
+                    "total_payments","payment_count","ndas_signed",
+                    "search_count","rfq_count","quote_count",
+                    "last_search_query","last_search_at"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+
+        elif export_type == "financial_transactions":
+            sql = text(
+                "SELECT pa.id, pa.provider_name, pa.external_payment_id, pa.purpose, "
+                "pa.related_entity_type, pa.related_entity_id, "
+                "pa.amount, pa.currency, pa.payment_status, pa.idempotency_key, "
+                "pa.initiated_by_user_id, u.email AS user_email, "
+                "pa.initiated_at, pa.confirmed_at, pa.failed_at, "
+                "sub.subscription_type "
+                "FROM payment_attempts pa "
+                "LEFT JOIN users u ON u.id = pa.initiated_by_user_id "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT subscription_type FROM subscriptions "
+                "  WHERE user_id = pa.initiated_by_user_id ORDER BY created_at DESC LIMIT 1 "
+                ") sub ON true "
+                "WHERE 1=1 " + _df("pa.initiated_at") +
+                " ORDER BY pa.initiated_at DESC"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","provider_name","external_payment_id","purpose",
+                    "related_entity_type","related_entity_id",
+                    "amount","currency","payment_status","idempotency_key",
+                    "initiated_by_user_id","user_email",
+                    "initiated_at","confirmed_at","failed_at","subscription_type"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+
+        elif export_type == "rfq_analytics":
+            sql = text(
+                "SELECT r.id, r.customer_email, r.business_name, r.contact_name, "
+                "r.urgency, r.nda_required, r.rfq_status, "
+                "r.quote_count, r.is_closed, r.selected_provider_id, "
+                "r.submitted_at, r.closed_at, r.created_at, "
+                "COALESCE(db_.dispatch_count,0), "
+                "COALESCE(dp_.total_providers_contacted,0), "
+                "COALESCE(qr.quotes_received,0) "
+                "FROM rfqs r "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT COUNT(*) AS dispatch_count FROM rfq_dispatch_batches WHERE rfq_id = r.id "
+                ") db_ ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT COUNT(*) AS total_providers_contacted FROM rfq_provider_dispatches WHERE rfq_id = r.id "
+                ") dp_ ON true "
+                "LEFT JOIN LATERAL ( "
+                "  SELECT COUNT(*) AS quotes_received FROM quotes "
+                "  WHERE rfq_id = r.id AND quote_status != 'draft' "
+                ") qr ON true "
+                "WHERE 1=1 " + _df("r.created_at") +
+                " ORDER BY r.created_at DESC"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","customer_email","business_name","contact_name",
+                    "urgency","nda_required","rfq_status",
+                    "quote_count","is_closed","selected_provider_id",
+                    "submitted_at","closed_at","created_at",
+                    "dispatch_count","total_providers_contacted","quotes_received"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+        elif export_type == "provider_activity":
+            sql = text(
+                "SELECT p.id, p.name, p.city, p.state, p.tier, p.primary_specialty, "
+                "p.is_engineering_service, sub.subscription_status, owner.owner_email, "
+                "claim.claim_status, COALESCE(tr.tier_requests_count,0), tr.last_tier_request_at, "
+                "COALESCE(rd.rfqs_received,0), COALESCE(ru.rfqs_unlocked,0), "
+                "COALESCE(qs.quotes_submitted,0), p.embedding_generated_at "
+                "FROM providers p "
+                "LEFT JOIN LATERAL (SELECT subscription_status FROM subscriptions "
+                "  WHERE provider_id = p.id ORDER BY created_at DESC LIMIT 1) sub ON true "
+                "LEFT JOIN LATERAL (SELECT u.email AS owner_email FROM provider_memberships pm "
+                "  JOIN users u ON u.id = pm.user_id "
+                "  WHERE pm.provider_id = p.id AND pm.membership_role = 'owner' LIMIT 1) owner ON true "
+                "LEFT JOIN LATERAL (SELECT status AS claim_status FROM provider_claim_requests "
+                "  WHERE provider_id = p.id ORDER BY created_at DESC LIMIT 1) claim ON true "
+                "LEFT JOIN LATERAL (SELECT COUNT(*) AS tier_requests_count, MAX(created_at) AS last_tier_request_at "
+                "  FROM tier_evaluation_requests WHERE provider_id = p.id) tr ON true "
+                "LEFT JOIN LATERAL (SELECT COUNT(*) AS rfqs_received "
+                "  FROM rfq_provider_dispatches WHERE provider_id = p.id) rd ON true "
+                "LEFT JOIN LATERAL (SELECT COUNT(*) AS rfqs_unlocked FROM rfq_unlocks "
+                "  WHERE provider_id = p.id AND unlock_status = 'unlocked') ru ON true "
+                "LEFT JOIN LATERAL (SELECT COUNT(*) AS quotes_submitted "
+                "  FROM quotes WHERE provider_id = p.id) qs ON true "
+                "WHERE 1=1 " + _df("p.created_at") + " ORDER BY p.name"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","name","city","state","tier","primary_specialty",
+                    "is_engineering_service","subscription_status","owner_email",
+                    "claim_status","tier_requests_count","last_tier_request_at",
+                    "rfqs_received","rfqs_unlocked","quotes_submitted","embedding_generated_at"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+
+        elif export_type == "nda_records":
+            sql = text(
+                "SELECT n.id, n.rfq_id, n.provider_id, n.customer_user_id, n.nda_status, "
+                "u.email AS customer_email, p.name AS provider_name, "
+                "n.signrequest_document_id, n.customer_signed_at, "
+                "n.provider_signed_at, n.fully_signed_at, n.created_at "
+                "FROM rfq_ndas n "
+                "LEFT JOIN users u ON u.id = n.customer_user_id "
+                "LEFT JOIN providers p ON p.id = n.provider_id "
+                "WHERE 1=1 " + _df("n.created_at") + " ORDER BY n.created_at DESC"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","rfq_id","provider_id","customer_user_id","nda_status",
+                    "customer_email","provider_name","signrequest_document_id",
+                    "customer_signed_at","provider_signed_at","fully_signed_at","created_at"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+
+        elif export_type == "advertising_performance":
+            sql = text(
+                "SELECT a.id, a.ad_slot_id, sl.slot_name, sl.page_type, "
+                "u.email AS advertiser_email, a.title, a.promotional_text, a.outbound_url, "
+                "a.ad_status, a.started_at, a.ended_at, a.created_at, "
+                "50 AS monthly_cost, "
+                "EXTRACT(DAY FROM (COALESCE(a.ended_at, NOW()) - a.started_at))::int AS days_active "
+                "FROM advertisements a "
+                "LEFT JOIN ad_slots sl ON sl.id = a.ad_slot_id "
+                "LEFT JOIN users u ON u.id = a.advertiser_user_id "
+                "WHERE 1=1 " + _df("a.created_at") + " ORDER BY a.created_at DESC"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","ad_slot_id","slot_name","page_type","advertiser_email",
+                    "title","promotional_text","outbound_url","ad_status",
+                    "started_at","ended_at","created_at","monthly_cost","days_active"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+
+        elif export_type == "audit_logs":
+            sql = text(
+                "SELECT al.id, u.email AS actor_email, al.entity_type, al.entity_id, "
+                "al.action, al.before_state, al.after_state, al.metadata, al.created_at "
+                "FROM audit_logs al "
+                "LEFT JOIN users u ON u.id = al.actor_user_id "
+                "WHERE 1=1 " + _df("al.created_at") + " ORDER BY al.created_at DESC"
+            )
+            rows = (await db.execute(sql, _dp())).fetchall()
+            cols = ["id","actor_email","entity_type","entity_id",
+                    "action","before_state","after_state","metadata","created_at"]
+            if format == "json":
+                return _json_resp([dict(zip(cols, r)) for r in rows], filename_base)
+            return _csv_resp(cols, rows, filename_base)
+        elif export_type == "full_platform_snapshot":
+            async def _scalar(q: str):
+                return (await db.execute(text(q))).scalar() or 0
+
+            now = datetime.utcnow()
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+            month_q = "SELECT COUNT(*) FROM search_requests WHERE created_at >= '" + month_start + "''"
+
+            roles_rows = (await db.execute(text(
+                "SELECT unnest(roles) AS role, COUNT(*) FROM users GROUP BY role"
+            ))).fetchall()
+            users_by_role = {str(r[0]): r[1] for r in roles_rows}
+
+            sub_rows = (await db.execute(text(
+                "SELECT subscription_type, COUNT(*) FROM subscriptions "
+                "WHERE subscription_status = 'active' GROUP BY subscription_type"
+            ))).fetchall()
+            users_by_sub = {str(r[0]): r[1] for r in sub_rows}
+
+            tq_rows = (await db.execute(text(
+                "SELECT raw_query_text, COUNT(*) AS cnt FROM search_requests "
+                "WHERE raw_query_text IS NOT NULL "
+                "GROUP BY raw_query_text ORDER BY cnt DESC LIMIT 10"
+            ))).fetchall()
+            top_queries = [r[0] for r in tq_rows]
+
+            rfq_rows = (await db.execute(text(
+                "SELECT rfq_status::text, COUNT(*) FROM rfqs GROUP BY rfq_status"
+            ))).fetchall()
+            rfqs_by_status = {str(r[0]): r[1] for r in rfq_rows}
+
+            tier_rows = (await db.execute(text(
+                "SELECT tier, COUNT(*) FROM providers GROUP BY tier"
+            ))).fetchall()
+            providers_by_tier = {str(r[0]): r[1] for r in tier_rows}
+
+            rev_rows = (await db.execute(text(
+                "SELECT purpose, SUM(amount) FROM payment_attempts "
+                "WHERE payment_status = 'confirmed' GROUP BY purpose"
+            ))).fetchall()
+            revenue_by_purpose = {str(r[0]): float(r[1]) for r in rev_rows}
+
+            nda_rows = (await db.execute(text(
+                "SELECT nda_status::text, COUNT(*) FROM rfq_ndas GROUP BY nda_status"
+            ))).fetchall()
+            ndas_by_status = {str(r[0]): r[1] for r in nda_rows}
+
+            ads_rows = (await db.execute(text(
+                "SELECT ad_status::text, COUNT(*) FROM advertisements GROUP BY ad_status"
+            ))).fetchall()
+            ads_by_status = {str(r[0]): r[1] for r in ads_rows}
+
+            total_rev_row = (await db.execute(text(
+                "SELECT COALESCE(SUM(amount),0) FROM payment_attempts WHERE payment_status = 'confirmed'"
+            ))).scalar()
+
+            snapshot = {
+                "generated_at": now.isoformat(),
+                "total_users": await _scalar("SELECT COUNT(*) FROM users"),
+                "users_by_role": users_by_role,
+                "users_by_subscription": users_by_sub,
+                "total_searches": await _scalar("SELECT COUNT(*) FROM search_requests"),
+                "searches_this_month": await _scalar(month_q),
+                "top_queries": top_queries,
+                "total_rfqs": await _scalar("SELECT COUNT(*) FROM rfqs"),
+                "rfqs_by_status": rfqs_by_status,
+                "total_providers": await _scalar("SELECT COUNT(*) FROM providers"),
+                "providers_by_tier": providers_by_tier,
+                "providers_with_embeddings": await _scalar("SELECT COUNT(*) FROM providers WHERE embedding IS NOT NULL"),
+                "total_revenue": float(total_rev_row or 0),
+                "revenue_by_purpose": revenue_by_purpose,
+                "total_ndas": await _scalar("SELECT COUNT(*) FROM rfq_ndas"),
+                "ndas_by_status": ndas_by_status,
+                "total_ads": await _scalar("SELECT COUNT(*) FROM advertisements"),
+                "ads_by_status": ads_by_status,
+            }
+            return _json_resp(snapshot, filename_base)
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown export_type: {export_type}")
+
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover
+        import traceback
+        tb = traceback.format_exc()
+        raise HTTPException(status_code=500, detail=f"Export failed: {exc}\n{tb}")
