@@ -870,166 +870,232 @@ def _provider_summary_for_llm(provider, idx: int) -> dict:
     }
 
 
-async def llm_rerank_candidates(
+
+
+def _extract_llm_content(response) -> str:
+    """Extract text from LLM response, handles Kimi-K2.5 reasoning models."""
+    msg = response.choices[0].message
+    content = getattr(msg, 'content', None) or ''
+    if not content or not content.strip():
+        reasoning = getattr(msg, 'reasoning_content', None) or ''
+        if reasoning:
+            content = reasoning
+    return content.strip()
+
+
+def _parse_json_from_llm(text: str):
+    """Extract and parse JSON array from LLM response text."""
+    import re as _re
+    text = _re.sub(r'^```(?:json)?\s*', '', text)
+    text = _re.sub(r'\s*```$', '', text).strip()
+    if text.startswith('{'):
+        arr_match = _re.search(r'\[.*\]', text, _re.DOTALL)
+        if arr_match:
+            text = arr_match.group(0)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    arr_match = _re.search(r'\[.*\]', text, _re.DOTALL)
+    if arr_match:
+        try:
+            return json.loads(arr_match.group(0))
+        except json.JSONDecodeError:
+            pass
+    raise json.JSONDecodeError('Could not find valid JSON array', text, 0)
+
+
+async def llm_pass1_filter(
     providers: list,
     query: str,
     intent: Dict[str, Any],
     runtime_config: Optional[Dict[str, Any]] = None,
-) -> Dict[int, Dict]:
-    """Single LLM call to score all candidates for relevance to the query.
+) -> Optional[List[int]]:
+    """Pass 1: ONE LLM call to filter engineering service providers.
 
-    providers: list of (provider_proxy, similarity_float) tuples.
-    Returns dict mapping provider_id -> {llm_score, reason, similar_project}.
-    On any failure returns empty dict so caller falls back to deterministic scoring.
+    Returns list of provider IDs to keep, or None on failure.
+    None => caller uses all candidates as safe fallback.
     """
     if not providers:
-        return {}
-
+        return None
     try:
-        summaries = [
-            _provider_summary_for_llm(prov, idx)
-            for idx, (prov, _sim) in enumerate(providers)
-        ]
-
-        inferred_specialty = _safe_str(intent.get('inferred_specialty', ''))
-        capabilities_needed = _safe_list(intent.get('capabilities_needed', []))
-        caps_str = ', '.join(capabilities_needed[:6]) if capabilities_needed else '(not specified)'
-        n = len(summaries)
-
-
-        # Determine query intent for targeted scoring guidance
-        _ql = query.lower()
-        _is_design = any(w in _ql for w in [
-            'design', 'develop', 'engineer', 'analyze', 'model', 'simulate',
-            'calculate', 'optimize', 'cfd', 'fea', 'analysis', 'modeling',
-            'combustor', 'probe', 'instrumentation',
-        ])
-        _is_mfg = any(w in _ql for w in ['manufacture', 'fabricate', 'machine', 'cast', 'forge'])
-        _is_test = any(w in _ql for w in ['test', 'measure', 'instrument', 'probe', 'sensor'])
-
-        if _is_design:
-            _intent_guide = (
-                "QUERY TYPE: DESIGN/ANALYSIS/ENGINEERING. "
-                "Score HIGH (80-100): Firms that DESIGN, ANALYZE, SIMULATE, or ENGINEER. "
-                "Score MED (40-70): Related industry but unclear if they do design/analysis work. "
-                "Score LOW (0-35): Parts suppliers, distributors, OEM part sellers, "
-                "installation contractors, commissioning/IC&E firms, repair/overhaul/maintenance firms. "
-                "RULE: If company description mentions parts/supply/OEM/installation/commissioning/"
-                "overhaul/repair/maintenance as PRIMARY function -> score MAX 35."
-            )
-        elif _is_mfg:
-            _intent_guide = (
-                "QUERY TYPE: MANUFACTURING/FABRICATION. "
-                "Score HIGH (80-100): Firms with machining, fabrication, or manufacturing capabilities. "
-                "Score LOW (0-30): Pure design/analysis firms with no manufacturing."
-            )
-        elif _is_test:
-            _intent_guide = (
-                "QUERY TYPE: TEST/MEASUREMENT/INSTRUMENTATION. "
-                "Score HIGH (80-100): Firms with testing, measurement, or instrumentation capabilities. "
-                "Score MED (40-70): Engineering firms that test as part of broader services. "
-                "Score LOW (0-30): Pure design firms, parts suppliers."
-            )
-        else:
-            _intent_guide = "Score based on technical domain match and specific capabilities needed."
-
+        companies = []
+        for prov, _sim in providers:
+            desc = _safe_str(getattr(prov, 'business_description', ''))[:300]
+            companies.append({
+                'id': prov.id,
+                'name': _display_name(prov)[:60],
+                'business_description': desc,
+            })
+        specialty = _safe_str(intent.get('inferred_specialty', ''))
+        caps = _safe_list(intent.get('capabilities_needed', []))
+        caps_str = json.dumps(caps[:6])
         prompt_lines = [
-            'You are an expert engineering services procurement specialist.',
-            f'CUSTOMER QUERY: "{query}"',
-            f'Required specialty: {inferred_specialty or "(not specified)"}',
+            'You are an expert engineering services classifier.',
+            '',
+            f'Query: {chr(34)}{query}{chr(34)}',
+            f'Inferred specialty: {chr(34)}{specialty}{chr(34)}',
             f'Required capabilities: {caps_str}',
             '',
-            'SCORING INTENT:',
-            _intent_guide,
+            'For each company below, determine if they provide engineering SERVICES relevant to this query.',
+            'IMPORTANT RULES:',
+            '- Keep=true ONLY if the company performs engineering analysis, design, testing, or consulting services',
+            '- Keep=false if the company primarily manufactures or supplies products/parts/hardware',
+            '- Keep=false if the company is a staffing agency with no engineering focus',
+            '- Keep=false if the description is clearly unrelated to the query domain',
             '',
-            'SCORING SCALE:',
-            '- 90-100: Perfect - exact specialty + demonstrated similar project',
-            '- 75-89:  Strong  - right specialty, likely capable',
-            '- 50-74:  Partial - related field or adjacent capability',
-            '- 25-49:  Weak    - same broad industry but wrong service type',
-            '- 0-24:   No match',
+            'Return ONLY a JSON array, no other text:',
+            '[{' + chr(34) + 'id' + chr(34) + ': <id>, ' + chr(34) + 'keep' + chr(34) + ': <true/false>}, ...]',
             '',
-            'CRITICAL: Study each provider description and projects fields.',
-            'Parts suppliers, OEM distributors, installation/commissioning/IC&E/overhaul firms',
-            'are NOT design/engineering firms - score them 0-35 for design queries.',
-            '',
-            f'PROVIDERS ({n} total):',
-            json.dumps(summaries, separators=(',', ': '))[:50000],
-            '',
-            '',
-            'CRITICAL - similar_project FIELD RULES:',
-            'Set similar_project=true ONLY if the firm PERFORMED or CONDUCTED the requested service (designed, analyzed, engineered, modeled, evaluated, tested).',
-            'Set similar_project=false if the firm merely SUPPLIED PRODUCTS, PARTS, HARDWARE, or EQUIPMENT to a facility where such work was done.',
-            'Set similar_project=false if the project only mentions INSTALLING, COMMISSIONING, RELOCATING, or MAINTAINING equipment.',
-            'EXAMPLE FALSE: A pump manufacturer installed actuators at a wastewater facility. -> similar_project=false for a CFD/analysis query.',
-            'EXAMPLE TRUE: A firm performed CFD analysis of pump station hydraulics. -> similar_project=true for a CFD query.',
-            'Supplying hardware to a facility is NOT the same as engineering or analyzing that facility.',
-            '',
-            'Return ONLY a JSON array with ALL providers:',
-            '[{"id": 123, "score": 85, "reason": "one sentence", "similar_project": true/false}, ...]',
-            f'Must contain all {n} entries. No markdown.',
+            'Companies:',
+            json.dumps(companies, separators=(',', ': ')),
         ]
         prompt = '\n'.join(prompt_lines)
-
         client = _get_client(runtime_config)
         model = _llm_model(runtime_config)
-        logger.info('[RERANK] Calling LLM model=%s with %d candidates', model, n)
-
+        logger.info('[PASS1] Calling LLM model=%s with %d candidates', model, len(companies))
         response = await client.chat.completions.create(
             model=model,
             messages=[
-                {
-                    'role': 'system',
-                    'content': 'You are an engineering services evaluator. Return only valid JSON arrays.',
-                },
+                {'role': 'system', 'content': 'You are an engineering services classifier. Return only valid JSON arrays.'},
                 {'role': 'user', 'content': prompt},
             ],
             temperature=0.1,
-            max_tokens=3000,
+            max_tokens=4000,
         )
-
-        raw = response.choices[0].message.content.strip()
-        # Strip markdown code fences if present
-        raw = re.sub(r'^```(?:json)?\s*', '', raw)
-        raw = re.sub(r'\s*```$', '', raw).strip()
-        # Handle LLM wrapping array in object
-        if raw.startswith('{'):
-            arr_match = re.search(r'\[.*\]', raw, re.DOTALL)
-            if arr_match:
-                raw = arr_match.group(0)
-
-        parsed = json.loads(raw)
+        raw = _extract_llm_content(response)
+        parsed = _parse_json_from_llm(raw)
         if not isinstance(parsed, list):
-            logger.warning('[RERANK] LLM returned non-list JSON, skipping reranking')
-            return {}
-
-        result: Dict[int, Dict] = {}
+            logger.warning('[PASS1] LLM returned non-list JSON, using all candidates')
+            return None
+        kept_ids = []
         for item in parsed:
             if not isinstance(item, dict):
                 continue
             pid = item.get('id')
-            score = item.get('score')
-            if pid is None or score is None:
-                continue
-            try:
-                result[int(pid)] = {
-                    'llm_score': float(score),
-                    'reason': str(item.get('reason', ''))[:300],
-                    'similar_project': bool(item.get('similar_project', False)),
-                }
-            except (ValueError, TypeError):
-                continue
-
-        logger.info('[RERANK] LLM scored %d/%d providers', len(result), n)
-        return result
-
+            keep = item.get('keep')
+            if pid is not None and keep is True:
+                try:
+                    kept_ids.append(int(pid))
+                except (ValueError, TypeError):
+                    pass
+        logger.info('[PASS1] Filter: %d/%d providers passed', len(kept_ids), len(companies))
+        if not kept_ids:
+            logger.warning('[PASS1] LLM filtered all candidates - using all as fallback')
+            return None
+        return kept_ids
     except json.JSONDecodeError as exc:
-        logger.warning('[RERANK] JSON parse error: %s - falling back to deterministic scoring', exc)
-        return {}
+        logger.warning('[PASS1] JSON parse error: %s - using all candidates', exc)
+        return None
     except Exception as exc:
-        logger.warning('[RERANK] LLM reranking error: %s - falling back to deterministic scoring', exc)
-        return {}
+        logger.warning('[PASS1] LLM error: %s - using all candidates', exc)
+        return None
 
+
+async def llm_pass2_rank(
+    providers: list,
+    query: str,
+    intent: Dict[str, Any],
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> Optional[List[tuple]]:
+    """Pass 2: ONE LLM call to rank filtered candidates by project similarity.
+
+    Returns ordered list of (provider_id, similar_project) tuples, or None on failure.
+    None => caller ranks by vector similarity score.
+    """
+    if not providers:
+        return None
+    try:
+        companies = []
+        for prov, _sim in providers:
+            notable_raw = getattr(prov, 'proven_experience_notable_projects', None) or []
+            if isinstance(notable_raw, str):
+                try:
+                    notable_raw = json.loads(notable_raw)
+                except Exception:
+                    notable_raw = [notable_raw] if notable_raw.strip() else []
+            case_raw = getattr(prov, 'proven_experience_case_studies', None) or []
+            if isinstance(case_raw, str):
+                try:
+                    case_raw = json.loads(case_raw)
+                except Exception:
+                    case_raw = [case_raw] if case_raw.strip() else []
+            notable_list = [str(p)[:100] for p in (notable_raw or [])[:5]]
+            case_list = [str(c)[:100] for c in (case_raw or [])[:5]]
+            companies.append({
+                'id': prov.id,
+                'name': _display_name(prov)[:60],
+                'notable_projects': notable_list,
+                'proven_experience_case_studies': case_list,
+            })
+        specialty = _safe_str(intent.get('inferred_specialty', ''))
+        prompt_lines = [
+            'You are an expert engineering project evaluator.',
+            '',
+            f'Query: {chr(34)}{query}{chr(34)}',
+            f'Inferred specialty: {chr(34)}{specialty}{chr(34)}',
+            '',
+            'Rank the following companies by how closely their past projects match the query.',
+            'Companies with directly matching projects should rank highest.',
+            'Companies with no projects rank last.',
+            '',
+            'IMPORTANT RULES:',
+            '- Set similar_project=true ONLY if the firm PERFORMED or CONDUCTED the requested service',
+            '  (designed, analyzed, engineered, modeled, evaluated, tested)',
+            '- Set similar_project=false if the firm merely SUPPLIED PRODUCTS, PARTS, or HARDWARE',
+            '- Set similar_project=false if project only mentions INSTALLING, COMMISSIONING, or MAINTAINING equipment',
+            '',
+            'Return ONLY a JSON array ordered from most to least relevant, no other text:',
+            '[{' + chr(34) + 'id' + chr(34) + ': <id>, ' + chr(34) + 'rank' + chr(34) + ': <1,2,...>, ' + chr(34) + 'similar_project' + chr(34) + ': <true/false>}, ...]',
+            '',
+            'Companies:',
+            json.dumps(companies, separators=(',', ': ')),
+        ]
+        prompt = '\n'.join(prompt_lines)
+        client = _get_client(runtime_config)
+        model = _llm_model(runtime_config)
+        logger.info('[PASS2] Calling LLM model=%s with %d candidates', model, len(companies))
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {'role': 'system', 'content': 'You are an engineering project evaluator. Return only valid JSON arrays.'},
+                {'role': 'user', 'content': prompt},
+            ],
+            temperature=0.1,
+            max_tokens=4000,
+        )
+        raw = _extract_llm_content(response)
+        parsed = _parse_json_from_llm(raw)
+        if not isinstance(parsed, list):
+            logger.warning('[PASS2] LLM returned non-list JSON, using similarity order')
+            return None
+        ranked_items = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            pid = item.get('id')
+            rank = item.get('rank')
+            if pid is not None and rank is not None:
+                try:
+                    ranked_items.append((
+                        int(rank),
+                        int(pid),
+                        bool(item.get('similar_project', False)),
+                    ))
+                except (ValueError, TypeError):
+                    pass
+        ranked_items.sort(key=lambda x: x[0])
+        result = [(pid, sim_proj) for _, pid, sim_proj in ranked_items]
+        logger.info('[PASS2] Ranked %d providers', len(result))
+        if result:
+            logger.info('[PASS2] Top 5: %s', [pid for pid, _ in result[:5]])
+        return result if result else None
+    except json.JSONDecodeError as exc:
+        logger.warning('[PASS2] JSON parse error: %s - using similarity order', exc)
+        return None
+    except Exception as exc:
+        logger.warning('[PASS2] LLM error: %s - using similarity order', exc)
+        return None
 async def check_search_quota(
     db: AsyncSession,
     user_id=None,
@@ -1467,25 +1533,22 @@ class _ProviderProxy:
         return self._m.get('id')
 
 
+
+
 async def search_providers(
     db: AsyncSession,
     query: str,
     filters: dict = None,
     limit: int = 50,
 ) -> tuple:
-    """Full spec-compliant search pipeline.
+    """Full two-pass LLM search pipeline.
     Returns (results: List[SearchResultItem], pipeline_info: dict)
-    pipeline_info contains AI diagnostics for debug display.
     """
     if filters is None:
         filters = {}
-
     norm_query = _normalize_query(query)
     logger.info(f'[SEARCH] query={norm_query[:100]}')
-    # Ensure raw_query is available for project injection in _fetch_candidates
     filters['raw_query'] = norm_query
-
-    # Initialize pipeline tracking dict
     pipeline_info: Dict[str, Any] = {
         'pipeline_used': 'keyword_fallback',
         'llm_called': False,
@@ -1500,16 +1563,13 @@ async def search_providers(
         'llm_reranking_called': False,
         'llm_reranking_success': False,
         'candidates_evaluated': 0,
+        'pass1_kept': 0,
+        'pass2_ranked': 0,
     }
-
-    # Load runtime config from DB (falls back to env vars)
     from app.services.config_service import get_runtime_config
     runtime_config = await get_runtime_config(db)
-
-    # Determine API key and source
     api_key = runtime_config.get('OPENAI_API_KEY', '') or ''
     has_key = bool(api_key) and api_key not in ('dummy-key', 'your-api-key-here', '')
-
     if has_key:
         try:
             from app.models.system_config import SystemConfig
@@ -1523,10 +1583,7 @@ async def search_providers(
             pipeline_info['api_key_source'] = 'env_var'
     else:
         pipeline_info['api_key_source'] = 'missing'
-
     logger.info('[SEARCH] API key source=%s has_key=%s', pipeline_info['api_key_source'], has_key)
-
-    # Step 2 - LLM intent extraction
     llm_model = (
         runtime_config.get('OPENAI_LLM_MODEL', '')
         or runtime_config.get('OPENAI_MODEL', '')
@@ -1534,38 +1591,31 @@ async def search_providers(
     )
     pipeline_info['llm_model'] = llm_model if has_key else '(none - no API key)'
     pipeline_info['llm_called'] = has_key
-
     intent = await extract_structured_intent(norm_query, runtime_config=runtime_config)
     fallback_reason: Optional[str] = None
-
     if has_key:
         got_specialty = bool(intent.get('inferred_specialty', ''))
         got_keywords = bool(intent.get('inferred_keywords') or intent.get('capabilities_needed'))
         pipeline_info['llm_response_received'] = got_specialty or got_keywords
         logger.info(
-            '[SEARCH] ✅ LLM response received=%s specialty=%s keywords=%s',
+            '[SEARCH] LLM response received=%s specialty=%s keywords=%s',
             pipeline_info['llm_response_received'],
             intent.get('inferred_specialty', ''),
             intent.get('inferred_keywords', []),
         )
-
     pipeline_info['inferred_specialty'] = intent.get('inferred_specialty', '') or ''
     pipeline_info['inferred_keywords'] = (intent.get('inferred_keywords') or [])[:8]
-
-    # Step 4 - Embed query
     query_vec: Optional[List[float]] = None
     if has_key:
         pipeline_info['embedding_called'] = True
         try:
             query_vec = await generate_embedding(norm_query, runtime_config=runtime_config)
             pipeline_info['embedding_dims'] = len(query_vec) if query_vec else 0
-            logger.info('[SEARCH] ✅ Embedding generated: %d dims', pipeline_info['embedding_dims'])
+            logger.info('[SEARCH] Embedding generated: %d dims', pipeline_info['embedding_dims'])
         except Exception as exc:
             pipeline_info['embedding_called'] = False
             logger.warning(f'[SEARCH] Embedding failed ({exc}), using keyword scoring')
             fallback_reason = fallback_reason or f'embedding_failed:{type(exc).__name__}'
-
-    # Steps 3+5 - Hard filters + pgvector candidates
     try:
         rows, used_vector, fetch_fallback = await _fetch_candidates(
             db, intent, filters, query_vec, limit=100
@@ -1576,8 +1626,6 @@ async def search_providers(
         logger.error(f'[SEARCH] Candidate fetch error: {exc}')
         rows = []
         used_vector = False
-
-    # Set final pipeline_used
     if used_vector:
         pipeline_info['pipeline_used'] = 'ai_vector'
     elif not has_key:
@@ -1585,22 +1633,9 @@ async def search_providers(
     else:
         pipeline_info['pipeline_used'] = 'keyword_fallback'
     pipeline_info['fallback_reason'] = fallback_reason
-
-    logger.info(
-        '[SEARCH] U0001f4ca Pipeline=%s | LLM=%s->%s | Embed=%s(%ddims) | Key=%s',
-        pipeline_info['pipeline_used'],
-        'called' if pipeline_info['llm_called'] else 'skipped',
-        'received' if pipeline_info['llm_response_received'] else 'no-response',
-        'ok' if pipeline_info['embedding_called'] else 'failed',
-        pipeline_info['embedding_dims'],
-        pipeline_info['api_key_source'],
-    )
-
     if not rows:
         logger.info('[SEARCH] No candidates found, returning empty')
         return [], pipeline_info
-
-    # Step 6 - Build provider proxies for scoring
     provider_list = []
     for row in rows:
         try:
@@ -1609,65 +1644,105 @@ async def search_providers(
             provider_list.append((provider, similarity))
         except Exception as exc:
             logger.warning(f'[SEARCH] Proxy build error for row: {exc}')
-
     pipeline_info['candidates_evaluated'] = len(provider_list)
-
-    # Step 6a - LLM reranking (only when API key is available)
-    llm_scores: Dict[int, Dict] = {}
-    if has_key and provider_list:
-        pipeline_info['llm_reranking_called'] = True
-        try:
-            llm_scores = await llm_rerank_candidates(
-                provider_list, norm_query, intent, runtime_config
-            )
-            pipeline_info['llm_reranking_success'] = bool(llm_scores)
-            logger.info(
-                '[SEARCH] LLM reranking: success=%s scored=%d/%d',
-                pipeline_info['llm_reranking_success'],
-                len(llm_scores),
-                len(provider_list),
-            )
-        except Exception as exc:
-            logger.warning(f'[SEARCH] LLM reranking call failed: {exc}')
-            pipeline_info['llm_reranking_success'] = False
-            llm_scores = {}
-
-    # Step 6b - Score each candidate
+    pipeline_info['llm_reranking_called'] = has_key and bool(provider_list)
     scored: List[tuple] = []
-    for provider, similarity in provider_list:
-        try:
-            name = _display_name(provider)
-            pid = provider.id
-            llm_entry = llm_scores.get(pid) if llm_scores else None
+    if has_key and provider_list:
+        # ---- TWO-PASS LLM PIPELINE ----
+        # Pass 1: filter non-service providers (ONE LLM call)
+        kept_ids = await llm_pass1_filter(provider_list, norm_query, intent, runtime_config)
+        if kept_ids is None:
+            filtered_list = provider_list
+            logger.info('[SEARCH] Pass1 fallback: using all %d candidates', len(provider_list))
+        else:
+            id_set = set(kept_ids)
+            filtered_list = [(p, s) for p, s in provider_list if p.id in id_set]
+            logger.info('[SEARCH] Pass1 kept %d/%d candidates', len(filtered_list), len(provider_list))
+        pipeline_info['pass1_kept'] = len(filtered_list)
 
-            if llm_entry is not None:
-                # FIX: Use LLM score directly - do NOT add tier_pts.
-                # Old bug: LLM scored parts supplier 75 + tier 25 = 100/100.
-                llm_raw = float(llm_entry['llm_score'])
-                final_score = min(100.0, llm_raw)
-                sim_matched = bool(llm_entry.get('similar_project', False))
-                _kw_matched, sim_title, _ratio = _detect_similar_project(
+        # Pass 2: rank by project similarity (ONE LLM call)
+        ranked_result = await llm_pass2_rank(filtered_list, norm_query, intent, runtime_config)
+        if ranked_result is None:
+            logger.info('[SEARCH] Pass2 fallback: ranking by vector similarity')
+            ranked_result = [
+                (p.id, False)
+                for p, s in sorted(filtered_list, key=lambda x: x[1], reverse=True)
+            ]
+        pipeline_info['pass2_ranked'] = len(ranked_result)
+        pipeline_info['llm_reranking_success'] = True
+
+        # Build id->provider map
+        id_to_prov = {p.id: (p, s) for p, s in filtered_list}
+        tier_bonus = {
+            'A': 5, 'B': 4, 'C': 3, 'D': 2, 'E': 1,
+            'a': 5, 'b': 4, 'c': 3, 'd': 2, 'e': 1,
+        }
+
+        for rank_pos, (pid, sim_proj) in enumerate(ranked_result, start=1):
+            if pid not in id_to_prov:
+                continue
+            provider, similarity = id_to_prov[pid]
+            try:
+                name = _display_name(provider)
+                # rank 1=100pts, rank 2=90pts ... floor at 10pts
+                base_score = max(10.0, 110.0 - (rank_pos * 10.0))
+                tier_raw = _safe_str(getattr(provider, 'tier', '') or '').strip()
+                bonus = tier_bonus.get(tier_raw, 1)
+                final_score = min(100.0, base_score + bonus)
+
+                sim_matched, sim_title, _ratio = _detect_similar_project(
                     provider, intent, raw_query=query
                 )
-                if not sim_matched and _kw_matched:
+                if sim_proj:
                     sim_matched = True
-                explanation = (
-                    f"{name}: {llm_entry['reason']} "
-                    f"(AI Relevance Score: {final_score:.0f}/100)"
-                )
-                if sim_title and sim_matched:
+
+                if sim_matched and sim_title:
                     short = sim_title[:120] + ('...' if len(sim_title) > 120 else '')
-                    explanation = f'Similar project: {short} | ' + explanation
+                    explanation = (
+                        f'Similar project: {short} | '
+                        f'{name}: Ranked #{rank_pos} by AI project relevance '
+                        f'(Score: {final_score:.0f}/100, Tier: {tier_raw or "E"})'
+                    )
+                else:
+                    explanation = (
+                        f'{name}: Ranked #{rank_pos} by AI project relevance '
+                        f'(Score: {final_score:.0f}/100, Tier: {tier_raw or "E"})'
+                    )
+
                 scores = {
                     'total': round(final_score, 2),
                     'specialty': 0.0,
-                    'capabilities': round(llm_raw, 2),
-                    'tier': 0.0,
+                    'capabilities': round(base_score, 2),
+                    'tier': float(bonus),
                     'software_bonus': 0.0,
                     'similarity': round(similarity, 4),
                 }
-            else:
-                # Deterministic fallback path (no API key or LLM did not score this provider)
+                scored.append((
+                    final_score,
+                    SearchResultItem(
+                        provider=provider,
+                        score=scores['total'],
+                        explanation=explanation,
+                        specialty_score=scores.get('specialty', 0.0),
+                        capabilities_score=scores.get('capabilities', 0.0),
+                        tier_score=scores.get('tier', 0.0),
+                        software_bonus=scores.get('software_bonus', 0.0),
+                        similarity=scores.get('similarity', similarity),
+                        fallback_reason=fallback_reason,
+                        similar_project_matched=sim_matched,
+                        matching_project_title=sim_title,
+                    ),
+                ))
+            except Exception as exc:
+                logger.warning(
+                    f'[SEARCH] Scoring error for provider {getattr(provider, "id", "?")}: {exc}'
+                )
+    else:
+        # ---- DETERMINISTIC FALLBACK (no API key) ----
+        logger.info('[SEARCH] No API key: deterministic scoring for %d candidates', len(provider_list))
+        pipeline_info['llm_reranking_success'] = False
+        for provider, similarity in provider_list:
+            try:
                 scores = calculate_match_score(
                     provider, intent, similarity=similarity, raw_query=query
                 )
@@ -1679,42 +1754,44 @@ async def search_providers(
                         provider, intent, similarity=similarity,
                         raw_query=query, similar_project_matched=True
                     )
+                name = _display_name(provider)
                 explanation = _build_explanation(
                     name, scores, intent,
                     similar_project_title=sim_title if sim_matched else ''
                 )
-
-            scored.append((
-                scores['total'],
-                SearchResultItem(
-                    provider=provider,
-                    score=scores['total'],
-                    explanation=explanation,
-                    specialty_score=scores.get('specialty', 0.0),
-                    capabilities_score=scores.get('capabilities', 0.0),
-                    tier_score=scores.get('tier', 0.0),
-                    software_bonus=scores.get('software_bonus', 0.0),
-                    similarity=scores.get('similarity', similarity),
-                    fallback_reason=fallback_reason,
-                    similar_project_matched=sim_matched,
-                    matching_project_title=sim_title,
-                ),
-            ))
-        except Exception as exc:
-            logger.warning(
-                f'[SEARCH] Scoring error for provider {getattr(provider, "id", "?")}: {exc}'
-            )
+                scored.append((
+                    scores['total'],
+                    SearchResultItem(
+                        provider=provider,
+                        score=scores['total'],
+                        explanation=explanation,
+                        specialty_score=scores.get('specialty', 0.0),
+                        capabilities_score=scores.get('capabilities', 0.0),
+                        tier_score=scores.get('tier', 0.0),
+                        software_bonus=scores.get('software_bonus', 0.0),
+                        similarity=scores.get('similarity', similarity),
+                        fallback_reason=fallback_reason,
+                        similar_project_matched=sim_matched,
+                        matching_project_title=sim_title,
+                    ),
+                ))
+            except Exception as exc:
+                logger.warning(
+                    f'[SEARCH] Scoring error for provider {getattr(provider, "id", "?")}: {exc}'
+                )
 
     # Sort by final score descending
     scored.sort(key=lambda t: t[0], reverse=True)
 
-    # Step 7 - Return top 5 (spec 11.10)
+    # Return top 5
     results = [item for _, item in scored[:5]]
 
     logger.info(
-        '[SEARCH] top-%d results: %s (reranking=%s)',
+        '[SEARCH] top-%d results: %s (pipeline=%s pass1=%d pass2=%d)',
         len(results),
         [(r.provider.id, round(r.score, 1)) for r in results],
-        'llm' if pipeline_info.get('llm_reranking_success') else 'deterministic',
+        pipeline_info.get('pipeline_used'),
+        pipeline_info.get('pass1_kept', 0),
+        pipeline_info.get('pass2_ranked', 0),
     )
     return results, pipeline_info
