@@ -880,7 +880,7 @@ export default function DebuggingPage() {
             (then immediately cancelling) a $1.00 test PaymentIntent.
           </p>
           <Button onClick={testStripeConnection} disabled={stripeLoading}>
-            {stripeLoading ? 'Testing...' : '&#x1F50C; Test Stripe Connection'}
+            {stripeLoading ? 'Testing...' : '🔌 Test Stripe Connection'}
           </Button>
           {stripeResult && stripeResult.status === 'success' && (
             <div className="bg-green-50 border border-green-200 rounded-md p-4 space-y-2 text-sm">
@@ -899,7 +899,7 @@ export default function DebuggingPage() {
                   <span className={`font-semibold ${
                     stripeResult.mode === 'live' ? 'text-orange-700' : 'text-green-700'
                   }`}>
-                    {stripeResult.mode === 'live' ? '&#x26A0;&#xFE0F; LIVE' : '&#x1F9EA; Test'}
+                    {stripeResult.mode === 'live' ? '⚠️ LIVE' : '🧪 Test'}
                   </span>
                 </div>
                 <div>
@@ -925,7 +925,7 @@ export default function DebuggingPage() {
             <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm">
               <div className="flex items-center gap-2 text-red-700 font-medium">
                 <AlertCircle className="h-4 w-4" />
-                &#x274C; Error: {stripeResult.error}
+                ❌ Error: {stripeResult.error}
               </div>
             </div>
           )}

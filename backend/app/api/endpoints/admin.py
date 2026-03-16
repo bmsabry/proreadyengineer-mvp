@@ -1519,3 +1519,62 @@ async def admin_debug_signwell_template_raw(
         "fields_sample": fields[:5] if isinstance(fields, list) else fields,
         "full_template": tmpl,  # full raw response for inspection
     }
+
+
+@router.get("/admin/debug/test-stripe")
+async def admin_debug_test_stripe(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> dict:
+    """Admin: Test Stripe API key by creating and cancelling a $1.00 test PaymentIntent."""
+    try:
+        config = await _load_config(db)
+        key = config.get("STRIPE_SECRET_KEY", "").strip()
+    except Exception as exc:
+        return {"status": "error", "error": f"Config load failed: {exc}"}
+
+    if not key:
+        return {"status": "not_configured", "message": "Stripe API key not configured. Go to Admin Settings > Payments."}
+
+    try:
+        import stripe as stripe_lib
+        stripe_lib.api_key = key
+
+        mode = "test" if key.startswith("sk_test_") else "live"
+
+        account_id = "sandbox"
+        account_name = "Stripe Account"
+        try:
+            account = stripe_lib.Account.retrieve()
+            account_id = account.get("id", "unknown")
+            account_name = (
+                account.get("settings", {}).get("dashboard", {}).get("display_name")
+                or account.get("business_profile", {}).get("name")
+                or account.get("email", "Stripe Account")
+            )
+        except Exception:
+            pass
+
+        pi = stripe_lib.PaymentIntent.create(
+            amount=100,
+            currency="usd",
+            payment_method_types=["card"],
+            metadata={"test": "promechdirectory_debug"},
+        )
+        pi_id = pi.get("id", "unknown")
+
+        try:
+            stripe_lib.PaymentIntent.cancel(pi_id)
+        except Exception:
+            pass
+
+        return {
+            "status": "success",
+            "account_id": account_id,
+            "account_name": account_name,
+            "mode": mode,
+            "test_payment_intent_id": pi_id,
+            "message": f"Stripe connected in {mode} mode.",
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
