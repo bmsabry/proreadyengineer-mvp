@@ -210,6 +210,9 @@ export default function DebuggingPage() {
   const [stripeResult, setStripeResult] = useState<StripeTestResult | null>(null);
   const [paypalLoading, setPaypalLoading] = useState(false);
   const [paypalResult, setPaypalResult] = useState<PaypalTestResult | null>(null);
+  const [llmPrompt, setLlmPrompt] = useState('In one sentence, what is gas turbine combustion?');
+  const [llmLoading, setLlmLoading] = useState(false);
+  const [llmResult, setLlmResult] = useState<any | null>(null);
 
 
 
@@ -263,6 +266,19 @@ export default function DebuggingPage() {
       const e = err as { message?: string };
       setNdaVoidResult({ success: false, error: e.message ?? 'Request failed', message: null, document_id: docId });
     } finally { setNdaVoidLoading(false); }
+  };
+
+  const testLlm = async () => {
+    setLlmLoading(true);
+    setLlmResult(null);
+    try {
+      const r = await api.admin.testLlm(llmPrompt.trim() || 'In one sentence, what is gas turbine combustion?');
+      setLlmResult(r.data);
+    } catch (err: any) {
+      setLlmResult({ success: false, error: err?.message || 'Unknown error' });
+    } finally {
+      setLlmLoading(false);
+    }
   };
 
   const testStripeConnection = async () => {
@@ -1000,6 +1016,58 @@ export default function DebuggingPage() {
                   <p className="font-semibold">Connection failed</p>
                   {paypalResult.mode && <p><span className="font-medium">Mode:</span> {paypalResult.mode}</p>}
                   {paypalResult.error && <p className="font-mono text-xs break-all">{paypalResult.error}</p>}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---- Test LLM ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>🤖</span> Test LLM (DeepInfra)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Send a test prompt to the configured LLM model to verify DeepInfra API connectivity.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="flex-1 border rounded px-3 py-2 text-sm"
+              placeholder="Enter a test prompt..."
+              value={llmPrompt}
+              onChange={(e) => setLlmPrompt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') testLlm(); }}
+            />
+            <Button onClick={testLlm} disabled={llmLoading} size="sm">
+              {llmLoading ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Sending...</> : '🚀 Send'}
+            </Button>
+          </div>
+          {llmResult && (
+            <div className={`rounded-md border p-3 text-sm ${
+              llmResult.success
+                ? 'border-green-200 bg-green-50 text-green-800'
+                : 'border-red-200 bg-red-50 text-red-800'
+            }`}>
+              {llmResult.success ? (
+                <div className="space-y-2">
+                  <p className="font-semibold text-green-700">✅ LLM responded successfully</p>
+                  <p><span className="font-medium">Model:</span> <code className="bg-green-100 px-1 rounded text-xs">{llmResult.model}</code></p>
+                  <div className="bg-white border border-green-200 rounded p-2 text-gray-800 whitespace-pre-wrap">{llmResult.response}</div>
+                  {llmResult.usage && (
+                    <p className="text-xs text-gray-500">
+                      Tokens used: {llmResult.usage.prompt_tokens} prompt + {llmResult.usage.completion_tokens} completion
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="font-semibold">❌ LLM call failed</p>
+                  <p className="font-mono text-xs break-all">{llmResult.error}</p>
                 </div>
               )}
             </div>

@@ -442,6 +442,8 @@ const admin = {
     apiClient.get<any>('/admin/debug/test-stripe'),
   testPaypalConnection: () =>
     apiClient.get<any>('/admin/debug/test-paypal'),
+  testLlm: (prompt: string) =>
+    apiClient.post<any>('/admin/debug/test-llm', { prompt }),
 };
 
 // Webhooks (server-side only, usually)

@@ -2039,3 +2039,40 @@ async def test_paypal_connection(
                 "error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"}
     except Exception as e:
         return {"success": False, "mode": mode, "error": str(e)}
+
+
+@router.post("/admin/debug/test-llm")
+async def admin_debug_test_llm(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(["admin"])),
+):
+    """Test DeepInfra LLM connectivity using the same client as search."""
+    from app.services.search_service import _get_client, _has_api_key, _llm_model
+    try:
+        cfg = await get_runtime_config(db)
+        if not _has_api_key(cfg):
+            return {"success": False, "error": "No API key configured (OPENAI_API_KEY)",
+                    "model": None, "response": None}
+        model = _llm_model(cfg)
+        prompt = body.get("prompt", "Reply with exactly 2 sentences about mechanical engineering.")
+        client = _get_client(cfg)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=200,
+            temperature=0.3,
+        )
+        reply = response.choices[0].message.content.strip() if response.choices else "(empty response)"
+        return {
+            "success": True,
+            "model": model,
+            "prompt": prompt,
+            "response": reply,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else None,
+                "completion_tokens": response.usage.completion_tokens if response.usage else None,
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "model": None, "response": None}
