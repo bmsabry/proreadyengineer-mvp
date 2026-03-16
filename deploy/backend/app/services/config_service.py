@@ -115,6 +115,14 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'SIGNREQUEST_API_KEY'   : _get('SIGNREQUEST_API_KEY'),
         'SIGNWELL_API_KEY'      : _get('SIGNWELL_API_KEY'),
         'SIGNWELL_TEMPLATE_ID'  : _get('SIGNWELL_TEMPLATE_ID'),
+        'PAYPAL_CLIENT_ID'             : _get('PAYPAL_CLIENT_ID'),
+        'PAYPAL_CLIENT_SECRET'         : _get('PAYPAL_CLIENT_SECRET'),
+        'PAYPAL_MODE'                  : _get('PAYPAL_MODE', 'sandbox'),
+        'PAYPAL_WEBHOOK_ID'            : _get('PAYPAL_WEBHOOK_ID'),
+        'PAYPAL_PLAN_SEARCH_TIER1'     : _get('PAYPAL_PLAN_SEARCH_TIER1'),
+        'PAYPAL_PLAN_SEARCH_TIER2'     : _get('PAYPAL_PLAN_SEARCH_TIER2'),
+        'PAYPAL_PLAN_PROVIDER_PROFILE' : _get('PAYPAL_PLAN_PROVIDER_PROFILE'),
+        'PAYPAL_PLAN_ADVERTISEMENT'    : _get('PAYPAL_PLAN_ADVERTISEMENT'),
     }
 
 

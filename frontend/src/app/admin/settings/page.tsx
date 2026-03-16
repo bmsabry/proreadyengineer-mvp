@@ -19,6 +19,7 @@ interface ServerConfig {
   [key: string]: any
   openai_api_key_set: boolean
   stripe_secret_key_set: boolean
+  paypal_configured: boolean
   aws_access_key_set: boolean
   resend_api_key_set: boolean
   signwell_api_key_set: boolean
@@ -28,6 +29,8 @@ interface FormFields {
   openai_api_key: string; openai_api_base: string
   openai_llm_model: string; openai_embedding_model: string
   stripe_secret_key: string; stripe_publishable_key: string; stripe_webhook_secret: string
+  paypal_client_id: string; paypal_client_secret: string; paypal_mode: string; paypal_webhook_id: string
+  paypal_plan_search_tier1: string; paypal_plan_search_tier2: string; paypal_plan_provider_profile: string; paypal_plan_advertisement: string
   aws_access_key_id: string; aws_secret_access_key: string; aws_region: string; aws_s3_bucket: string
   resend_api_key: string; resend_from_email: string
   signwell_api_key: string; signwell_template_id: string
@@ -41,6 +44,14 @@ const EMPTY_FORM: FormFields = {
   stripe_secret_key: '',
   stripe_publishable_key: '',
   stripe_webhook_secret: '',
+  paypal_client_id: '',
+  paypal_client_secret: '',
+  paypal_mode: '',
+  paypal_webhook_id: '',
+  paypal_plan_search_tier1: '',
+  paypal_plan_search_tier2: '',
+  paypal_plan_provider_profile: '',
+  paypal_plan_advertisement: '',
   aws_access_key_id: '',
   aws_secret_access_key: '',
   aws_region: '',
@@ -157,6 +168,10 @@ export default function AdminSettingsPage() {
       openai_llm_model: 'openai_api_key_set', openai_embedding_model: 'openai_api_key_set',
       stripe_secret_key: 'stripe_secret_key_set', stripe_publishable_key: 'stripe_secret_key_set',
       stripe_webhook_secret: 'stripe_secret_key_set',
+      paypal_client_id: 'paypal_configured', paypal_client_secret: 'paypal_configured',
+      paypal_mode: 'paypal_configured', paypal_webhook_id: 'paypal_configured',
+      paypal_plan_search_tier1: 'paypal_configured', paypal_plan_search_tier2: 'paypal_configured',
+      paypal_plan_provider_profile: 'paypal_configured', paypal_plan_advertisement: 'paypal_configured',
       aws_access_key_id: 'aws_access_key_set', aws_secret_access_key: 'aws_access_key_set',
       aws_region: 'aws_access_key_set', aws_s3_bucket: 'aws_access_key_set',
       resend_api_key: 'resend_api_key_set', resend_from_email: 'resend_api_key_set',
@@ -287,6 +302,16 @@ export default function AdminSettingsPage() {
             <FieldRow label="Stripe Secret Key" fieldName="stripe_secret_key" value={form.stripe_secret_key} onChange={handleChange} isSet={isFieldSet("stripe_secret_key")} inputType="password" hint="sk_live_... or sk_test_... from Stripe Dashboard" />
             <FieldRow label="Stripe Publishable Key" fieldName="stripe_publishable_key" value={form.stripe_publishable_key} onChange={handleChange} isSet={isFieldSet("stripe_publishable_key")} hint="pk_live_... or pk_test_... used on the client side" />
             <FieldRow label="Stripe Webhook Secret" fieldName="stripe_webhook_secret" value={form.stripe_webhook_secret} onChange={handleChange} isSet={isFieldSet("stripe_webhook_secret")} inputType="password" hint="whsec_... from Stripe Webhook endpoint settings" />
+          </SectionCard>
+          <SectionCard title="PayPal Configuration" description="PayPal credentials for one-time payments and subscriptions alongside Stripe.">
+            <FieldRow label="PayPal Client ID" fieldName="paypal_client_id" value={form.paypal_client_id} onChange={handleChange} isSet={isFieldSet("paypal_client_id")} hint="Client ID from PayPal Developer Dashboard (sandbox or live)" />
+            <FieldRow label="PayPal Client Secret" fieldName="paypal_client_secret" value={form.paypal_client_secret} onChange={handleChange} isSet={isFieldSet("paypal_client_secret")} inputType="password" hint="Client Secret from PayPal Developer Dashboard" />
+            <FieldRow label="PayPal Mode" fieldName="paypal_mode" value={form.paypal_mode} onChange={handleChange} isSet={isFieldSet("paypal_mode")} hint='sandbox or live' />
+            <FieldRow label="PayPal Webhook ID" fieldName="paypal_webhook_id" value={form.paypal_webhook_id} onChange={handleChange} isSet={isFieldSet("paypal_webhook_id")} inputType="password" hint="Webhook ID for signature verification" />
+            <FieldRow label="Plan ID: Search Tier 1" fieldName="paypal_plan_search_tier1" value={form.paypal_plan_search_tier1} onChange={handleChange} isSet={isFieldSet("paypal_plan_search_tier1")} hint="PayPal plan ID for 100 searches/mo ($10/mo)" />
+            <FieldRow label="Plan ID: Search Tier 2" fieldName="paypal_plan_search_tier2" value={form.paypal_plan_search_tier2} onChange={handleChange} isSet={isFieldSet("paypal_plan_search_tier2")} hint="PayPal plan ID for 200 searches/mo ($20/mo)" />
+            <FieldRow label="Plan ID: Provider Profile" fieldName="paypal_plan_provider_profile" value={form.paypal_plan_provider_profile} onChange={handleChange} isSet={isFieldSet("paypal_plan_provider_profile")} hint="PayPal plan ID for provider profile subscription ($10/mo)" />
+            <FieldRow label="Plan ID: Advertisement" fieldName="paypal_plan_advertisement" value={form.paypal_plan_advertisement} onChange={handleChange} isSet={isFieldSet("paypal_plan_advertisement")} hint="PayPal plan ID for ad slot subscription ($50/mo)" />
           </SectionCard>
         </TabsContent>
 

@@ -1981,3 +1981,43 @@ async def admin_data_export(
         import traceback
         tb = traceback.format_exc()
         raise HTTPException(status_code=500, detail=f"Export failed: {exc}\n{tb}")
+
+
+@router.post("/debug/test-paypal")
+async def test_paypal_connection(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Test PayPal API connectivity using stored credentials."""
+    import httpx
+    from app.services.config_service import get_runtime_config
+    cfg = await get_runtime_config(db)
+    client_id = cfg.get("PAYPAL_CLIENT_ID", "")
+    client_secret = cfg.get("PAYPAL_CLIENT_SECRET", "")
+    mode = cfg.get("PAYPAL_MODE", "sandbox")
+    if not client_id or not client_secret:
+        return {"success": False, "mode": mode,
+                "error": "PayPal credentials not configured"}
+    base_url = ("https://api-m.sandbox.paypal.com" if mode == "sandbox"
+                else "https://api-m.paypal.com")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{base_url}/v1/oauth2/token",
+                auth=(client_id, client_secret),
+                data={"grant_type": "client_credentials"},
+                headers={"Accept": "application/json"},
+            )
+            r.raise_for_status()
+            token_data = r.json()
+        return {
+            "success": True, "mode": mode,
+            "app_id": token_data.get("app_id", ""),
+            "token_type": token_data.get("token_type", ""),
+            "scope_preview": token_data.get("scope", "")[:120],
+        }
+    except httpx.HTTPStatusError as e:
+        return {"success": False, "mode": mode,
+                "error": f"HTTP {e.response.status_code}: {e.response.text[:200]}"}
+    except Exception as e:
+        return {"success": False, "mode": mode, "error": str(e)}

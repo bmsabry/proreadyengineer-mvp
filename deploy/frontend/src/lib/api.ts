@@ -440,6 +440,8 @@ const admin = {
     apiClient.get<any>('/admin/debug/test-signwell'),
   testStripeConnection: () =>
     apiClient.get<any>('/admin/debug/test-stripe'),
+  testPaypalConnection: () =>
+    apiClient.get<any>('/admin/debug/test-paypal'),
 };
 
 // Webhooks (server-side only, usually)

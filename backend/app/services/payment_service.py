@@ -327,60 +327,340 @@ async def _handle_payment_failed(
         await db.commit()
 
 
-async def handle_paypal_webhook(
-    db: AsyncSession,
-    payload: dict,
-) -> None:
-    """Handle PayPal webhook events.
+# ── PayPal REST API helpers ─────────────────────────────────────────────────
 
-    Args:
-        db: Database session.
-        payload: PayPal event payload.
-    """
-    event_type = payload.get("event_type")
-    resource = payload.get("resource", {})
-    event_id = payload.get("id")
+PAYPAL_SANDBOX_URL = "https://api-m.sandbox.paypal.com"
+PAYPAL_LIVE_URL    = "https://api-m.paypal.com"
 
-    # Deduplicate
-    event_result = await db.execute(
-        select(WebhookEvent).where(
-            WebhookEvent.provider_name == "paypal",
-            WebhookEvent.external_event_id == event_id,
+
+def _paypal_base(mode: str) -> str:
+    return PAYPAL_SANDBOX_URL if mode == "sandbox" else PAYPAL_LIVE_URL
+
+
+async def get_paypal_access_token(
+    client_id: str, client_secret: str, mode: str = "sandbox"
+) -> str:
+    """Get PayPal OAuth2 access token via client credentials."""
+    import httpx
+    base = _paypal_base(mode)
+    async with httpx.AsyncClient(timeout=15.0) as c:
+        r = await c.post(
+            f"{base}/v1/oauth2/token",
+            auth=(client_id, client_secret),
+            data={"grant_type": "client_credentials"},
+            headers={"Accept": "application/json", "Accept-Language": "en_US"},
         )
-    )
-    if event_result.scalar_one_or_none():
-        return
+        r.raise_for_status()
+        return r.json()["access_token"]
 
-    # Store event
-    webhook_event = WebhookEvent(
-        provider_name="paypal",
-        external_event_id=event_id,
-        event_type=event_type,
-        payload=payload,
-        signature_verified=True,  # PayPal signature verification done in middleware
-        processing_status="processing",
+
+async def create_paypal_order(
+    db: AsyncSession,
+    purpose: str,
+    amount_usd: float,
+    user: User,
+    related_entity_type: str,
+    related_entity_id: uuid.UUID,
+    metadata: Optional[dict] = None,
+    return_url: str = "https://proreadyengineer.com/payment/success",
+    cancel_url: str = "https://proreadyengineer.com/payment/cancel",
+) -> dict:
+    """Create PayPal order for one-time payment. Returns {order_id, approve_url, payment_attempt_id}"""
+    import httpx
+    from app.services.config_service import get_runtime_config
+    cfg = await get_runtime_config(db)
+    client_id_val = cfg.get("PAYPAL_CLIENT_ID", "")
+    client_secret = cfg.get("PAYPAL_CLIENT_SECRET", "")
+    mode = cfg.get("PAYPAL_MODE", "sandbox")
+    if not client_id_val or not client_secret:
+        raise RuntimeError("PayPal credentials not configured")
+    idempotency_key = _create_idempotency_key(purpose, user.id, related_entity_id)
+    res = await db.execute(select(PaymentAttempt).where(
+        PaymentAttempt.idempotency_key == idempotency_key,
+        PaymentAttempt.provider_name == "paypal",
+        PaymentAttempt.payment_status == PaymentStatus.PENDING,
+    ))
+    existing = res.scalar_one_or_none()
+    if existing and existing.external_payment_id:
+        pfx = "sandbox." if mode == "sandbox" else ""
+        return {"order_id": existing.external_payment_id,
+                "approve_url": f"https://www.{pfx}paypal.com/checkoutnow?token={existing.external_payment_id}",
+                "payment_attempt_id": str(existing.id)}
+    token = await get_paypal_access_token(client_id_val, client_secret, mode)
+    base = _paypal_base(mode)
+    async with httpx.AsyncClient(timeout=15.0) as c:
+        r = await c.post(f"{base}/v2/checkout/orders",
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"intent": "CAPTURE",
+                  "purchase_units": [{"amount": {"currency_code": "USD", "value": f"{amount_usd:.2f}"},
+                                      "description": purpose, "custom_id": str(related_entity_id)}],
+                  "application_context": {"return_url": return_url, "cancel_url": cancel_url,
+                                          "brand_name": "ProReadyEngineer", "user_action": "PAY_NOW"}},
+        )
+        r.raise_for_status()
+        order_data = r.json()
+    order_id = order_data["id"]
+    pfx = "sandbox." if mode == "sandbox" else ""
+    approve_url = next((lnk["href"] for lnk in order_data.get("links", []) if lnk["rel"] == "approve"),
+                       f"https://www.{pfx}paypal.com/checkoutnow?token={order_id}")
+    attempt = PaymentAttempt(provider_name="paypal", external_payment_id=order_id,
+        purpose=purpose, related_entity_type=related_entity_type,
+        related_entity_id=related_entity_id, amount=amount_usd, currency="USD",
+        payment_status=PaymentStatus.PENDING, idempotency_key=idempotency_key,
+        initiated_by_user_id=user.id, initiated_at=datetime.utcnow(), metadata=metadata or {})
+    db.add(attempt)
+    await db.commit()
+    await db.refresh(attempt)
+    return {"order_id": order_id, "approve_url": approve_url, "payment_attempt_id": str(attempt.id)}
+
+
+
+async def capture_paypal_order(db: AsyncSession, order_id: str) -> dict:
+    """Capture an approved PayPal order and fulfill the payment purpose."""
+    from app.services.config_service import get_config_value
+    from app.models.payment import PaymentAttempt, PaymentStatus
+    from sqlalchemy import select
+
+    mode = await get_config_value(db, "PAYPAL_MODE", "sandbox")
+    client_id = await get_config_value(db, "PAYPAL_CLIENT_ID", "")
+    client_secret = await get_config_value(db, "PAYPAL_CLIENT_SECRET", "")
+
+    if not client_id or not client_secret:
+        raise ValueError("PayPal is not configured")
+
+    access_token = await get_paypal_access_token(client_id, client_secret, mode)
+    base_url = _paypal_base(mode)
+
+    import httpx
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{base_url}/v2/checkout/orders/{order_id}/capture",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+        )
+        if resp.status_code not in (200, 201):
+            raise ValueError(f"PayPal capture failed: {resp.text}")
+        capture_data = resp.json()
+
+    # Update PaymentAttempt status
+    capture_id = None
+    capture_status = "COMPLETED"
+    try:
+        captures = capture_data["purchase_units"][0]["payments"]["captures"]
+        if captures:
+            capture_id = captures[0]["id"]
+            capture_status = captures[0]["status"]
+    except (KeyError, IndexError):
+        pass
+
+    result = await db.execute(
+        select(PaymentAttempt).where(PaymentAttempt.external_checkout_id == order_id)
     )
+    attempt = result.scalar_one_or_none()
+    if attempt:
+        if capture_status == "COMPLETED":
+            attempt.payment_status = PaymentStatus.confirmed
+            from datetime import datetime, timezone
+            attempt.confirmed_at = datetime.now(timezone.utc)
+            if capture_id:
+                attempt.external_payment_id = capture_id
+        else:
+            attempt.payment_status = PaymentStatus.failed
+            from datetime import datetime, timezone
+            attempt.failed_at = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(attempt)
+
+        if capture_status == "COMPLETED" and attempt:
+            await fulfill_payment_purpose(db, attempt)
+
+    return {
+        "status": capture_status,
+        "order_id": order_id,
+        "capture_id": capture_id,
+        "capture_data": capture_data,
+    }
+
+
+async def create_paypal_subscription(
+    db: AsyncSession,
+    user,
+    subscription_type: str,
+) -> dict:
+    """Create a PayPal recurring subscription. Returns {subscription_id, approve_url}."""
+    from app.services.config_service import get_config_value
+    from app.models.payment import Subscription, SubscriptionStatus
+    import uuid as _uuid
+
+    mode = await get_config_value(db, "PAYPAL_MODE", "sandbox")
+    client_id = await get_config_value(db, "PAYPAL_CLIENT_ID", "")
+    client_secret = await get_config_value(db, "PAYPAL_CLIENT_SECRET", "")
+
+    if not client_id or not client_secret:
+        raise ValueError("PayPal is not configured")
+
+    # Map subscription_type -> plan_id from config
+    plan_key_map = {
+        "search_tier1": "PAYPAL_PLAN_SEARCH_TIER1",
+        "search_tier2": "PAYPAL_PLAN_SEARCH_TIER2",
+        "provider_profile": "PAYPAL_PLAN_PROVIDER_PROFILE",
+        "advertisement": "PAYPAL_PLAN_ADVERTISEMENT",
+    }
+    plan_key = plan_key_map.get(subscription_type)
+    if not plan_key:
+        raise ValueError(f"Unknown subscription_type: {subscription_type}")
+
+    plan_id = await get_config_value(db, plan_key, "")
+    if not plan_id:
+        raise ValueError(
+            f"PayPal plan ID not configured for {subscription_type}. "
+            f"Set {plan_key} in admin settings."
+        )
+
+    access_token = await get_paypal_access_token(client_id, client_secret, mode)
+    base_url = _paypal_base(mode)
+
+    import httpx
+    from datetime import datetime, timezone
+    idempotency_key = str(_uuid.uuid4())
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{base_url}/v1/billing/subscriptions",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+                "PayPal-Request-Id": idempotency_key,
+            },
+            json={
+                "plan_id": plan_id,
+                "subscriber": {
+                    "email_address": getattr(user, "email", ""),
+                },
+                "application_context": {
+                    "return_url": "https://app.proreadyengineer.com/payment/success",
+                    "cancel_url": "https://app.proreadyengineer.com/payment/cancel",
+                    "user_action": "SUBSCRIBE_NOW",
+                },
+            },
+        )
+        if resp.status_code not in (200, 201):
+            raise ValueError(f"PayPal subscription creation failed: {resp.text}")
+        sub_data = resp.json()
+
+    subscription_id = sub_data["id"]
+    approve_url = next(
+        (link["href"] for link in sub_data.get("links", []) if link["rel"] == "approve"),
+        None,
+    )
+
+    # Persist Subscription record
+    sub = Subscription(
+        user_id=user.id,
+        provider_name="paypal",
+        external_subscription_id=subscription_id,
+        subscription_type=subscription_type,
+        subscription_status=SubscriptionStatus.incomplete,
+    )
+    db.add(sub)
+    await db.commit()
+    await db.refresh(sub)
+
+    return {
+        "subscription_id": subscription_id,
+        "approve_url": approve_url,
+        "db_id": str(sub.id),
+    }
+
+async def handle_paypal_webhook(db: AsyncSession, payload: dict) -> None:
+    """Handle PayPal webhook events (idempotent, fully implemented)."""
+    event_type = payload.get("event_type", "")
+    resource   = payload.get("resource", {})
+    event_id   = payload.get("id", "")
+    # Deduplication
+    dup_res = await db.execute(select(WebhookEvent).where(
+        WebhookEvent.provider_name == "paypal",
+        WebhookEvent.external_event_id == event_id))
+    if dup_res.scalar_one_or_none():
+        return
+    webhook_event = WebhookEvent(
+        provider_name="paypal", external_event_id=event_id,
+        event_type=event_type, payload=payload,
+        signature_verified=True, processing_status="processing",
+        received_at=datetime.utcnow())
     db.add(webhook_event)
     await db.commit()
-
     try:
         if event_type == "PAYMENT.CAPTURE.COMPLETED":
-            # Handle PayPal payment completion
-            payment_id = resource.get("id")
-            # Similar logic to Stripe payment_intent.succeeded
-            pass
-
+            # Extract order_id from supplementary_data or resource id
+            order_id = (resource.get("supplementary_data", {})
+                         .get("related_ids", {}).get("order_id")
+                        or resource.get("id"))
+            if order_id:
+                res = await db.execute(select(PaymentAttempt).where(
+                    PaymentAttempt.external_payment_id == order_id,
+                    PaymentAttempt.provider_name == "paypal"))
+                attempt = res.scalar_one_or_none()
+                if attempt and attempt.payment_status != PaymentStatus.SUCCEEDED:
+                    attempt.payment_status = PaymentStatus.SUCCEEDED
+                    attempt.confirmed_at = datetime.utcnow()
+                    await db.commit()
+                    await db.refresh(attempt)
+                    await fulfill_payment_purpose(db, attempt)
+        elif event_type == "PAYMENT.CAPTURE.DENIED":
+            order_id = (resource.get("supplementary_data", {})
+                         .get("related_ids", {}).get("order_id")
+                        or resource.get("id"))
+            if order_id:
+                res = await db.execute(select(PaymentAttempt).where(
+                    PaymentAttempt.external_payment_id == order_id,
+                    PaymentAttempt.provider_name == "paypal"))
+                attempt = res.scalar_one_or_none()
+                if attempt and attempt.payment_status == PaymentStatus.PENDING:
+                    attempt.payment_status = PaymentStatus.FAILED
+                    attempt.failed_at = datetime.utcnow()
+                    await db.commit()
+        elif event_type == "BILLING.SUBSCRIPTION.ACTIVATED":
+            sub_id = resource.get("id")
+            if sub_id:
+                res = await db.execute(select(Subscription).where(
+                    Subscription.external_subscription_id == sub_id,
+                    Subscription.provider_name == "paypal"))
+                sub = res.scalar_one_or_none()
+                if sub:
+                    sub.subscription_status = SubscriptionStatus.ACTIVE
+                    await db.commit()
+        elif event_type == "BILLING.SUBSCRIPTION.CANCELLED":
+            sub_id = resource.get("id")
+            if sub_id:
+                res = await db.execute(select(Subscription).where(
+                    Subscription.external_subscription_id == sub_id,
+                    Subscription.provider_name == "paypal"))
+                sub = res.scalar_one_or_none()
+                if sub:
+                    sub.subscription_status = SubscriptionStatus.CANCELLED
+                    sub.cancelled_at = datetime.utcnow()
+                    await db.commit()
+        elif event_type == "BILLING.SUBSCRIPTION.PAYMENT.FAILED":
+            sub_id = resource.get("id")
+            if sub_id:
+                res = await db.execute(select(Subscription).where(
+                    Subscription.external_subscription_id == sub_id,
+                    Subscription.provider_name == "paypal"))
+                sub = res.scalar_one_or_none()
+                if sub:
+                    sub.subscription_status = SubscriptionStatus.PAST_DUE
+                    await db.commit()
         webhook_event.processing_status = "completed"
         webhook_event.processed_at = datetime.utcnow()
-
     except Exception as e:
         webhook_event.processing_status = "failed"
         webhook_event.error_message = str(e)
         raise
-
     finally:
         await db.commit()
-
 
 async def fulfill_payment_purpose(
     db: AsyncSession,

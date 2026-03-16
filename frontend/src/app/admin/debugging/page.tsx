@@ -98,6 +98,14 @@ interface StripeTestResult {
   error?: string;
 }
 
+interface PaypalTestResult {
+  success?: boolean;
+  mode?: string;
+  app_id?: string;
+  token_type?: string;
+  error?: string;
+}
+
 function StatusBadge({ ok, label }: { ok: boolean; label?: string }) {
   return ok ? (
     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-300">
@@ -200,6 +208,8 @@ export default function DebuggingPage() {
   // Stripe test state
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeResult, setStripeResult] = useState<StripeTestResult | null>(null);
+  const [paypalLoading, setPaypalLoading] = useState(false);
+  const [paypalResult, setPaypalResult] = useState<PaypalTestResult | null>(null);
 
 
 
@@ -265,6 +275,22 @@ export default function DebuggingPage() {
       setStripeResult({ status: 'error', error: e.response?.data?.detail ?? e.message ?? 'Request failed' });
     } finally {
       setStripeLoading(false);
+    }
+  };
+
+  const testPaypalConnection = async () => {
+    setPaypalLoading(true);
+    setPaypalResult(null);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const r = await api.admin.testPaypalConnection();
+      setPaypalResult(r.data as PaypalTestResult);
+    } catch (e: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = e as any;
+      setPaypalResult({ success: false, error: err?.response?.data?.detail ?? err?.message ?? 'Request failed' });
+    } finally {
+      setPaypalLoading(false);
     }
   };
 
@@ -927,6 +953,55 @@ export default function DebuggingPage() {
                 <AlertCircle className="h-4 w-4" />
                 ❌ Error: {stripeResult.error}
               </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            PayPal Connection Test
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Tests PayPal API connectivity using stored credentials from the Settings page.
+          </p>
+          <Button
+            onClick={testPaypalConnection}
+            disabled={paypalLoading}
+            variant="outline"
+            size="sm"
+          >
+            {paypalLoading ? (
+              <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Testing...</>
+            ) : (
+              <>Test PayPal Connection</>
+            )}
+          </Button>
+          {paypalResult && (
+            <div
+              className={`rounded-md border p-3 text-sm ${
+                paypalResult.success
+                  ? 'border-green-200 bg-green-50 text-green-800'
+                  : 'border-red-200 bg-red-50 text-red-800'
+              }`}
+            >
+              {paypalResult.success ? (
+                <div className="space-y-1">
+                  <p className="font-semibold">Connected successfully</p>
+                  {paypalResult.mode && <p><span className="font-medium">Mode:</span> {paypalResult.mode}</p>}
+                  {paypalResult.app_id && <p><span className="font-medium">App ID:</span> {paypalResult.app_id}</p>}
+                  {paypalResult.token_type && <p><span className="font-medium">Token type:</span> {paypalResult.token_type}</p>}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="font-semibold">Connection failed</p>
+                  {paypalResult.mode && <p><span className="font-medium">Mode:</span> {paypalResult.mode}</p>}
+                  {paypalResult.error && <p className="font-mono text-xs break-all">{paypalResult.error}</p>}
+                </div>
+              )}
             </div>
           )}
         </CardContent>
