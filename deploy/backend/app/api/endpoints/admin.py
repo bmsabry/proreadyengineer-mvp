@@ -2063,7 +2063,23 @@ async def admin_debug_test_llm(
             max_tokens=200,
             temperature=0.3,
         )
-        reply = response.choices[0].message.content.strip() if response.choices else "(empty response)"
+        # Handle reasoning models (like Kimi-K2.5) that may return content in different fields
+        reply = None
+        if response.choices:
+            msg = response.choices[0].message
+            # Try standard content first
+            content = getattr(msg, 'content', None)
+            if content and content.strip():
+                reply = content.strip()
+            else:
+                # Try reasoning_content for reasoning models
+                reasoning = getattr(msg, 'reasoning_content', None)
+                if reasoning and reasoning.strip():
+                    reply = f"[Reasoning model output]:\n{reasoning.strip()}"
+                else:
+                    reply = f"(model returned empty content - raw: {repr(content)})"
+        else:
+            reply = "(no choices in response)"
         return {
             "success": True,
             "model": model,
