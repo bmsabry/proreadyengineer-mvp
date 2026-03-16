@@ -2050,7 +2050,7 @@ async def admin_debug_test_llm(
     """Test DeepInfra LLM connectivity using the same client as search."""
     from app.services.search_service import _get_client, _has_api_key, _llm_model
     try:
-        cfg = await get_runtime_config(db)
+        cfg = await _get_runtime_config(db)
         if not _has_api_key(cfg):
             return {"success": False, "error": "No API key configured (OPENAI_API_KEY)",
                     "model": None, "response": None}
