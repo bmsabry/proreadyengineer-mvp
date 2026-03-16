@@ -1528,7 +1528,7 @@ async def admin_debug_test_stripe(
 ) -> dict:
     """Admin: Test Stripe API key by creating and cancelling a $1.00 test PaymentIntent."""
     try:
-        config = await _load_config(db)
+        config = await _get_runtime_config(db)
         key = config.get("STRIPE_SECRET_KEY", "").strip()
     except Exception as exc:
         return {"status": "error", "error": f"Config load failed: {exc}"}
