@@ -389,7 +389,7 @@ def _specialty_score(provider, intent: Dict[str, Any]) -> float:
     combined  = primary + ' ' + secondary
     score = 0.0
     if inferred:
-        words = [w for w in re.findall(r'[a-z0-9]+', inferred) if len(w) > 3]
+        words = [w for w in re.findall(r'[a-z0-9]+', inferred) if len(w) >= 3]
         if words:
             hits  = sum(1 for w in words if w in combined)
             ratio = hits / len(words)
@@ -402,7 +402,7 @@ def _specialty_score(provider, intent: Dict[str, Any]) -> float:
     if cap_needed:
         cap_words = []
         for cap in cap_needed:
-            cap_words.extend(w for w in re.findall(r'[a-z0-9]+', cap) if len(w) > 3)
+            cap_words.extend(w for w in re.findall(r'[a-z0-9]+', cap) if len(w) >= 3)
         if cap_words:
             hits      = sum(1 for w in cap_words if w in combined)
             cap_score = min(20.0, (hits / len(cap_words)) * 20.0)
@@ -415,7 +415,7 @@ def _capabilities_score_keyword(provider, intent: Dict[str, Any]) -> float:
     keywords = [k.lower() for k in _safe_list(intent.get('inferred_keywords', []))]
     if not keywords:
         spec = _safe_str(intent.get('inferred_specialty', '')).lower()
-        keywords = [w for w in re.findall(r'[a-z0-9]+', spec) if len(w) > 3]
+        keywords = [w for w in re.findall(r'[a-z0-9]+', spec) if len(w) >= 3]
     if not keywords:
         return 10.0
     name_text = (_safe_str(getattr(provider, 'firm_name', '')) + ' '
@@ -454,8 +454,9 @@ def _software_bonus(provider, intent: Dict[str, Any]) -> float:
 def _score_notable_projects(provider, intent: dict, raw_query: str = '') -> float:
     """Notable Projects Bonus 0-15 pts.
 
-    Awards points when provider's proven_experience_notable_projects
-    descriptions contain keywords from the search query.
+    Uses LLM-extracted intent terms as primary signal (Option B).
+    Evaluates each project individually and returns score based on
+    the best-matching single project to prevent score dilution.
     """
     import json
     notable_raw = getattr(provider, 'proven_experience_notable_projects', None) or []
@@ -464,46 +465,82 @@ def _score_notable_projects(provider, intent: dict, raw_query: str = '') -> floa
             notable_raw = json.loads(notable_raw)
         except Exception:
             notable_raw = [notable_raw]
-    if not notable_raw:
+
+    case_studies_raw = getattr(provider, 'proven_experience_case_studies', None) or []
+    if isinstance(case_studies_raw, str):
+        try:
+            case_studies_raw = json.loads(case_studies_raw)
+        except Exception:
+            case_studies_raw = [case_studies_raw]
+
+    all_items = list(notable_raw) + list(case_studies_raw)
+    if not all_items:
         return 0.0
 
-    # Build a combined text of all project descriptions
-    projects_text = ' '.join(str(n) for n in notable_raw).lower()
+    # Generic stop words - only true function words, NOT engineering terms
+    stop = {
+        'and', 'the', 'for', 'with', 'that', 'this', 'from', 'have',
+        'will', 'what', 'can', 'are', 'was', 'but', 'not', 'our',
+        'your', 'their', 'more', 'also', 'been', 'some', 'into',
+        'such', 'than', 'when', 'over', 'each', 'only', 'used',
+    }
 
-    # Collect keywords from intent + raw query
-    stop = {'and', 'the', 'for', 'with', 'that', 'this', 'from', 'have',
-            'will', 'what', 'can', 'are', 'was', 'but', 'not', 'our',
-            'your', 'their', 'more', 'also', 'data', 'system', 'used'}
-    kw_set = set()
-    q = raw_query.lower() if raw_query else ''
-    for w in re.findall(r'[a-z0-9]+', q):
-        if len(w) > 3 and w not in stop:
-            kw_set.add(w)
-    for kw in _safe_list(intent.get('inferred_keywords', [])):
-        for w in re.findall(r'[a-z0-9]+', kw.lower()):
-            if len(w) > 3 and w not in stop:
-                kw_set.add(w)
-    spec = _safe_str(intent.get('inferred_specialty', '')).lower()
-    for w in re.findall(r'[a-z0-9]+', spec):
-        if len(w) > 3 and w not in stop:
-            kw_set.add(w)
+    def _extract_terms(text: str, min_len: int = 3) -> set:
+        return {w for w in re.findall(r'[a-z0-9]+', text.lower())
+                if len(w) >= min_len and w not in stop}
+
+    # Build weighted keyword sets from LLM intent (PRIMARY signal)
+    specialty_terms = _extract_terms(_safe_str(intent.get('inferred_specialty', '')))
+    cap_terms: set = set()
     for cap in _safe_list(intent.get('capabilities_needed', [])):
-        for w in re.findall(r'[a-z0-9]+', cap.lower()):
-            if len(w) > 3 and w not in stop:
-                kw_set.add(w)
+        cap_terms |= _extract_terms(cap)
+    kw_terms: set = set()
+    for kw in _safe_list(intent.get('inferred_keywords', [])):
+        kw_terms |= _extract_terms(kw)
+    # Raw query terms (lowest weight)
+    raw_terms = _extract_terms(raw_query) if raw_query else set()
 
-    if not kw_set:
+    # Nothing to match against
+    if not (specialty_terms or cap_terms or kw_terms or raw_terms):
         return 0.0
 
-    hits = sum(1 for w in kw_set if w in projects_text)
-    ratio = hits / len(kw_set)
-    if ratio >= 0.5:
+    def _score_item(item_text: str) -> float:
+        """Score a single project/case-study text with weighted matching."""
+        item_words = _extract_terms(str(item_text))
+        if not item_words:
+            return 0.0
+        weighted_hits = 0.0
+        weighted_total = 0.0
+        # Specialty terms: weight 3
+        if specialty_terms:
+            weighted_hits  += 3.0 * len(specialty_terms & item_words)
+            weighted_total += 3.0 * len(specialty_terms)
+        # Capabilities terms: weight 2
+        if cap_terms:
+            weighted_hits  += 2.0 * len(cap_terms & item_words)
+            weighted_total += 2.0 * len(cap_terms)
+        # Keyword terms: weight 1.5
+        if kw_terms:
+            weighted_hits  += 1.5 * len(kw_terms & item_words)
+            weighted_total += 1.5 * len(kw_terms)
+        # Raw query terms: weight 1
+        if raw_terms:
+            weighted_hits  += 1.0 * len(raw_terms & item_words)
+            weighted_total += 1.0 * len(raw_terms)
+        if weighted_total == 0:
+            return 0.0
+        return weighted_hits / weighted_total
+
+    # Evaluate each project individually - take best match to prevent score dilution
+    best_ratio = max(_score_item(str(item)) for item in all_items)
+
+    if best_ratio >= 0.5:
         return 15.0
-    elif ratio >= 0.3:
+    elif best_ratio >= 0.3:
         return 10.0
-    elif ratio >= 0.15:
+    elif best_ratio >= 0.15:
         return 5.0
-    elif hits > 0:
+    elif best_ratio > 0:
         return 3.0
     return 0.0
 
