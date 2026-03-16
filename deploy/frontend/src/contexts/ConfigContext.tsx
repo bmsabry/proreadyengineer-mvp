@@ -33,7 +33,7 @@ const defaultConfig: ApiConfig = {
   openaiApiKey: '',
   openaiBaseUrl: 'https://api.deepinfra.com/v1/openai',
   embeddingModel: 'text-embedding-3-small',
-  completionModel: 'moonshotai/kimi-k2.5',
+  completionModel: 'moonshotai/Kimi-K2.5',
   stripeSecretKey: '',
   stripePublishableKey: '',
   stripeWebhookSecret: '',

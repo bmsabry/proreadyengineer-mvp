@@ -292,7 +292,7 @@ export default function AdminSettingsPage() {
           <SectionCard title="AI / Search Configuration" description="OpenAI credentials for LLM-powered search and vector embeddings.">
             <FieldRow label="OpenAI API Key" fieldName="openai_api_key" value={form.openai_api_key} onChange={handleChange} isSet={isFieldSet("openai_api_key")} inputType="password" hint="sk-... key from platform.openai.com" />
             <FieldRow label="OpenAI API Base URL" fieldName="openai_api_base" value={form.openai_api_base} onChange={handleChange} isSet={isFieldSet("openai_api_base")} placeholder="https://api.openai.com/v1" hint="Leave blank for default — override for Azure OpenAI or custom proxy" />
-            <FieldRow label="LLM Model" fieldName="openai_llm_model" value={form.openai_llm_model} onChange={handleChange} isSet={isFieldSet("openai_llm_model")} placeholder="gpt-4o-mini" hint="Model for structured RFQ extraction" />
+            <FieldRow label="LLM Model" fieldName="openai_llm_model" value={form.openai_llm_model} onChange={handleChange} isSet={isFieldSet("openai_llm_model")} placeholder="moonshotai/Kimi-K2.5" hint="Model for structured RFQ extraction" />
             <FieldRow label="Embedding Model" fieldName="openai_embedding_model" value={form.openai_embedding_model} onChange={handleChange} isSet={isFieldSet("openai_embedding_model")} placeholder="text-embedding-3-small" hint="Model for provider and query embeddings" />
           </SectionCard>
         </TabsContent>

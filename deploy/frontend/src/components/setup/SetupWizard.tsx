@@ -130,7 +130,7 @@ export function SetupWizard({ onClose }: SetupWizardProps) {
                   onChange={(e) => updateField('completionModel', e.target.value)}
                 />
                 <p className="text-sm text-muted-foreground">
-                  Recommended: moonshotai/kimi-k2.5
+                  Recommended: moonshotai/Kimi-K2.5
                 </p>
               </div>
             </TabsContent>

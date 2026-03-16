@@ -11,7 +11,7 @@ os.environ['OPENAI_API_KEY'] = 'dummy-key'  # Force keyword fallback
 os.environ['ENVIRONMENT'] = 'test'
 os.environ['OPENAI_API_BASE'] = 'https://api.deepinfra.com/v1/openai'
 os.environ['OPENAI_EMBEDDING_MODEL'] = 'BAAI/bge-large-en-v1.5'
-os.environ['OPENAI_LLM_MODEL'] = 'moonshotai/kimi-k2.5'
+os.environ['OPENAI_LLM_MODEL'] = 'moonshotai/Kimi-K2.5'
 
 async def test_search():
     print("[TEST] Importing modules...")

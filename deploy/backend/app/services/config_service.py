@@ -101,7 +101,7 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
     return {
         'OPENAI_API_KEY'        : _get('OPENAI_API_KEY'),
         'OPENAI_API_BASE'       : _get('OPENAI_API_BASE', 'https://api.deepinfra.com/v1/openai'),
-        'OPENAI_LLM_MODEL'      : _get('OPENAI_LLM_MODEL', 'moonshotai/kimi-k2.5'),
+        'OPENAI_LLM_MODEL'      : _get('OPENAI_LLM_MODEL', 'moonshotai/Kimi-K2.5'),
         'OPENAI_EMBEDDING_MODEL': _get('OPENAI_EMBEDDING_MODEL', 'BAAI/bge-large-en-v1.5'),
         'STRIPE_SECRET_KEY'     : _get('STRIPE_SECRET_KEY'),
         'STRIPE_PUBLISHABLE_KEY': _get('STRIPE_PUBLISHABLE_KEY'),

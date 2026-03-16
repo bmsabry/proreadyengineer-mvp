@@ -84,8 +84,8 @@ def _embedding_model(cfg: Dict[str, Any] = None) -> str:
 def _llm_model(cfg: Dict[str, Any] = None) -> str:
     """Return LLM model name from DB config or env settings."""
     if cfg:
-        return cfg.get('OPENAI_LLM_MODEL') or 'moonshotai/kimi-k2.5'
-    return getattr(settings, 'OPENAI_LLM_MODEL', None) or 'moonshotai/kimi-k2.5'
+        return cfg.get('OPENAI_LLM_MODEL') or 'moonshotai/Kimi-K2.5'
+    return getattr(settings, 'OPENAI_LLM_MODEL', None) or 'moonshotai/Kimi-K2.5'
 
 
 def _safe_list(val: Any) -> List[str]:
@@ -1474,7 +1474,7 @@ async def search_providers(
     llm_model = (
         runtime_config.get('OPENAI_LLM_MODEL', '')
         or runtime_config.get('OPENAI_MODEL', '')
-        or 'moonshotai/kimi-k2.5'
+        or 'moonshotai/Kimi-K2.5'
     )
     pipeline_info['llm_model'] = llm_model if has_key else '(none - no API key)'
     pipeline_info['llm_called'] = has_key
