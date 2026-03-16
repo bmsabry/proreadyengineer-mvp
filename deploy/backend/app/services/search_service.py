@@ -842,6 +842,138 @@ def _build_explanation(name: str, scores: Dict[str, float], intent: Dict[str, An
     return ' '.join(parts)
 
 
+
+
+def _provider_summary_for_llm(provider, idx: int) -> dict:
+    """Build condensed provider summary dict for LLM reranking prompt."""
+    caps = _safe_list(getattr(provider, 'capabilities', []))[:3]
+    notable = _safe_list(getattr(provider, 'proven_experience_notable_projects', []))[:2]
+    case_studies = _safe_list(getattr(provider, 'proven_experience_case_studies', []))[:2]
+    projects = notable + case_studies
+    proj_texts = [str(p)[:100] for p in projects[:3]]
+    return {
+        'id': provider.id,
+        'name': _display_name(provider)[:60],
+        'specialty': _safe_str(getattr(provider, 'primary_specialty', ''))[:80],
+        'capabilities': caps,
+        'projects': proj_texts,
+    }
+
+
+async def llm_rerank_candidates(
+    providers: list,
+    query: str,
+    intent: Dict[str, Any],
+    runtime_config: Optional[Dict[str, Any]] = None,
+) -> Dict[int, Dict]:
+    """Single LLM call to score all candidates for relevance to the query.
+
+    providers: list of (provider_proxy, similarity_float) tuples.
+    Returns dict mapping provider_id -> {llm_score, reason, similar_project}.
+    On any failure returns empty dict so caller falls back to deterministic scoring.
+    """
+    if not providers:
+        return {}
+
+    try:
+        summaries = [
+            _provider_summary_for_llm(prov, idx)
+            for idx, (prov, _sim) in enumerate(providers)
+        ]
+
+        inferred_specialty = _safe_str(intent.get('inferred_specialty', ''))
+        capabilities_needed = _safe_list(intent.get('capabilities_needed', []))
+        caps_str = ', '.join(capabilities_needed[:6]) if capabilities_needed else '(not specified)'
+        n = len(summaries)
+
+        prompt_lines = [
+            'You are evaluating engineering service providers for a customer query.',
+            '',
+            f'Customer query: {query}',
+            f'Required specialty: {inferred_specialty or "(not specified)"}',
+            f'Required capabilities: {caps_str}',
+            '',
+            'For each provider below, assign a relevance score 0-100 where:',
+            '- 90-100: Perfect match - clearly has the right specialty AND demonstrated similar project experience',
+            '- 70-89: Strong match - right specialty, likely capable',
+            '- 50-69: Partial match - related field but not exact',
+            '- 20-49: Weak match - tangential relevance only',
+            '- 0-19: No match - wrong industry/service type',
+            '',
+            (
+                'IMPORTANT: Parts suppliers, maintenance contractors, IC&E contractors, and installation '
+                'firms should score LOW for design/engineering queries. Only firms that actually DESIGN, '
+                'ANALYZE, or ENGINEER should score high for design queries.'
+            ),
+            '',
+            'Providers:',
+            json.dumps(summaries, separators=(',', ': '))[:40000],
+            '',
+            'Return ONLY a JSON array:',
+            '[{"id": 123, "score": 85, "reason": "one sentence", "similar_project": true}, ...]',
+            f'Return all {n} providers. No markdown.',
+        ]
+        prompt = '\n'.join(prompt_lines)
+
+        client = _get_client(runtime_config)
+        model = _llm_model(runtime_config)
+        logger.info('[RERANK] Calling LLM model=%s with %d candidates', model, n)
+
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    'role': 'system',
+                    'content': 'You are an engineering services evaluator. Return only valid JSON arrays.',
+                },
+                {'role': 'user', 'content': prompt},
+            ],
+            temperature=0.1,
+            max_tokens=3000,
+        )
+
+        raw = response.choices[0].message.content.strip()
+        # Strip markdown code fences if present
+        raw = re.sub(r'^```(?:json)?\s*', '', raw)
+        raw = re.sub(r'\s*```$', '', raw).strip()
+        # Handle LLM wrapping array in object
+        if raw.startswith('{'):
+            arr_match = re.search(r'\[.*\]', raw, re.DOTALL)
+            if arr_match:
+                raw = arr_match.group(0)
+
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list):
+            logger.warning('[RERANK] LLM returned non-list JSON, skipping reranking')
+            return {}
+
+        result: Dict[int, Dict] = {}
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            pid = item.get('id')
+            score = item.get('score')
+            if pid is None or score is None:
+                continue
+            try:
+                result[int(pid)] = {
+                    'llm_score': float(score),
+                    'reason': str(item.get('reason', ''))[:300],
+                    'similar_project': bool(item.get('similar_project', False)),
+                }
+            except (ValueError, TypeError):
+                continue
+
+        logger.info('[RERANK] LLM scored %d/%d providers', len(result), n)
+        return result
+
+    except json.JSONDecodeError as exc:
+        logger.warning('[RERANK] JSON parse error: %s - falling back to deterministic scoring', exc)
+        return {}
+    except Exception as exc:
+        logger.warning('[RERANK] LLM reranking error: %s - falling back to deterministic scoring', exc)
+        return {}
+
 async def check_search_quota(
     db: AsyncSession,
     user_id=None,
@@ -1113,7 +1245,7 @@ async def _fetch_candidates(
     intent,
     filters,
     query_vec,
-    limit = 50,
+    limit = 100,
 ):
     """
     Steps 3+5: hard filters + pgvector or keyword pre-filter.
@@ -1309,6 +1441,9 @@ async def search_providers(
         'fallback_reason': None,
         'inferred_specialty': None,
         'inferred_keywords': [],
+        'llm_reranking_called': False,
+        'llm_reranking_success': False,
+        'candidates_evaluated': 0,
     }
 
     # Load runtime config from DB (falls back to env vars)
@@ -1377,7 +1512,7 @@ async def search_providers(
     # Steps 3+5 - Hard filters + pgvector candidates
     try:
         rows, used_vector, fetch_fallback = await _fetch_candidates(
-            db, intent, filters, query_vec, limit=max(limit, 50)
+            db, intent, filters, query_vec, limit=100
         )
         if fetch_fallback:
             fallback_reason = fallback_reason or fetch_fallback
@@ -1409,51 +1544,113 @@ async def search_providers(
         logger.info('[SEARCH] No candidates found, returning empty')
         return [], pipeline_info
 
-    # Step 6 - Score each candidate
-    scored: List[tuple] = []
+    # Step 6 - Build provider proxies for scoring
+    provider_list = []
     for row in rows:
         try:
             provider = _ProviderProxy(row)
             similarity = float(row.get('cosine_similarity', 0.0) or 0.0) if used_vector else 0.0
-            scores = calculate_match_score(provider, intent, similarity=similarity, raw_query=query)
+            provider_list.append((provider, similarity))
+        except Exception as exc:
+            logger.warning(f'[SEARCH] Proxy build error for row: {exc}')
+
+    pipeline_info['candidates_evaluated'] = len(provider_list)
+
+    # Step 6a - LLM reranking (only when API key is available)
+    llm_scores: Dict[int, Dict] = {}
+    if has_key and provider_list:
+        pipeline_info['llm_reranking_called'] = True
+        try:
+            llm_scores = await llm_rerank_candidates(
+                provider_list, norm_query, intent, runtime_config
+            )
+            pipeline_info['llm_reranking_success'] = bool(llm_scores)
+            logger.info(
+                '[SEARCH] LLM reranking: success=%s scored=%d/%d',
+                pipeline_info['llm_reranking_success'],
+                len(llm_scores),
+                len(provider_list),
+            )
+        except Exception as exc:
+            logger.warning(f'[SEARCH] LLM reranking call failed: {exc}')
+            pipeline_info['llm_reranking_success'] = False
+            llm_scores = {}
+
+    # Step 6b - Score each candidate
+    scored: List[tuple] = []
+    for provider, similarity in provider_list:
+        try:
             name = _display_name(provider)
-            # Option B: detect similar project via keyword matching
-            sim_matched, sim_title, sim_ratio = _detect_similar_project(provider, intent, raw_query=query)
-            # Re-score WITH the similar_project_boost now that we know it matched
-            if sim_matched:
-                scores = calculate_match_score(provider, intent, similarity=similarity, raw_query=query, similar_project_matched=True)
-            explanation = _build_explanation(name, scores, intent, similar_project_title=sim_title if sim_matched else '')
+            pid = provider.id
+            llm_entry = llm_scores.get(pid) if llm_scores else None
+
+            if llm_entry is not None:
+                # LLM reranking path: llm_score + deterministic tier score
+                tier_pts = _tier_score(provider)
+                final_score = min(100.0, float(llm_entry['llm_score']) + tier_pts)
+                sim_matched = bool(llm_entry.get('similar_project', False))
+                sim_title = ''
+                explanation = (
+                    f"{name}: {llm_entry['reason']} "
+                    f"(LLM score {llm_entry['llm_score']:.0f} + tier {tier_pts:.0f} = {final_score:.0f}/100)"
+                )
+                scores = {
+                    'total': round(final_score, 2),
+                    'specialty': 0.0,
+                    'capabilities': round(float(llm_entry['llm_score']), 2),
+                    'tier': round(tier_pts, 2),
+                    'software_bonus': 0.0,
+                    'similarity': round(similarity, 4),
+                }
+            else:
+                # Deterministic fallback path (no API key or LLM did not score this provider)
+                scores = calculate_match_score(
+                    provider, intent, similarity=similarity, raw_query=query
+                )
+                sim_matched, sim_title, _ratio = _detect_similar_project(
+                    provider, intent, raw_query=query
+                )
+                if sim_matched:
+                    scores = calculate_match_score(
+                        provider, intent, similarity=similarity,
+                        raw_query=query, similar_project_matched=True
+                    )
+                explanation = _build_explanation(
+                    name, scores, intent,
+                    similar_project_title=sim_title if sim_matched else ''
+                )
+
             scored.append((
                 scores['total'],
                 SearchResultItem(
                     provider=provider,
                     score=scores['total'],
                     explanation=explanation,
-                    specialty_score=scores['specialty'],
-                    capabilities_score=scores['capabilities'],
-                    tier_score=scores['tier'],
-                    software_bonus=scores['software_bonus'],
-                    similarity=scores['similarity'],
+                    specialty_score=scores.get('specialty', 0.0),
+                    capabilities_score=scores.get('capabilities', 0.0),
+                    tier_score=scores.get('tier', 0.0),
+                    software_bonus=scores.get('software_bonus', 0.0),
+                    similarity=scores.get('similarity', similarity),
                     fallback_reason=fallback_reason,
                     similar_project_matched=sim_matched,
                     matching_project_title=sim_title,
                 ),
             ))
         except Exception as exc:
-            logger.warning(f'[SEARCH] Scoring error for row: {exc}')
+            logger.warning(
+                f'[SEARCH] Scoring error for provider {getattr(provider, "id", "?")}: {exc}'
+            )
 
-    # Two-key sort: 1) similar_project_matched (True first), 2) total score (higher first)
-    scored.sort(
-        key=lambda t: (1 if t[1].similar_project_matched else 0, t[0]),
-        reverse=True,
-    )
+    # Sort by final score descending
+    scored.sort(key=lambda t: t[0], reverse=True)
 
     # Step 7 - Return top 5 (spec 11.10)
     results = [item for _, item in scored[:5]]
 
     logger.info(
-        '[SEARCH] top-%d results: %s',
+        '[SEARCH] top-%d results: %s (reranking=%s)',
         len(results),
         [(r.provider.id, round(r.score, 1)) for r in results],
+        'llm' if pipeline_info.get('llm_reranking_success') else 'deterministic',
     )
     return results, pipeline_info
