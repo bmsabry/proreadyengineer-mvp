@@ -770,6 +770,9 @@ async def save_system_config(
         if data.paypal_plan_search_tier2:     config_map["PAYPAL_PLAN_SEARCH_TIER2"]     = data.paypal_plan_search_tier2
         if data.paypal_plan_provider_profile: config_map["PAYPAL_PLAN_PROVIDER_PROFILE"] = data.paypal_plan_provider_profile
         if data.paypal_plan_advertisement:    config_map["PAYPAL_PLAN_ADVERTISEMENT"]    = data.paypal_plan_advertisement
+        if data.rfq_batch_size is not None and data.rfq_batch_size != "": config_map["RFQ_BATCH_SIZE"]          = data.rfq_batch_size
+        if data.rfq_batch_interval_hours is not None and data.rfq_batch_interval_hours != "": config_map["RFQ_BATCH_INTERVAL_HOURS"] = data.rfq_batch_interval_hours
+        if data.rfq_closed_message is not None:                                              config_map["RFQ_CLOSED_MESSAGE"]       = data.rfq_closed_message
 
         _log.info(f"[SAVE] Config map keys: {list(config_map.keys())}")
 
