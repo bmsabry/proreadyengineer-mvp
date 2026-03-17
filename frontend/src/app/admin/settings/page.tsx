@@ -343,6 +343,38 @@ export default function AdminSettingsPage() {
           </SectionCard>
         </TabsContent>
 
+        <TabsContent value="rfq" className="mt-4">
+          <SectionCard title="RFQ Communication Settings" description="Configure how RFQ teasers are dispatched to providers and what message they see when an RFQ is closed.">
+            <FieldRow
+              label="Batch Size"
+              fieldName="rfq_batch_size"
+              value={form.rfq_batch_size}
+              onChange={handleChange}
+              isSet={isFieldSet("rfq_batch_size")}
+              placeholder="5"
+              hint="Number of providers to contact per dispatch batch (default: 5)"
+            />
+            <FieldRow
+              label="Batch Interval (hours)"
+              fieldName="rfq_batch_interval_hours"
+              value={form.rfq_batch_interval_hours}
+              onChange={handleChange}
+              isSet={isFieldSet("rfq_batch_interval_hours")}
+              placeholder="24"
+              hint="Hours between dispatch batches. Set to 0 to send all at once."
+            />
+            <FieldRow
+              label="Closed RFQ Message"
+              fieldName="rfq_closed_message"
+              value={form.rfq_closed_message}
+              onChange={handleChange}
+              isSet={isFieldSet("rfq_closed_message")}
+              placeholder="This RFQ has received the maximum number of quotes."
+              hint="Message shown to providers when they try to access a closed RFQ"
+            />
+          </SectionCard>
+        </TabsContent>
+
       </Tabs>
 
       <div className="flex justify-end pt-4 border-t border-gray-200">
