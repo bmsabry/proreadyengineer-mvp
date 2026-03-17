@@ -225,7 +225,7 @@ function SearchPageContent() {
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-2 text-foreground hover:opacity-80 transition-opacity shrink-0">
             <Home className="h-4 w-4" />
-            <span className="font-semibold text-sm hidden sm:block">ProReadyEngineer</span>
+            <span className="font-semibold text-sm hidden sm:block">ProMechDirectory</span>
           </Link>
           <form onSubmit={handleFormSubmit} className="flex-1 max-w-xl flex gap-2">
             <div className="relative flex-1">
