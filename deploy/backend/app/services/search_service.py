@@ -44,6 +44,19 @@ class SearchResultItem:
     matching_project_title: str = ""
 
 
+def _friendly_fallback(reason) -> None:
+    """Map internal fallback codes to user-friendly messages, or None to hide."""
+    if not reason:
+        return None
+    if reason.startswith('embedding_failed') or reason.startswith('pgvector_error'):
+        return None  # Don't expose internal errors - search still works via fallback
+    if reason == 'no_keyword_match':
+        return None  # Normal case, no need to show
+    if reason.startswith('software_filter_relaxed'):
+        return 'Software filter relaxed to find more results'
+    return None  # Default: hide all internal codes
+
+
 def _has_api_key(cfg: Dict[str, Any] = None) -> bool:
     """Check if an OpenAI-compatible API key is available (DB config takes priority)."""
     if cfg:
@@ -1728,7 +1741,7 @@ async def search_providers(
                         tier_score=scores.get('tier', 0.0),
                         software_bonus=scores.get('software_bonus', 0.0),
                         similarity=scores.get('similarity', similarity),
-                        fallback_reason=fallback_reason,
+                        fallback_reason=_friendly_fallback(fallback_reason),
                         similar_project_matched=sim_matched,
                         matching_project_title=sim_title,
                     ),
@@ -1770,7 +1783,7 @@ async def search_providers(
                         tier_score=scores.get('tier', 0.0),
                         software_bonus=scores.get('software_bonus', 0.0),
                         similarity=scores.get('similarity', similarity),
-                        fallback_reason=fallback_reason,
+                        fallback_reason=_friendly_fallback(fallback_reason),
                         similar_project_matched=sim_matched,
                         matching_project_title=sim_title,
                     ),

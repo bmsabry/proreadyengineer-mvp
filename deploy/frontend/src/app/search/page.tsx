@@ -20,55 +20,55 @@ import {
   LogOut,
   ArrowRight,
   CheckCircle2,
-  Cpu,
-  Layers,
-  Sparkles,
-  Trophy,
   Loader2,
 } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pipeline loading steps definition
+// Adaptive progress loader helpers
 // ─────────────────────────────────────────────────────────────────────────────
-const PIPELINE_STEPS = [
-  {
-    id: 'analyze' as const,
-    icon: Search,
-    label: 'Analyzing your query',
-    sublabel: 'Extracting engineering intent & requirements',
-    durationMs: 900,
-  },
-  {
-    id: 'embed' as const,
-    icon: Cpu,
-    label: 'Generating semantic embeddings',
-    sublabel: 'Converting query to high-dimensional vector space',
-    durationMs: 1100,
-  },
-  {
-    id: 'match' as const,
-    icon: Layers,
-    label: 'Scanning 6,000+ providers',
-    sublabel: 'Applying pgvector cosine similarity across directory',
-    durationMs: 1000,
-  },
-  {
-    id: 'score' as const,
-    icon: Trophy,
-    label: 'Scoring & ranking candidates',
-    sublabel: 'Specialty · Capabilities · Tier composite scoring',
-    durationMs: 800,
-  },
-  {
-    id: 'finalize' as const,
-    icon: Sparkles,
-    label: 'Preparing your results',
-    sublabel: 'Generating match explanations',
-    durationMs: 600,
-  },
+const LS_KEY = 'pme_avg_search_ms';
+const DEFAULT_DURATION_MS = 52000;
+
+function getEstimatedDuration(): number {
+  try {
+    const stored = localStorage.getItem(LS_KEY);
+    if (stored) {
+      const val = parseInt(stored, 10);
+      if (val > 5000 && val < 180000) return val;
+    }
+  } catch {}
+  return DEFAULT_DURATION_MS;
+}
+
+function saveSearchDuration(ms: number): void {
+  try {
+    const prev = getEstimatedDuration();
+    const updated = Math.round(prev * 0.7 + ms * 0.3);
+    localStorage.setItem(LS_KEY, String(updated));
+  } catch {}
+}
+
+const SEARCH_PHASES = [
+  { icon: "🔍", text: 'Analyzing your engineering query...' },
+  { icon: "🧠", text: 'Extracting technical intent with AI...' },
+  { icon: "⚡", text: 'Generating semantic embeddings...' },
+  { icon: "🗄️", text: 'Scanning 6,000+ provider profiles...' },
+  { icon: "📐", text: 'Applying specialty & capability filters...' },
+  { icon: "🏆", text: 'Scoring top candidates...' },
+  { icon: "✨", text: 'Ranking providers by project fit...' },
+  { icon: "📋", text: 'Preparing your match results...' },
 ];
 
-type StepId = 'analyze' | 'embed' | 'match' | 'score' | 'finalize';
+const SEARCH_FACTS = [
+  'Our directory includes 6,000+ engineering service firms across North America.',
+  'Providers are scored on specialty match, capabilities, and project history.',
+  'Vector similarity compares your query against thousands of provider profiles.',
+  'Tier ratings reflect provider track record and project complexity.',
+  'AI extracts your technical requirements to find precise capability matches.',
+  'Case studies and notable projects boost provider relevance scores.',
+  'The top 100 candidates undergo detailed LLM-based evaluation.',
+  'Results are ranked by composite score: specialty + capabilities + tier.',
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Skeleton card component
@@ -96,130 +96,6 @@ function SkeletonCard() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline loader panel
 // ─────────────────────────────────────────────────────────────────────────────
-interface PipelineLoaderProps {
-  activeStepIndex: number;
-  completedSteps: Set<StepId>;
-}
-
-function PipelineLoader({ activeStepIndex, completedSteps }: PipelineLoaderProps) {
-  return (
-    <div className="max-w-2xl mx-auto py-10 px-4">
-      {/* Header */}
-      <div className="text-center mb-10">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg mb-4">
-          <Sparkles className="h-7 w-7 text-white" />
-        </div>
-        <h2 className="text-2xl font-bold text-foreground">AI-Powered Matching</h2>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Our pipeline is finding your best-fit engineering partners
-        </p>
-      </div>
-
-      {/* Steps */}
-      <div className="space-y-3">
-        {PIPELINE_STEPS.map((step, idx) => {
-          const Icon = step.icon;
-          const isDone = completedSteps.has(step.id as StepId);
-          const isActive = idx === activeStepIndex && !isDone;
-
-          return (
-            <div
-              key={step.id}
-              className={[
-                'flex items-start gap-4 rounded-xl border p-4 transition-all duration-500',
-                isDone
-                  ? 'border-green-200 bg-green-50/60 opacity-90'
-                  : isActive
-                  ? 'border-blue-300 bg-blue-50/80 shadow-sm scale-[1.01]'
-                  : 'border-border bg-muted/30 opacity-40',
-              ].join(' ')}
-            >
-              {/* Icon bubble */}
-              <div
-                className={[
-                  'flex-shrink-0 flex items-center justify-center w-10 h-10 rounded-xl transition-colors duration-300',
-                  isDone
-                    ? 'bg-green-100 text-green-600'
-                    : isActive
-                    ? 'bg-blue-100 text-blue-600'
-                    : 'bg-muted text-muted-foreground',
-                ].join(' ')}
-              >
-                {isDone ? (
-                  <CheckCircle2 className="h-5 w-5" />
-                ) : isActive ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Icon className="h-5 w-5" />
-                )}
-              </div>
-
-              {/* Text */}
-              <div className="flex-1 min-w-0">
-                <p
-                  className={[
-                    'text-sm font-semibold leading-tight',
-                    isDone
-                      ? 'text-green-800'
-                      : isActive
-                      ? 'text-blue-900'
-                      : 'text-muted-foreground',
-                  ].join(' ')}
-                >
-                  {step.label}
-                </p>
-                <p
-                  className={[
-                    'text-xs mt-0.5',
-                    isDone
-                      ? 'text-green-600'
-                      : isActive
-                      ? 'text-blue-600'
-                      : 'text-muted-foreground/60',
-                  ].join(' ')}
-                >
-                  {step.sublabel}
-                </p>
-              </div>
-
-              {/* Status chip */}
-              <div className="flex-shrink-0 self-center">
-                {isDone ? (
-                  <span className="text-xs font-medium text-green-600 bg-green-100 px-2 py-0.5 rounded-full">
-                    Done
-                  </span>
-                ) : isActive ? (
-                  <span className="text-xs font-medium text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full animate-pulse">
-                    Running
-                  </span>
-                ) : (
-                  <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                    Queued
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Progress bar */}
-      <div className="mt-8">
-        <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
-          <span>Progress</span>
-          <span>{Math.round((completedSteps.size / PIPELINE_STEPS.length) * 100)}%</span>
-        </div>
-        <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-700 ease-out"
-            style={{ width: `${(completedSteps.size / PIPELINE_STEPS.length) * 100}%` }}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Main search page content
 function SearchPageContent() {
   const searchParams = useSearchParams();
@@ -237,37 +113,63 @@ function SearchPageContent() {
   const [resultCount, setResultCount] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
   const [pipelineInfo, setPipelineInfo] = useState<PipelineInfo | null>(null);
-  const [activeStepIndex, setActiveStepIndex] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState<Set<StepId>>(new Set());
   const [showResults, setShowResults] = useState(false);
-  const stepTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadPhase, setLoadPhase] = useState(0);
+  const [loadFact, setLoadFact] = useState(0);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const phaseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const factTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const searchStartTimeRef = useRef<number>(0);
   useEffect(() => {
-    return () => { stepTimersRef.current.forEach(clearTimeout); };
+    return () => {
+      if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+      if (phaseTimerRef.current) clearInterval(phaseTimerRef.current);
+      if (factTimerRef.current) clearInterval(factTimerRef.current);
+    };
   }, []);
   useEffect(() => {
     if (initialQuery) handleSearch(initialQuery);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuery]);
-  const startPipelineAnimation = () => {
-    stepTimersRef.current.forEach(clearTimeout);
-    stepTimersRef.current = [];
-    setActiveStepIndex(0);
-    setCompletedSteps(new Set());
+  const startLoadingAnimation = () => {
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    if (phaseTimerRef.current) clearInterval(phaseTimerRef.current);
+    if (factTimerRef.current) clearInterval(factTimerRef.current);
+    setLoadProgress(0);
+    setLoadPhase(0);
+    setLoadFact(0);
     setShowResults(false);
-    let elapsed = 0;
-    PIPELINE_STEPS.forEach((step, idx) => {
-      const tActive = setTimeout(() => setActiveStepIndex(idx), elapsed);
-      stepTimersRef.current.push(tActive);
-      elapsed += step.durationMs;
-      const tDone = setTimeout(() => {
-        setCompletedSteps((prev) => {
-          const next = new Set(prev);
-          next.add(step.id as StepId);
-          return next;
-        });
-      }, elapsed);
-      stepTimersRef.current.push(tDone);
-    });
+    searchStartTimeRef.current = Date.now();
+    const estimatedMs = getEstimatedDuration();
+    const targetProgress = 90;
+    const updateIntervalMs = 200;
+    const incrementPerUpdate = (targetProgress / estimatedMs) * updateIntervalMs;
+    progressTimerRef.current = setInterval(() => {
+      setLoadProgress(prev => {
+        if (prev >= targetProgress) {
+          if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+          return targetProgress;
+        }
+        return Math.min(prev + incrementPerUpdate, targetProgress);
+      });
+    }, updateIntervalMs);
+    phaseTimerRef.current = setInterval(() => {
+      setLoadPhase(prev => (prev + 1) % SEARCH_PHASES.length);
+    }, 7000);
+    factTimerRef.current = setInterval(() => {
+      setLoadFact(prev => (prev + 1) % SEARCH_FACTS.length);
+    }, 13000);
+  };
+  const stopLoadingAnimation = (success: boolean) => {
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    if (phaseTimerRef.current) clearInterval(phaseTimerRef.current);
+    if (factTimerRef.current) clearInterval(factTimerRef.current);
+    if (success) {
+      const elapsed = Date.now() - searchStartTimeRef.current;
+      if (elapsed > 3000) saveSearchDuration(elapsed);
+    }
+    setLoadProgress(100);
   };
   const handleSearch = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
@@ -277,7 +179,7 @@ function SearchPageContent() {
     setSearchError(null);
     setPipelineInfo(null);
     setShowResults(false);
-    startPipelineAnimation();
+    startLoadingAnimation();
     try {
       const response = await api.search.query({ query: searchQuery });
       const res = response.data.results || [];
@@ -286,10 +188,12 @@ function SearchPageContent() {
       setTotalMatches(response.data.total_matches || 0);
       setPipelineInfo(response.data.pipeline_info || null);
       setSearchStatus('success');
+      stopLoadingAnimation(true);
       setTimeout(() => setShowResults(true), 400);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Search failed. Please try again.';
       setSearchError(msg);
+      stopLoadingAnimation(false);
       setSearchStatus('error');
       setShowResults(true);
     } finally {
@@ -368,7 +272,46 @@ function SearchPageContent() {
           </div>
         )}
         {isLoading && (
-          <PipelineLoader activeStepIndex={activeStepIndex} completedSteps={completedSteps} />
+          <div className="max-w-2xl mx-auto py-10 px-4">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg mb-4">
+                <Search className="h-7 w-7 text-white animate-pulse" />
+              </div>
+              <h2 className="text-2xl font-bold text-foreground">AI-Powered Matching</h2>
+              <p className="text-sm text-muted-foreground mt-1">Analyzing 6,000+ engineering firms for your project</p>
+            </div>
+
+            {/* Current phase message */}
+            <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50/80 px-5 py-4 mb-6 min-h-[64px]">
+              <span className="text-2xl">{SEARCH_PHASES[loadPhase].icon}</span>
+              <div>
+                <p className="text-sm font-semibold text-blue-900">{SEARCH_PHASES[loadPhase].text}</p>
+                <p className="text-xs text-blue-600 mt-0.5">Pipeline running — this takes about {Math.round(getEstimatedDuration() / 1000)}s</p>
+              </div>
+              <Loader2 className="h-4 w-4 animate-spin text-blue-500 ml-auto shrink-0" />
+            </div>
+
+            {/* Progress bar */}
+            <div className="mb-6">
+              <div className="flex justify-between text-xs text-muted-foreground mb-2">
+                <span>Matching progress</span>
+                <span>{Math.round(loadProgress)}%</span>
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full transition-all duration-200 ease-linear"
+                  style={{ width: `${loadProgress}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Rotating fact */}
+            <div className="rounded-xl border border-border bg-muted/40 px-5 py-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">Did you know?</p>
+              <p className="text-sm text-foreground">{SEARCH_FACTS[loadFact]}</p>
+            </div>
+          </div>
         )}
         {isLoading && (
           <div className="space-y-3 mt-6">
@@ -460,7 +403,7 @@ function SearchPageContent() {
                               )}
                             </div>
                             <div className="shrink-0 text-right">
-                              <div className="text-lg font-bold text-foreground">{r.composite_score}</div>
+                              <div className="text-lg font-bold text-foreground">{r.composite_score != null ? Math.round(r.composite_score) : "—"}</div>
                               <div className="text-xs text-muted-foreground">/ 100</div>
                             </div>
                           </div>
