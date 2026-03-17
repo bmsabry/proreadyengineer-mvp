@@ -369,7 +369,8 @@ function SearchPageContent() {
                   </div>
                 )}
                 {resultCount > 0 && (
-                  <div className="space-y-3">
+                  <div className="flex gap-6 items-start">
+                    <div className="flex-1 space-y-3">
                     {results.map((r, idx) => (
                       <Card key={r.provider.id} className="hover:shadow-md transition-shadow">
                         <CardContent className="p-4">
@@ -421,19 +422,53 @@ function SearchPageContent() {
                                   </div>
                                 )}
                               </div>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-xs h-7 whitespace-nowrap border-blue-300 text-blue-700 hover:bg-blue-50"
-                                onClick={() => router.push(`/rfq/new?q=${encodeURIComponent(query)}&provider=${r.provider.id}`)}
-                              >
-                                Request Quote
-                              </Button>
+
                             </div>
                           </div>
                         </CardContent>
                       </Card>
                     ))}
+                    </div>
+                    <div className="w-72 shrink-0">
+                      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-5 sticky top-6">
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="h-8 w-8 rounded-full bg-blue-600 flex items-center justify-center shrink-0">
+                            <ArrowRight className="h-4 w-4 text-white" />
+                          </div>
+                          <h3 className="font-semibold text-sm text-gray-900">Ready to get quotes?</h3>
+                        </div>
+                        <Button
+                          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold mb-4"
+                          onClick={handleStartRfq}
+                          disabled={isRequestingQuote}
+                        >
+                          {isRequestingQuote
+                            ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting...</>
+                            : <>Submit RFQ &amp; Get Quotes</>}
+                        </Button>
+                        <ul className="space-y-2.5">
+                          <li className="flex items-start gap-2 text-xs text-gray-600">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
+                            <span>Contacts <strong>all matched providers</strong> in your database &mdash; not just the 5 shown &mdash; in sequential batches</span>
+                          </li>
+                          <li className="flex items-start gap-2 text-xs text-gray-600">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
+                            <span>Track dispatch progress <strong>live</strong> from your dashboard as each firm is contacted</span>
+                          </li>
+                          <li className="flex items-start gap-2 text-xs text-gray-600">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
+                            <span>Process <strong>stops automatically</strong> once 5 quotes are received &mdash; no spam, no excess</span>
+                          </li>
+                          <li className="flex items-start gap-2 text-xs text-gray-600">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
+                            <span>You will be <strong>notified each time</strong> a provider signs an NDA (if required) before accessing your files</span>
+                          </li>
+                        </ul>
+                        <p className="text-xs text-gray-400 mt-4 pt-3 border-t border-blue-100">
+                          Quotes are non-binding rough estimates. Final pricing follows direct engagement.
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
               </>
