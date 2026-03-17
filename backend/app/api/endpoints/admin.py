@@ -707,40 +707,71 @@ async def get_system_config(
 ):
     """Get current system configuration (secrets masked)."""
     config = await _get_runtime_config(db)
+
+    # Query DB directly: only explicitly saved keys are "Set"
+    db_keys: set = set()
+    try:
+        result = await db.execute(
+            text("SELECT key FROM system_config WHERE value IS NOT NULL AND value != ''")
+        )
+        db_keys = {row[0] for row in result.fetchall()}
+    except Exception as _exc:
+        import logging as _l
+        _l.getLogger("admin.config").warning(f"[CONFIG] db_keys query failed: {_exc}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    def _is_set(key: str) -> bool:
+        return key in db_keys
+
+    def _mask(val: str) -> str:
+        if not val:
+            return ""
+        return val[:4] + "*" * max(0, len(val) - 4)
+
     return {
         "openai_api_key": _mask(config.get("OPENAI_API_KEY", "")),
-        "openai_api_key_set": bool(config.get("OPENAI_API_KEY")),
+        "openai_api_key_set": _is_set("OPENAI_API_KEY"),
         "openai_api_base": config.get("OPENAI_API_BASE", ""),
+        "openai_api_base_set": _is_set("OPENAI_API_BASE"),
         "openai_llm_model": config.get("OPENAI_LLM_MODEL", ""),
+        "openai_llm_model_set": _is_set("OPENAI_LLM_MODEL"),
         "openai_embedding_model": config.get("OPENAI_EMBEDDING_MODEL", ""),
+        "openai_embedding_model_set": _is_set("OPENAI_EMBEDDING_MODEL"),
         "stripe_secret_key": _mask(config.get("STRIPE_SECRET_KEY", "")),
-        "stripe_secret_key_set": bool(config.get("STRIPE_SECRET_KEY")),
+        "stripe_secret_key_set": _is_set("STRIPE_SECRET_KEY"),
         "stripe_publishable_key": config.get("STRIPE_PUBLISHABLE_KEY", ""),
+        "stripe_publishable_key_set": _is_set("STRIPE_PUBLISHABLE_KEY"),
         "aws_access_key_id": _mask(config.get("AWS_ACCESS_KEY_ID", "")),
-        "aws_access_key_set": bool(config.get("AWS_ACCESS_KEY_ID")),
+        "aws_access_key_set": _is_set("AWS_ACCESS_KEY_ID"),
         "aws_region": config.get("AWS_REGION", ""),
+        "aws_region_set": _is_set("AWS_REGION"),
         "aws_s3_bucket": config.get("AWS_S3_BUCKET", ""),
+        "aws_s3_bucket_set": _is_set("AWS_S3_BUCKET"),
         "resend_api_key": _mask(config.get("RESEND_API_KEY", "")),
-        "resend_api_key_set": bool(config.get("RESEND_API_KEY")),
-        "signrequest_api_key": _mask(config.get("SIGNREQUEST_API_KEY", "")),
-        "signrequest_api_key_set": bool(config.get("SIGNREQUEST_API_KEY")),
-        "signwell_api_key": _mask(config.get("SIGNWELL_API_KEY", "")),
-        "signwell_api_key_set": bool(config.get("SIGNWELL_API_KEY")),
-        "signwell_template_id": config.get("SIGNWELL_TEMPLATE_ID", ""),
-        "rfq_batch_size": config.get("RFQ_BATCH_SIZE", "5"),
-        "rfq_batch_size_set": bool(config.get("RFQ_BATCH_SIZE")),
-        "rfq_batch_interval_hours": config.get("RFQ_BATCH_INTERVAL_HOURS", "24"),
-        "rfq_batch_interval_hours_set": bool(config.get("RFQ_BATCH_INTERVAL_HOURS")),
-        "rfq_closed_message": config.get("RFQ_CLOSED_MESSAGE", ""),
-        "rfq_closed_message_set": bool(config.get("RFQ_CLOSED_MESSAGE")),
+        "resend_api_key_set": _is_set("RESEND_API_KEY"),
         "resend_from_email": config.get("RESEND_FROM_EMAIL", ""),
-        "stripe_webhook_secret_set": bool(config.get("STRIPE_WEBHOOK_SECRET")),
-        "paypal_configured": bool(config.get("PAYPAL_CLIENT_ID")),
+        "resend_from_email_set": _is_set("RESEND_FROM_EMAIL"),
+        "signrequest_api_key": _mask(config.get("SIGNREQUEST_API_KEY", "")),
+        "signrequest_api_key_set": _is_set("SIGNREQUEST_API_KEY"),
+        "signwell_api_key": _mask(config.get("SIGNWELL_API_KEY", "")),
+        "signwell_api_key_set": _is_set("SIGNWELL_API_KEY"),
+        "signwell_template_id": config.get("SIGNWELL_TEMPLATE_ID", ""),
+        "signwell_template_id_set": _is_set("SIGNWELL_TEMPLATE_ID"),
+        "rfq_batch_size": config.get("RFQ_BATCH_SIZE", "5"),
+        "rfq_batch_size_set": _is_set("RFQ_BATCH_SIZE"),
+        "rfq_batch_interval_hours": config.get("RFQ_BATCH_INTERVAL_HOURS", "24"),
+        "rfq_batch_interval_hours_set": _is_set("RFQ_BATCH_INTERVAL_HOURS"),
+        "rfq_closed_message": config.get("RFQ_CLOSED_MESSAGE", ""),
+        "rfq_closed_message_set": _is_set("RFQ_CLOSED_MESSAGE"),
+        "stripe_webhook_secret_set": _is_set("STRIPE_WEBHOOK_SECRET"),
+        "paypal_configured": _is_set("PAYPAL_CLIENT_ID"),
         "paypal_mode": config.get("PAYPAL_MODE", ""),
+        "paypal_mode_set": _is_set("PAYPAL_MODE"),
         "source": "db_or_env",
     }
-
-
 @router.post("/admin/config")
 async def save_system_config(
     data: SystemConfigRequest,

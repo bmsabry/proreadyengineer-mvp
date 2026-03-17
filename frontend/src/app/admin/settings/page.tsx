@@ -18,20 +18,29 @@ interface ServerConfig {
   [key: string]: any
   openai_api_key_set: boolean
   openai_api_base: string
+  openai_api_base_set: boolean
   openai_llm_model: string
+  openai_llm_model_set: boolean
   openai_embedding_model: string
+  openai_embedding_model_set: boolean
   stripe_secret_key_set: boolean
   stripe_webhook_secret_set: boolean
   stripe_publishable_key: string
+  stripe_publishable_key_set: boolean
   paypal_configured: boolean
   paypal_mode: string
+  paypal_mode_set: boolean
   aws_access_key_set: boolean
   aws_region: string
+  aws_region_set: boolean
   aws_s3_bucket: string
+  aws_s3_bucket_set: boolean
   resend_api_key_set: boolean
   resend_from_email: string
+  resend_from_email_set: boolean
   signwell_api_key_set: boolean
   signwell_template_id: string
+  signwell_template_id_set: boolean
   rfq_batch_size: string
   rfq_batch_size_set: boolean
   rfq_batch_interval_hours: string
@@ -200,7 +209,8 @@ export default function AdminSettingsPage() {
   const loadConfig = useCallback(async () => {
     try {
       setLoading(true)
-      const cfg = (await api.admin.getConfig()) as unknown as ServerConfig
+      const response = await api.admin.getConfig()
+      const cfg = ((response as any).data ?? response) as unknown as ServerConfig
       setConfig(cfg)
       // Pre-populate non-secret fields; keep secret fields empty
       setForm((prev) => ({
@@ -224,15 +234,15 @@ export default function AdminSettingsPage() {
     if (!config) return false
     const boolMap: Record<string, string> = {
       openai_api_key: 'openai_api_key_set',
-      openai_api_base: 'openai_api_key_set',
-      openai_llm_model: 'openai_api_key_set',
-      openai_embedding_model: 'openai_api_key_set',
+      openai_api_base: 'openai_api_base_set',
+      openai_llm_model: 'openai_llm_model_set',
+      openai_embedding_model: 'openai_embedding_model_set',
       stripe_secret_key: 'stripe_secret_key_set',
       stripe_webhook_secret: 'stripe_webhook_secret_set',
-      stripe_publishable_key: 'stripe_secret_key_set',
+      stripe_publishable_key: 'stripe_publishable_key_set',
       paypal_client_id: 'paypal_configured',
       paypal_client_secret: 'paypal_configured',
-      paypal_mode: 'paypal_configured',
+      paypal_mode: 'paypal_mode_set',
       paypal_webhook_id: 'paypal_configured',
       paypal_plan_search_tier1: 'paypal_configured',
       paypal_plan_search_tier2: 'paypal_configured',
@@ -240,12 +250,12 @@ export default function AdminSettingsPage() {
       paypal_plan_advertisement: 'paypal_configured',
       aws_access_key_id: 'aws_access_key_set',
       aws_secret_access_key: 'aws_access_key_set',
-      aws_region: 'aws_access_key_set',
-      aws_s3_bucket: 'aws_access_key_set',
+      aws_region: 'aws_region_set',
+      aws_s3_bucket: 'aws_s3_bucket_set',
       resend_api_key: 'resend_api_key_set',
-      resend_from_email: 'resend_api_key_set',
+      resend_from_email: 'resend_from_email_set',
       signwell_api_key: 'signwell_api_key_set',
-      signwell_template_id: 'signwell_api_key_set',
+      signwell_template_id: 'signwell_template_id_set',
       rfq_batch_size: 'rfq_batch_size_set',
       rfq_batch_interval_hours: 'rfq_batch_interval_hours_set',
       rfq_closed_message: 'rfq_closed_message_set',
