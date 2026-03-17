@@ -1033,8 +1033,8 @@ async def llm_pass2_rank(
                     case_raw = json.loads(case_raw)
                 except Exception:
                     case_raw = [case_raw] if case_raw.strip() else []
-            notable_list = [str(p)[:100] for p in (notable_raw or [])[:5]]
-            case_list = [str(c)[:100] for c in (case_raw or [])[:5]]
+            notable_list = [str(p)[:350] for p in (notable_raw or [])[:5]]
+            case_list = [str(c)[:350] for c in (case_raw or [])[:5]]
             companies.append({
                 'id': prov.id,
                 'name': _display_name(prov)[:60],
