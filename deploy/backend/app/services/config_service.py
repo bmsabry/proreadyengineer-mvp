@@ -123,6 +123,9 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'PAYPAL_PLAN_SEARCH_TIER2'     : _get('PAYPAL_PLAN_SEARCH_TIER2'),
         'PAYPAL_PLAN_PROVIDER_PROFILE' : _get('PAYPAL_PLAN_PROVIDER_PROFILE'),
         'PAYPAL_PLAN_ADVERTISEMENT'    : _get('PAYPAL_PLAN_ADVERTISEMENT'),
+        'RFQ_BATCH_SIZE'               : _get('RFQ_BATCH_SIZE', '5'),
+        'RFQ_BATCH_INTERVAL_HOURS'     : _get('RFQ_BATCH_INTERVAL_HOURS', '24'),
+        'RFQ_CLOSED_MESSAGE'           : _get('RFQ_CLOSED_MESSAGE', 'This RFQ has reached its quote limit. Create a provider account to receive future opportunities.'),
     }
 
 

@@ -688,6 +688,10 @@ class SystemConfigRequest(_BaseModel):
     paypal_plan_search_tier2: Optional[str] = None
     paypal_plan_provider_profile: Optional[str] = None
     paypal_plan_advertisement: Optional[str] = None
+    # RFQ Communication
+    rfq_batch_size: Optional[str] = None
+    rfq_batch_interval_hours: Optional[str] = None
+    rfq_closed_message: Optional[str] = None
 
 
 def _mask(v: str) -> str:
@@ -723,6 +727,9 @@ async def get_system_config(
         "signwell_api_key": _mask(config.get("SIGNWELL_API_KEY", "")),
         "signwell_api_key_set": bool(config.get("SIGNWELL_API_KEY")),
         "signwell_template_id": config.get("SIGNWELL_TEMPLATE_ID", ""),
+        "rfq_batch_size": config.get("RFQ_BATCH_SIZE", "5"),
+        "rfq_batch_interval_hours": config.get("RFQ_BATCH_INTERVAL_HOURS", "24"),
+        "rfq_closed_message": config.get("RFQ_CLOSED_MESSAGE", ""),
         "source": "db_or_env",
     }
 

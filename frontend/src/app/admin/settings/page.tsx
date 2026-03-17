@@ -34,6 +34,7 @@ interface FormFields {
   aws_access_key_id: string; aws_secret_access_key: string; aws_region: string; aws_s3_bucket: string
   resend_api_key: string; resend_from_email: string
   signwell_api_key: string; signwell_template_id: string
+  rfq_batch_size: string; rfq_batch_interval_hours: string; rfq_closed_message: string
 }
 
 const EMPTY_FORM: FormFields = {
@@ -60,6 +61,9 @@ const EMPTY_FORM: FormFields = {
   resend_from_email: '',
   signwell_api_key: '',
   signwell_template_id: '',
+  rfq_batch_size: '',
+  rfq_batch_interval_hours: '',
+  rfq_closed_message: '',
 }
 
 function StatusBadge({ isSet }: { isSet: boolean }) {
@@ -260,13 +264,14 @@ export default function AdminSettingsPage() {
       )}
 
       <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid grid-cols-6 w-full">
+        <TabsList className="grid grid-cols-7 w-full">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="ai">AI / Search</TabsTrigger>
           <TabsTrigger value="payments">Payments</TabsTrigger>
           <TabsTrigger value="email">Email</TabsTrigger>
           <TabsTrigger value="storage">Storage</TabsTrigger>
           <TabsTrigger value="signing">Doc Signing</TabsTrigger>
+          <TabsTrigger value="rfq">RFQ</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
