@@ -122,12 +122,25 @@ async def search_debug(db: AsyncSession = Depends(get_db)):
         info["database"]["connection_ok"] = False
         info["database"]["error"] = str(exc)
 
-    info["api_config"]["openai_configured"] = bool(
-        settings.OPENAI_API_KEY and settings.OPENAI_API_KEY not in ("dummy-key", "")
-    )
-    info["api_config"]["openai_base_url"] = settings.OPENAI_API_BASE or None
-    info["api_config"]["embedding_model"] = settings.OPENAI_EMBEDDING_MODEL
-    info["api_config"]["llm_model"] = settings.OPENAI_LLM_MODEL
+    # Read live config from DB so admin settings changes are reflected immediately
+    try:
+        from app.services.config_service import get_runtime_config as _get_runtime_config
+        cfg = await _get_runtime_config(db)
+        api_key = cfg.get("DEEPINFRA_API_KEY") or cfg.get("OPENAI_API_KEY") or settings.OPENAI_API_KEY or ""
+        info["api_config"]["openai_configured"] = bool(
+            api_key and api_key.strip() not in ("dummy-key", "your-key-here", "none", "null", "")
+        )
+        info["api_config"]["openai_base_url"] = cfg.get("OPENAI_API_BASE") or settings.OPENAI_API_BASE or None
+        info["api_config"]["embedding_model"] = cfg.get("OPENAI_EMBEDDING_MODEL") or settings.OPENAI_EMBEDDING_MODEL
+        info["api_config"]["llm_model"] = cfg.get("OPENAI_LLM_MODEL") or settings.OPENAI_LLM_MODEL
+    except Exception:
+        # Fallback to settings if DB read fails
+        info["api_config"]["openai_configured"] = bool(
+            settings.OPENAI_API_KEY and settings.OPENAI_API_KEY not in ("dummy-key", "")
+        )
+        info["api_config"]["openai_base_url"] = settings.OPENAI_API_BASE or None
+        info["api_config"]["embedding_model"] = settings.OPENAI_EMBEDDING_MODEL
+        info["api_config"]["llm_model"] = settings.OPENAI_LLM_MODEL
 
     return info
 
