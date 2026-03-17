@@ -728,8 +728,15 @@ async def get_system_config(
         "signwell_api_key_set": bool(config.get("SIGNWELL_API_KEY")),
         "signwell_template_id": config.get("SIGNWELL_TEMPLATE_ID", ""),
         "rfq_batch_size": config.get("RFQ_BATCH_SIZE", "5"),
+        "rfq_batch_size_set": bool(config.get("RFQ_BATCH_SIZE")),
         "rfq_batch_interval_hours": config.get("RFQ_BATCH_INTERVAL_HOURS", "24"),
+        "rfq_batch_interval_hours_set": bool(config.get("RFQ_BATCH_INTERVAL_HOURS")),
         "rfq_closed_message": config.get("RFQ_CLOSED_MESSAGE", ""),
+        "rfq_closed_message_set": bool(config.get("RFQ_CLOSED_MESSAGE")),
+        "resend_from_email": config.get("RESEND_FROM_EMAIL", ""),
+        "stripe_webhook_secret_set": bool(config.get("STRIPE_WEBHOOK_SECRET")),
+        "paypal_configured": bool(config.get("PAYPAL_CLIENT_ID")),
+        "paypal_mode": config.get("PAYPAL_MODE", ""),
         "source": "db_or_env",
     }
 
