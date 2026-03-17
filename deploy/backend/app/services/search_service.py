@@ -869,7 +869,7 @@ def _provider_summary_for_llm(provider, idx: int) -> dict:
     case_studies = _safe_list(getattr(provider, 'proven_experience_case_studies', []))[:3]
     projects = notable + case_studies
     proj_texts = [str(p)[:300] for p in projects[:5]]  # 300 chars exposes service vs design
-    description = _safe_str(getattr(provider, 'business_description', ''))[:300]
+    description = _safe_str(getattr(provider, 'business_description', ''))
     tier = (getattr(provider, 'business_evaluation_tier', None)
             or getattr(provider, 'tier', None) or 'unknown')
     return {
@@ -934,7 +934,7 @@ async def llm_pass1_filter(
     try:
         companies = []
         for prov, _sim in providers:
-            desc = _safe_str(getattr(prov, 'business_description', ''))[:300]
+            desc = _safe_str(getattr(prov, 'business_description', ''))
             companies.append({
                 'id': prov.id,
                 'name': _display_name(prov)[:60],
@@ -1033,8 +1033,8 @@ async def llm_pass2_rank(
                     case_raw = json.loads(case_raw)
                 except Exception:
                     case_raw = [case_raw] if case_raw.strip() else []
-            notable_list = [str(p)[:350] for p in (notable_raw or [])[:5]]
-            case_list = [str(c)[:350] for c in (case_raw or [])[:5]]
+            notable_list = [str(p) for p in (notable_raw or [])]
+            case_list = [str(c) for c in (case_raw or [])]
             companies.append({
                 'id': prov.id,
                 'name': _display_name(prov)[:60],
