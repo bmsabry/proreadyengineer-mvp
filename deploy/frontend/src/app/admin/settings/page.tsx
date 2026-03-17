@@ -31,6 +31,7 @@ interface ServerConfig {
   paypal_mode: string
   paypal_mode_set: boolean
   aws_access_key_set: boolean
+  aws_secret_access_key_set: boolean
   aws_region: string
   aws_region_set: boolean
   aws_s3_bucket: string
@@ -249,7 +250,7 @@ export default function AdminSettingsPage() {
       paypal_plan_provider_profile: 'paypal_configured',
       paypal_plan_advertisement: 'paypal_configured',
       aws_access_key_id: 'aws_access_key_set',
-      aws_secret_access_key: 'aws_access_key_set',
+      aws_secret_access_key: 'aws_secret_access_key_set',
       aws_region: 'aws_region_set',
       aws_s3_bucket: 'aws_s3_bucket_set',
       resend_api_key: 'resend_api_key_set',

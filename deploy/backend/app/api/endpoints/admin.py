@@ -746,6 +746,7 @@ async def get_system_config(
         "stripe_publishable_key_set": _is_set("STRIPE_PUBLISHABLE_KEY"),
         "aws_access_key_id": _mask(config.get("AWS_ACCESS_KEY_ID", "")),
         "aws_access_key_set": _is_set("AWS_ACCESS_KEY_ID"),
+        "aws_secret_access_key_set": _is_set("AWS_SECRET_ACCESS_KEY"),
         "aws_region": config.get("AWS_REGION", ""),
         "aws_region_set": _is_set("AWS_REGION"),
         "aws_s3_bucket": config.get("AWS_S3_BUCKET", ""),
