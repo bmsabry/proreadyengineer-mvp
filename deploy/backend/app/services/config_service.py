@@ -75,20 +75,26 @@ async def _get_table_columns(db: AsyncSession) -> set:
 
 async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
     """Get full runtime config from DB with env-var fallbacks."""
+    from app.db.session import async_engine
+    from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+    from sqlalchemy.orm import sessionmaker
+
     db_cfg: Dict[str, str] = {}
-    try:
-        result = await db.execute(
-            text("SELECT key, value FROM system_config WHERE value IS NOT NULL")
-        )
-        rows = result.fetchall()
-        db_cfg = {row[0]: row[1] for row in rows if row[1]}
-        logger.debug(f"[CONFIG] Loaded {len(db_cfg)} keys from DB")
-    except Exception as exc:
-        logger.warning(f"[CONFIG] DB config load failed: {exc}")
+    _factory = sessionmaker(async_engine, class_=_AsyncSession, expire_on_commit=False)
+    async with _factory() as fresh:
         try:
-            await db.rollback()
-        except Exception:
-            pass
+            result = await fresh.execute(
+                text("SELECT key, value FROM system_config WHERE value IS NOT NULL")
+            )
+            rows = result.fetchall()
+            db_cfg = {row[0]: row[1] for row in rows if row[1]}
+            logger.debug(f"[CONFIG] Loaded {len(db_cfg)} keys from DB")
+        except Exception as exc:
+            logger.warning(f"[CONFIG] DB config load failed: {exc}")
+            try:
+                await fresh.rollback()
+            except Exception:
+                pass
 
     def _get(key: str, default: str = '') -> str:
         return (
@@ -109,7 +115,7 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'AWS_ACCESS_KEY_ID'     : _get('AWS_ACCESS_KEY_ID'),
         'AWS_SECRET_ACCESS_KEY' : _get('AWS_SECRET_ACCESS_KEY'),
         'AWS_REGION'            : _get('AWS_REGION', 'us-east-1'),
-        'AWS_S3_BUCKET'         : _get('AWS_S3_BUCKET'),
+        'AWS_S3_BUCKET'         : (db_cfg.get('AWS_S3_BUCKET') or getattr(settings, 'S3_BUCKET_NAME', None) or ''),
         'RESEND_API_KEY'        : _get('RESEND_API_KEY'),
         'RESEND_FROM_EMAIL'     : _get('RESEND_FROM_EMAIL'),
         'SIGNREQUEST_API_KEY'   : _get('SIGNREQUEST_API_KEY'),
