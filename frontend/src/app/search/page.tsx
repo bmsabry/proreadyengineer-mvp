@@ -343,7 +343,7 @@ function SearchPageContent() {
                         </span>
                       )}
                     </p>
-                    {pipelineInfo?.fallback_reason && (
+                    {pipelineInfo?.fallback_reason && !pipelineInfo.fallback_reason.includes('_failed') && !pipelineInfo.fallback_reason.includes('Error') && (
                       <p className="text-xs text-amber-600 mt-0.5 flex items-center gap-1">
                         <AlertTriangle className="h-3 w-3" />
                         {pipelineInfo.fallback_reason}
@@ -401,10 +401,34 @@ function SearchPageContent() {
                               {r.provider.business_description && (
                                 <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{r.provider.business_description}</p>
                               )}
+                              {r.explanation && (
+                                <div className="mt-2 flex items-start gap-1.5">
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500 mt-0.5 shrink-0" />
+                                  <p className="text-xs text-green-700 font-medium leading-relaxed">{r.explanation}</p>
+                                </div>
+                              )}
                             </div>
-                            <div className="shrink-0 text-right">
-                              <div className="text-lg font-bold text-foreground">{r.composite_score != null ? Math.round(r.composite_score) : "—"}</div>
-                              <div className="text-xs text-muted-foreground">/ 100</div>
+                            <div className="shrink-0 text-right flex flex-col items-end gap-2 ml-4">
+                              <div>
+                                <div className="text-2xl font-bold text-foreground leading-none">{r.score != null ? Math.round(r.score) : "—"}</div>
+                                <div className="text-xs text-muted-foreground text-right">/ 100</div>
+                                {r.score != null && (
+                                  <div className="w-16 h-1.5 bg-muted rounded-full mt-1 overflow-hidden">
+                                    <div
+                                      className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-500"
+                                      style={{ width: `${Math.min(100, Math.round(r.score))}%` }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-xs h-7 whitespace-nowrap border-blue-300 text-blue-700 hover:bg-blue-50"
+                                onClick={() => router.push(`/rfq/new?q=${encodeURIComponent(query)}&provider=${r.provider.id}`)}
+                              >
+                                Request Quote
+                              </Button>
                             </div>
                           </div>
                         </CardContent>
