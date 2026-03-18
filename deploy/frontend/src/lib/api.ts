@@ -31,6 +31,24 @@ export const clearStoredToken = (): void => {
   localStorage.removeItem(TOKEN_KEY);
 };
 
+// Refresh token storage helpers (localStorage fallback for cross-domain)
+const REFRESH_TOKEN_KEY = 'refresh_token';
+
+export const getStoredRefreshToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+};
+
+export const setStoredRefreshToken = (token: string): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(REFRESH_TOKEN_KEY, token);
+};
+
+export const clearStoredRefreshToken = (): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+};
+
 // Create Axios instance
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_URL + '/api/v1',
@@ -116,28 +134,36 @@ const auth = {
   register: async (data: RegisterRequest) => {
     const response = await apiClient.post<AuthResponse>('/auth/register', data);
     if ((response.data as any)?.access_token) setStoredToken((response.data as any).access_token);
+    if ((response.data as any)?.refresh_token) setStoredRefreshToken((response.data as any).refresh_token);
     return response;
   },
 
   login: async (data: LoginRequest) => {
     const response = await apiClient.post<AuthResponse>('/auth/login', data);
     if ((response.data as any)?.access_token) setStoredToken((response.data as any).access_token);
+    if ((response.data as any)?.refresh_token) setStoredRefreshToken((response.data as any).refresh_token);
     return response;
   },
 
   refresh: async () => {
-    const response = await apiClient.post('/auth/refresh');
+    const storedRefreshToken = getStoredRefreshToken();
+    const response = await apiClient.post('/auth/refresh',
+      storedRefreshToken ? { refresh_token: storedRefreshToken } : undefined
+    );
     if (response.data?.access_token) setStoredToken(response.data.access_token);
+    if (response.data?.refresh_token) setStoredRefreshToken(response.data.refresh_token);
     return response;
   },
 
   logout: async () => {
     clearStoredToken();
+    clearStoredRefreshToken();
     return apiClient.post('/auth/logout');
   },
 
   logoutAll: async () => {
     clearStoredToken();
+    clearStoredRefreshToken();
     return apiClient.post('/auth/logout-all');
   },
 

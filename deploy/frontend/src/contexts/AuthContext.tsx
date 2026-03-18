@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, AuthResponse } from '@/types';
-import { api, setLoggingOut } from '@/lib/api';
+import { api, setLoggingOut, clearStoredRefreshToken } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
@@ -64,6 +64,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initAuth();
   }, []);
 
+  // Fix 1: Keep backend warm - ping every 10 minutes to prevent cold starts on hosted environments
+  useEffect(() => {
+    if (!user) return;
+    const ping = async () => {
+      try { await api.auth.me(); } catch { /* silent - interceptor handles re-auth */ }
+    };
+    const interval = setInterval(ping, 10 * 60 * 1000); // 10 minutes
+    return () => clearInterval(interval);
+  }, [user]);
+
   const login = async (email: string, password: string, rememberMe: boolean = false) => {
     setIsLoading(true);
     // Clear logout flag on login
@@ -106,6 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // Clear user state immediately
     setUser(null);
+    clearStoredRefreshToken(); // ensure refresh token is cleared client-side
     try {
       await api.auth.logout();
     } catch {
