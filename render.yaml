@@ -148,7 +148,9 @@ services:
       rm -rf node_modules .next
       npm ci
       npm run build
-    startCommand: cd frontend && npm start
+      cp -r public .next/standalone/public
+      cp -r .next/static .next/standalone/.next/static
+    startCommand: cd frontend && node .next/standalone/server.js
     envVars:
       - key: NODE_ENV
         value: production
