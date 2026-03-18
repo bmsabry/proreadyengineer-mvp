@@ -1,0 +1,388 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import {
+  Loader2, AlertCircle, CheckCircle, Download, FileText, Clock, Tag,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { useRequireAuth } from '@/hooks/useAuth';
+import { api } from '@/lib/api';
+
+interface RFQFile {
+  id: string;
+  original_filename: string;
+  mime_type?: string;
+  file_size_bytes?: number;
+  presigned_url?: string;
+  download_url?: string;
+}
+
+interface UnlockStatus {
+  unlocked: boolean;
+  nda_status?: string;
+  rfq_status?: string;
+  files?: RFQFile[];
+  project_description?: string;
+  urgency?: string;
+  tollgate_phases?: string[];
+  nda_required?: boolean;
+}
+
+interface QuoteForm {
+  rough_price_min: string;
+  rough_price_max: string;
+  turnaround_estimate_text: string;
+  assumptions_text: string;
+  scope_notes: string;
+}
+
+const emptyForm: QuoteForm = {
+  rough_price_min: '',
+  rough_price_max: '',
+  turnaround_estimate_text: '',
+  assumptions_text: '',
+  scope_notes: '',
+};
+
+function formatBytes(bytes?: number): string {
+  if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+export default function ProviderRFQDetailPage() {
+  const { isLoading: authLoading } = useRequireAuth(['provider']);
+  const params = useParams();
+  const router = useRouter();
+  const rfqId = params.id as string;
+
+  const [rfqData, setRfqData] = useState<UnlockStatus | null>(null);
+  const [files, setFiles] = useState<RFQFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState<QuoteForm>(emptyForm);
+  const [submitting, setSubmitting] = useState(false);
+  const [quoteSuccess, setQuoteSuccess] = useState(false);
+  const [quoteError, setQuoteError] = useState('');
+
+  const fetchRFQ = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const statusRes = await api.providerRFQ.getUnlockStatus(rfqId);
+      const status = statusRes.data as unknown as UnlockStatus;
+      if (!status.unlocked) {
+        if (
+          status.nda_status &&
+          status.nda_status !== 'not_required' &&
+          status.nda_status !== 'fully_signed'
+        ) {
+          router.replace('/provider/nda/' + rfqId + '/sign');
+          return;
+        }
+        router.replace('/rfqs/' + rfqId + '/unlock');
+        return;
+      }
+      setRfqData(status);
+      try {
+        const filesRes = await api.providerRFQ.getFiles(rfqId);
+        setFiles((filesRes.data as unknown as RFQFile[]) || []);
+      } catch {
+        setFiles((status.files as RFQFile[]) || []);
+      }
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { detail?: string } } };
+      if (e?.response?.status === 401 || e?.response?.status === 403) {
+        router.replace('/rfqs/' + rfqId + '/unlock');
+        return;
+      }
+      setError(e?.response?.data?.detail || 'Failed to load RFQ details.');
+    } finally {
+      setLoading(false);
+    }
+  }, [rfqId, router]);
+
+  useEffect(() => {
+    if (!authLoading) fetchRFQ();
+  }, [authLoading, fetchRFQ]);
+
+  const handleDownload = (file: RFQFile) => {
+    const url = file.presigned_url || file.download_url;
+    if (url) window.open(url, '_blank');
+  };
+
+  const handleSubmitQuote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQuoteError('');
+    setSubmitting(true);
+    try {
+      await api.providerRFQ.submitQuote(rfqId, {
+        rough_price_min: form.rough_price_min ? Number(form.rough_price_min) : undefined,
+        rough_price_max: form.rough_price_max ? Number(form.rough_price_max) : undefined,
+        turnaround_estimate_text: form.turnaround_estimate_text || undefined,
+        assumptions_text: form.assumptions_text || undefined,
+        scope_notes: form.scope_notes || undefined,
+      });
+      setQuoteSuccess(true);
+      setForm(emptyForm);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      setQuoteError(e?.response?.data?.detail || 'Failed to submit quote.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+        <Card className="w-full max-w-lg">
+          <CardHeader className="text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-2" />
+            <CardTitle>Error Loading RFQ</CardTitle>
+            <CardDescription>{error}</CardDescription>
+          </CardHeader>
+          <CardContent className="text-center">
+            <Button onClick={fetchRFQ} variant="outline">Try Again</Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-3xl mx-auto px-6 py-10 space-y-6">
+        <div className="flex items-center gap-2">
+          <FileText className="h-5 w-5 text-blue-600" />
+          <h1 className="text-2xl font-bold">RFQ Details</h1>
+          <Badge variant="outline" className="ml-auto">Unlocked</Badge>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Project Information</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {rfqData?.project_description && (
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-1">Project Description</p>
+                <p className="text-sm text-gray-600 whitespace-pre-wrap">
+                  {rfqData.project_description}
+                </p>
+              </div>
+            )}
+            {rfqData?.urgency && (
+              <div className="flex items-center gap-2">
+                <Clock className="h-4 w-4 text-gray-400" />
+                <span className="text-sm text-gray-600">Urgency:</span>
+                <Badge
+                  variant={
+                    rfqData.urgency === 'High'
+                      ? 'destructive'
+                      : rfqData.urgency === 'Intermediate'
+                      ? 'default'
+                      : 'secondary'
+                  }
+                >
+                  {rfqData.urgency}
+                </Badge>
+              </div>
+            )}
+            {rfqData?.tollgate_phases && rfqData.tollgate_phases.length > 0 && (
+              <div className="flex items-start gap-2">
+                <Tag className="h-4 w-4 text-gray-400 mt-0.5" />
+                <span className="text-sm text-gray-600 flex-shrink-0">Phases:</span>
+                <div className="flex flex-wrap gap-1">
+                  {rfqData.tollgate_phases.map((phase) => (
+                    <Badge key={phase} variant="outline" className="text-xs">
+                      {phase}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+            {rfqData?.nda_required && (
+              <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 px-3 py-2 rounded-md">
+                <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                NDA has been signed for this project.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Project Files</CardTitle>
+            <CardDescription>
+              Download the project documents to review before quoting.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {files.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-4">
+                No files uploaded for this RFQ.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {files.map((file) => (
+                  <li
+                    key={file.id}
+                    className="flex items-center justify-between p-3 bg-gray-50 rounded-md border"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                      <span className="text-sm font-medium truncate">
+                        {file.original_filename}
+                      </span>
+                      {file.file_size_bytes && (
+                        <span className="text-xs text-gray-400 flex-shrink-0">
+                          {formatBytes(file.file_size_bytes)}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleDownload(file)}
+                      className="flex-shrink-0 ml-2"
+                    >
+                      <Download className="h-3 w-3 mr-1" />
+                      Download
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Submit Your Quote</CardTitle>
+            <CardDescription>
+              Provide a rough, non-binding estimate. Be clear about assumptions and scope.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {quoteSuccess ? (
+              <div className="flex items-center gap-2 text-green-700 bg-green-50 px-4 py-3 rounded-md">
+                <CheckCircle className="h-5 w-5 flex-shrink-0" />
+                <div>
+                  <p className="font-medium">Quote submitted successfully!</p>
+                  <p className="text-sm mt-0.5">
+                    The customer will be notified and can view your submission.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmitQuote} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <Label htmlFor="price_min">Rough Price Min ($)</Label>
+                    <Input
+                      id="price_min"
+                      type="number"
+                      placeholder="e.g. 5000"
+                      value={form.rough_price_min}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, rough_price_min: e.target.value }))
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="price_max">Rough Price Max ($)</Label>
+                    <Input
+                      id="price_max"
+                      type="number"
+                      placeholder="e.g. 15000"
+                      value={form.rough_price_max}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, rough_price_max: e.target.value }))
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="turnaround">Turnaround Estimate</Label>
+                  <Input
+                    id="turnaround"
+                    placeholder="e.g. 3-4 weeks"
+                    value={form.turnaround_estimate_text}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, turnaround_estimate_text: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="assumptions">Assumptions</Label>
+                  <Textarea
+                    id="assumptions"
+                    placeholder="List any assumptions made in your estimate..."
+                    rows={3}
+                    value={form.assumptions_text}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, assumptions_text: e.target.value }))
+                    }
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="scope">Scope Notes</Label>
+                  <Textarea
+                    id="scope"
+                    placeholder="Describe what is included and excluded from your estimate..."
+                    rows={3}
+                    value={form.scope_notes}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, scope_notes: e.target.value }))
+                    }
+                  />
+                </div>
+                {quoteError && (
+                  <div className="flex items-center gap-2 text-red-600 bg-red-50 px-3 py-2 rounded-md text-sm">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    {quoteError}
+                  </div>
+                )}
+                <p className="text-xs text-gray-500">
+                  Note: This is a rough, non-binding, order-of-magnitude estimate only.
+                  A refined final estimate will follow direct engagement.
+                </p>
+                <Button type="submit" disabled={submitting} className="w-full">
+                  {submitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    'Submit Quote'
+                  )}
+                </Button>
+              </form>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
