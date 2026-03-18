@@ -64,9 +64,9 @@ class Settings(BaseSettings):
     PAYPAL_CLIENT_SECRET: Optional[str] = None
 
     # SignRequest
-    SIGNREQUEST_API_KEY: Optional[str] = None
-    SIGNREQUEST_SUBDOMAIN: Optional[str] = None
-    SIGNREQUEST_WEBHOOK_SECRET: Optional[str] = None
+    SIGNWELL_API_KEY: Optional[str] = None
+    SIGNWELL_SUBDOMAIN: Optional[str] = None
+    SIGNWELL_WEBHOOK_SECRET: Optional[str] = None
 
     # Email
     EMAIL_PROVIDER: str = "resend"

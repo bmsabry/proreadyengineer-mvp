@@ -194,6 +194,17 @@ export default function LandingPage() {
       </main>
 
       <Footer />
+    
+      {/* Site Footer */}
+      <footer className="border-t bg-white">
+        <div className="max-w-6xl mx-auto px-4 py-6 flex flex-col sm:flex-row justify-between items-center gap-3 text-sm text-muted-foreground">
+          <p>© {new Date().getFullYear()} ProMechDirectory LLC. All rights reserved.</p>
+          <div className="flex gap-6">
+            <a href="/terms" className="hover:text-foreground transition-colors">Terms of Service</a>
+            <a href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }

@@ -32,32 +32,110 @@ services:
       - key: OPENAI_API_BASE
         value: "https://api.deepinfra.com/v1/openai"
       - key: OPENAI_LLM_MODEL
-        value: "moonshotai/kimi-k2.5"
+        value: "moonshotai/Kimi-K2.5"
       - key: OPENAI_EMBEDDING_MODEL
         value: "BAAI/bge-large-en-v1.5"
       - key: STRIPE_SECRET_KEY
-        value: ""
+        sync: false
       - key: STRIPE_PUBLISHABLE_KEY
-        value: ""
+        sync: false
       - key: STRIPE_WEBHOOK_SECRET
-        value: ""
+        sync: false
       - key: RESEND_API_KEY
-        value: ""
+        sync: false
       - key: AWS_ACCESS_KEY_ID
-        value: ""
+        sync: false
       - key: AWS_SECRET_ACCESS_KEY
-        value: ""
+        sync: false
+      - key: AWS_REGION
+        value: "us-east-1"
       - key: S3_BUCKET_NAME
-        value: "proreadyengineer-uploads"
-      - key: SIGNREQUEST_API_KEY
-        value: ""
+        value: "promechdirectory-uploads"
+      - key: SIGNWELL_API_KEY
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_SANDBOX_CLIENT_ID
+        sync: false
+      - key: PAYPAL_SANDBOX_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_SANDBOX_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_MODE
+        value: "sandbox"
+      - key: PAYPAL_CURRENCY
+        value: "USD"
+      - key: REDIS_URL
+        fromService:
+          name: proreadyengineer-redis
+          type: redis
+          property: connectionString
       - key: CELERY_BROKER_URL
+        fromService:
+          name: proreadyengineer-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_RESULT_BACKEND
+        fromService:
+          name: proreadyengineer-redis
+          type: redis
+          property: connectionString
+      - key: SENTRY_DSN
+        sync: false
+
+  # Celery Worker (Background Jobs)
+  - type: worker
+    name: proreadyengineer-worker
+    env: python
+    plan: free
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && celery -A app.core.celery worker --loglevel=info --concurrency=1
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: DATABASE_URL
         fromDatabase:
           name: proreadyengineer-db
           property: connectionString
+      - key: SECRET_KEY
+        fromService:
+          name: proreadyengineer-api
+          type: web
+          envVarKey: SECRET_KEY
+      - key: ENVIRONMENT
+        value: "production"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_API_BASE
+        value: "https://api.deepinfra.com/v1/openai"
+      - key: OPENAI_LLM_MODEL
+        value: "moonshotai/Kimi-K2.5"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_BUCKET_NAME
+        value: "promechdirectory-uploads"
+      - key: REDIS_URL
+        fromService:
+          name: proreadyengineer-redis
+          type: redis
+          property: connectionString
+      - key: CELERY_BROKER_URL
+        fromService:
+          name: proreadyengineer-redis
+          type: redis
+          property: connectionString
       - key: CELERY_RESULT_BACKEND
-        fromDatabase:
-          name: proreadyengineer-db
+        fromService:
+          name: proreadyengineer-redis
+          type: redis
           property: connectionString
 
   # Next.js Frontend
@@ -77,9 +155,15 @@ services:
       - key: NEXT_PUBLIC_API_URL
         value: https://proreadyengineer-api.onrender.com
       - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
-        value: ""
+        sync: false
 
 databases:
   - name: proreadyengineer-db
+    plan: free
+    ipAllowList: []
+
+# Redis for Celery
+redises:
+  - name: proreadyengineer-redis
     plan: free
     ipAllowList: []

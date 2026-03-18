@@ -79,3 +79,16 @@ frontend/tsconfig.tsbuildinfo
 *.backup
 *.backup2
 *.bak
+
+# Sensitive project files
+.a0proj/secrets.env
+.a0proj/variables.env
+
+# Local database files (not for git)
+backend/proready.db
+deploy/backend/proready.db
+proready.db
+
+# Backend env files
+backend/.env
+deploy/backend/.env

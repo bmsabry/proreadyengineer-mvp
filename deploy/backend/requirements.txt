@@ -53,3 +53,9 @@ flake8==7.1.0
 openai==1.60.0
 stripe==7.10.0
 sqlalchemy-utils==0.41.1
+
+# Rate limiting
+slowapi==0.1.9
+
+# Error tracking
+sentry-sdk[fastapi]==2.19.2
