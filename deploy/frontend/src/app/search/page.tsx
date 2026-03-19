@@ -103,7 +103,6 @@ function SearchPageContent() {
   const { user, logout } = useAuth();
   const initialQuery = searchParams.get('q') || '';
   const rfqMode = searchParams.get('rfq') === '1';
-  const uploadedDoc = searchParams.get('uploaded') === '1';
   const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -172,6 +171,16 @@ function SearchPageContent() {
     }
     setLoadProgress(100);
   };
+  // Auto-trigger search from document upload
+  useEffect(() => {
+    const docQuery = sessionStorage.getItem('docSearchQuery');
+    if (docQuery) {
+      sessionStorage.removeItem('docSearchQuery');
+      setQuery(docQuery);
+      handleSearch(docQuery);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSearch = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
     setIsLoading(true);
@@ -261,17 +270,6 @@ function SearchPageContent() {
         </div>
       </header>
       <main className="max-w-5xl mx-auto px-4 py-8">
-        {uploadedDoc && (
-          <div className="mb-6 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 flex items-start gap-3">
-            <CheckCircle2 className="h-5 w-5 text-indigo-500 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-sm font-medium text-indigo-900">Document uploaded!</p>
-              <p className="text-xs text-indigo-700 mt-0.5">
-                Describe your project in the search bar above for best results.
-              </p>
-            </div>
-          </div>
-        )}
         {rfqMode && (
           <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-start gap-3">
             <CheckCircle2 className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />

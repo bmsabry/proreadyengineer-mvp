@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import UploadFile, File, APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -346,6 +346,114 @@ async def search_query(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Search failed: {error_msg}",
         )
+
+
+
+# ---------------------------------------------------------------------------
+# Document extract-and-describe endpoint (direct file upload, no S3 needed)
+# ---------------------------------------------------------------------------
+
+@router.post("/extract-and-describe")
+async def extract_and_describe(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Extract text from uploaded document and use LLM to generate a search query."""
+    import io as _io
+
+    filename = file.filename or ""
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    allowed_exts = {"pdf", "docx", "doc", "txt", "md"}
+    if ext not in allowed_exts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported file type .{ext}. Please upload PDF, DOCX, or TXT.",
+        )
+
+    try:
+        content = await file.read()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
+
+    if len(content) > 26_214_400:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File too large. Maximum 25 MB.",
+        )
+
+    # Extract text in-memory
+    extracted_text = ""
+    try:
+        if ext == "pdf":
+            import PyPDF2
+            reader = PyPDF2.PdfReader(_io.BytesIO(content))
+            parts = []
+            for page in reader.pages[:20]:
+                t = page.extract_text() or ""
+                if t.strip():
+                    parts.append(t)
+            extracted_text = "\n".join(parts)
+        elif ext == "docx":
+            from docx import Document as DocxDoc
+            doc = DocxDoc(_io.BytesIO(content))
+            parts = [p.text for p in doc.paragraphs if p.text.strip()]
+            extracted_text = "\n".join(parts)
+        else:
+            extracted_text = content.decode("utf-8", errors="ignore")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Text extraction failed: {e}")
+
+    if not extracted_text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail="No text could be extracted. Ensure the document contains readable text.",
+        )
+
+    text_for_llm = extracted_text[:8000]
+
+    # Use LLM to generate concise search description
+    ai_query = ""
+    try:
+        from app.services.search_service import _get_runtime_config
+        from openai import AsyncOpenAI
+        config = await _get_runtime_config(db)
+        llm_model = config.get("llm_model") or "meta-llama/Llama-3.3-70B-Instruct"
+        llm_api_key = config.get("deepinfra_api_key") or ""
+        llm_base_url = config.get("deepinfra_base_url") or "https://api.deepinfra.com/v1/openai"
+        client = AsyncOpenAI(api_key=llm_api_key or "dummy", base_url=llm_base_url)
+        system_prompt = (
+            "You are an engineering project analyst. A customer uploaded a project document. "
+            "Read it and write 2-4 sentences describing the engineering services needed: "
+            "what type of analysis or work is required, key technical disciplines, methods, "
+            "software tools, standards, or constraints. Write as a search query for finding "
+            "an engineering service provider. Be specific and technical. No company names or prices."
+        )
+        response = await client.chat.completions.create(
+            model=llm_model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Document:\n\n{text_for_llm}\n\nSearch query:"},
+            ],
+            max_tokens=300,
+            temperature=0.3,
+        )
+        msg = response.choices[0].message
+        ai_query = (msg.content or "").strip()
+        if not ai_query and hasattr(msg, "reasoning_content"):
+            ai_query = (getattr(msg, "reasoning_content", "") or "").strip()
+    except Exception:
+        pass
+
+    # Fallback: use beginning of extracted text
+    if not ai_query:
+        ai_query = extracted_text[:400].strip()
+
+    return {
+        "query": ai_query,
+        "extracted_text_preview": extracted_text[:500],
+        "filename": filename,
+    }
+
 
 
 # ---------------------------------------------------------------------------

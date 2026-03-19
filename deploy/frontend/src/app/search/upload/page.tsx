@@ -4,13 +4,11 @@ import { useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Upload,
   FileText,
   X,
   ArrowLeft,
-  CheckCircle2,
   AlertTriangle,
   Home,
 } from 'lucide-react';
@@ -46,7 +44,6 @@ export default function UploadPage() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
 
   const handleFile = useCallback((file: File) => {
     setFileError(null);
@@ -85,9 +82,26 @@ export default function UploadPage() {
   const handleFindProviders = async () => {
     if (!selectedFile) return;
     setIsSubmitting(true);
-    setSubmitted(true);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
-    router.push('/search?uploaded=1');
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiBase}/api/v1/search/extract-and-describe`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(err.detail || 'Failed to analyze document');
+      }
+      const data = await response.json();
+      sessionStorage.setItem('docSearchQuery', data.query);
+      router.push('/search');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to analyze document';
+      setFileError(message);
+      setIsSubmitting(false);
+    }
   };
 
   const getFileIcon = (file: File) => {
@@ -123,19 +137,7 @@ export default function UploadPage() {
             Accepted formats: PDF, DOCX, DWG, STEP &mdash; up to 25 MB.
           </p>
         </div>
-        {submitted ? (
-          <Card className="border-green-200 bg-green-50">
-            <CardContent className="py-10 text-center">
-              <CheckCircle2 className="h-12 w-12 text-green-500 mx-auto mb-4" />
-              <h2 className="text-lg font-semibold text-green-900 mb-1">Document received!</h2>
-              <p className="text-sm text-green-700 max-w-sm mx-auto">
-                Please describe your project in the search bar for best results.
-              </p>
-              <p className="text-xs text-green-600 mt-1">Redirecting to search&hellip;</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <>
+        
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -186,7 +188,7 @@ export default function UploadPage() {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
                       </svg>
-                      Processing&hellip;
+                      Analyzing with AI&hellip;
                     </>
                   ) : ('Find Providers')}
                 </Button>
@@ -202,8 +204,6 @@ export default function UploadPage() {
               Tip: For the most accurate matches, include project specifications, required tolerances,
               materials, or relevant engineering standards in your document.
             </p>
-          </>
-        )}
       </main>
     </div>
   );
