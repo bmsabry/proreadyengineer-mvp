@@ -59,3 +59,7 @@ slowapi==0.1.9
 
 # Error tracking
 sentry-sdk[fastapi]==2.19.2
+
+# Document parsing for upload feature
+pypdf>=4.0.0
+python-docx>=1.0.0

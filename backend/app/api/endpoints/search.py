@@ -385,7 +385,7 @@ async def extract_and_describe(
     extracted_text = ""
     try:
         if ext == "pdf":
-            import PyPDF2
+            import pypdf as PyPDF2
             reader = PyPDF2.PdfReader(_io.BytesIO(content))
             parts = []
             for page in reader.pages[:20]:
