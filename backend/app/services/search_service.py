@@ -272,7 +272,10 @@ async def extract_structured_intent(
     norm = _normalize_query(query)
     combined = norm
     if document_text:
-        combined = norm + '\n\nDocument:\n' + document_text[:4000]
+        combined = norm + '
+
+Document:
+' + document_text
 
     prompt_parts = [
         'Analyze this engineering services search query and extract structured information.',
@@ -342,7 +345,7 @@ async def generate_embedding(
     model  = _embedding_model(runtime_config)
     logger.info(f'[EMBED] model={model}, input_len={len(text_input)}')
     try:
-        resp = await client.embeddings.create(model=model, input=text_input[:8000])
+        resp = await client.embeddings.create(model=model, input=text_input)
         vec  = resp.data[0].embedding
         logger.info(f'[EMBED] Generated {len(vec)}-dim vector')
         return vec

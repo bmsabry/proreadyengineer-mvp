@@ -388,7 +388,7 @@ async def extract_and_describe(
             import pypdf as PyPDF2
             reader = PyPDF2.PdfReader(_io.BytesIO(content))
             parts = []
-            for page in reader.pages[:20]:
+            for page in reader.pages:
                 t = page.extract_text() or ""
                 if t.strip():
                     parts.append(t)
@@ -409,7 +409,7 @@ async def extract_and_describe(
             detail="No text could be extracted. Ensure the document contains readable text.",
         )
 
-    text_for_llm = extracted_text[:8000]
+    text_for_llm = extracted_text
 
     # Use LLM to generate concise search description
     # Priority: LLM3 (Document Collapse) -> LLM2 (Firm Ranking) -> raw text fallback
