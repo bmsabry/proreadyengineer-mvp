@@ -2,7 +2,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useState } from 'react';
-import { Download, Search, Users, DollarSign, FileText, Building2, FileSignature, Megaphone, Shield, BarChart3, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { Download, Search, Users, DollarSign, FileText, Building2, FileSignature, Megaphone, Shield, BarChart3, Loader2, CheckCircle, XCircle, Mail } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,6 +80,12 @@ const EXPORT_TYPES: ExportType[] = [
     icon: BarChart3,
     jsonOnly: true,
   },
+  {
+    id: 'rfq-dispatches',
+    label: 'RFQ Dispatches',
+    description: 'All RFQ dispatch records showing which providers were contacted and which emails were used.',
+    icon: Mail,
+  },
 ];
 
 type ToastType = 'success' | 'error';
@@ -135,6 +141,57 @@ export default function DataExtractionPage() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Export failed';
       addToast('error', message);
+    } finally {
+      setLoading(prev => ({ ...prev, [key]: false }));
+    }
+  };
+
+  const downloadRfqDispatches = async (format: 'csv' | 'json') => {
+    const key = `rfq-dispatches_${format}`;
+    setLoading(prev => ({ ...prev, [key]: true }));
+    try {
+      const token = localStorage.getItem('access_token');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const response = await fetch(
+        `${apiUrl}/api/v1/admin/extract/rfq-dispatches?limit=2000`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ detail: 'Export failed' }));
+        throw new Error(err.detail || 'Export failed');
+      }
+      const data = await response.json() as Record<string, string | null>[];
+      let blob: Blob;
+      let filename: string;
+      const today = new Date().toISOString().split('T')[0];
+      if (format === 'json') {
+        blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        filename = `rfq-dispatches_${today}.json`;
+      } else {
+        const header = 'RFQ ID,Project Description,Urgency,Status,Provider Name,Email Used,Dispatch Status,Sent At,Batch Number';
+        const esc = (v: string | null) => `"${(v ?? '').replace(/"/g, '""')}"`;
+        const rows = data.map(r => [
+          r.rfq_id ?? '',
+          esc(r.project_description),
+          r.urgency ?? '',
+          r.rfq_status ?? '',
+          esc(r.provider_name),
+          r.email_target ?? '',
+          r.dispatch_status ?? '',
+          r.teaser_email_sent_at ?? '',
+          r.batch_number ?? '',
+        ].join(','));
+        blob = new Blob([[header, ...rows].join('\n')], { type: 'text/csv' });
+        filename = `rfq-dispatches_${today}.csv`;
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+      addToast('success', 'RFQ Dispatches exported successfully');
+    } catch (err: unknown) {
+      addToast('error', err instanceof Error ? err.message : 'Export failed');
     } finally {
       setLoading(prev => ({ ...prev, [key]: false }));
     }
@@ -243,7 +300,7 @@ export default function DataExtractionPage() {
                       size="sm"
                       variant="outline"
                       className="flex-1 gap-1.5"
-                      onClick={() => downloadExport(exportType.id, 'csv')}
+                      onClick={() => exportType.id === 'rfq-dispatches' ? downloadRfqDispatches('csv') : downloadExport(exportType.id, 'csv')}
                       disabled={isLoading(exportType.id, 'csv')}
                     >
                       {isLoading(exportType.id, 'csv') ? (
@@ -258,7 +315,7 @@ export default function DataExtractionPage() {
                     size="sm"
                     variant={exportType.jsonOnly ? 'default' : 'outline'}
                     className="flex-1 gap-1.5"
-                    onClick={() => downloadExport(exportType.id, 'json')}
+                    onClick={() => exportType.id === 'rfq-dispatches' ? downloadRfqDispatches('json') : downloadExport(exportType.id, 'json')}
                     disabled={isLoading(exportType.id, 'json')}
                   >
                     {isLoading(exportType.id, 'json') ? (

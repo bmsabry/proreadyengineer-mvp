@@ -333,6 +333,7 @@ async def send_email(
 async def send_teaser_email(
     provider_email: str,
     rfq_teaser: dict[str, Any],
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Send RFQ teaser email to provider.
 
@@ -363,12 +364,14 @@ async def send_teaser_email(
         template="rfq_teaser",
         subject=subject,
         context=context,
+        db=db,
     )
 
 
 async def send_quote_notification(
     customer_email: str,
     quote: Any,  # Quote model
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Send notification to customer that a new quote was received.
 
@@ -396,6 +399,7 @@ async def send_quote_notification(
         template="quote_received",
         subject=subject,
         context=context,
+        db=db,
     )
 
 
@@ -403,6 +407,7 @@ async def send_nda_ready_email(
     email: str,
     nda_id: uuid.UUID,
     is_customer: bool = True,
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Send NDA ready for signing notification.
 
@@ -434,12 +439,14 @@ async def send_nda_ready_email(
         template=template,
         subject=subject,
         context=context,
+        db=db,
     )
 
 
 async def send_welcome_email(
     email: str,
     first_name: str,
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Send welcome email to new user.
 
@@ -463,6 +470,7 @@ async def send_welcome_email(
         template="welcome",
         subject=subject,
         context=context,
+        db=db,
     )
 
 
@@ -503,6 +511,7 @@ async def send_password_reset_email(
 async def send_quote_accepted_notification(
     provider_email: str,
     quote: Any,
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Notify provider that their quote was accepted.
 
@@ -528,6 +537,7 @@ async def send_quote_accepted_notification(
         template="quote_accepted",
         subject=subject,
         context=context,
+        db=db,
     )
 
 
@@ -535,6 +545,7 @@ async def send_subscription_confirmation(
     email: str,
     subscription_type: str,
     amount: float,
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Send subscription confirmation email.
 
@@ -559,12 +570,14 @@ async def send_subscription_confirmation(
         template="subscription_confirmed",
         subject=subject,
         context=context,
+        db=db,
     )
 
 
 async def send_provider_claim_approved_email(
     email: str,
     provider_name: str,
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Notify provider that their claim was approved.
 
@@ -587,6 +600,7 @@ async def send_provider_claim_approved_email(
         template="claim_approved",
         subject=subject,
         context=context,
+        db=db,
     )
 
 
@@ -596,6 +610,7 @@ async def send_tier_evaluation_result_email(
     old_tier: Optional[str],
     new_tier: str,
     approved: bool,
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Notify provider of tier evaluation result.
 
@@ -628,4 +643,5 @@ async def send_tier_evaluation_result_email(
         template=template,
         subject=subject,
         context=context,
+        db=db,
     )

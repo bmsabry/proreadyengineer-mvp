@@ -18,7 +18,7 @@ from app.models.advertising import Advertisement
 from app.models.payment import PaymentAttempt, WebhookEvent
 from app.models.provider import Provider, ProviderMembership, ProviderClaimRequest
 from app.models.admin import TierEvaluationRequest, AuditLog
-from app.models.rfq import RFQ
+from app.models.rfq import RFQ, RFQProviderDispatch
 from app.models.search import SearchRequest
 from app.models.user import User
 from app.schemas.advertising import AdvertisementResponse
@@ -2189,3 +2189,61 @@ async def admin_debug_test_llm(
         }
     except Exception as e:
         return {"success": False, "error": str(e), "model": None, "response": None}
+
+# ---------------------------------------------------------------------------
+# Admin Extract: RFQ Dispatches
+# ---------------------------------------------------------------------------
+
+@router.get("/admin/extract/rfq-dispatches")
+async def admin_extract_rfq_dispatches(
+    rfq_id: Optional[str] = Query(None, description="Filter by specific RFQ UUID"),
+    limit: int = Query(200, description="Max records to return"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(["admin"])),
+) -> List[Dict[str, Any]]:
+    """Export all RFQ dispatch records joined with RFQ and provider details."""
+    try:
+        stmt = (
+            select(
+                RFQProviderDispatch.id,
+                RFQProviderDispatch.rfq_id,
+                RFQProviderDispatch.provider_id,
+                RFQProviderDispatch.email_target,
+                RFQProviderDispatch.dispatch_status,
+                RFQProviderDispatch.teaser_email_sent_at,
+                RFQ.project_description,
+                RFQ.urgency,
+                RFQ.rfq_status,
+                RFQ.created_at.label("rfq_created_at"),
+                Provider.firm_name,
+            )
+            .join(RFQ, RFQProviderDispatch.rfq_id == RFQ.id)
+            .join(Provider, RFQProviderDispatch.provider_id == Provider.id)
+            .order_by(RFQProviderDispatch.teaser_email_sent_at.desc().nullslast())
+            .limit(limit)
+        )
+        if rfq_id:
+            import uuid as _uuid
+            stmt = stmt.where(RFQProviderDispatch.rfq_id == _uuid.UUID(rfq_id))
+
+        result = await db.execute(stmt)
+        rows = result.mappings().all()
+
+        return [
+            {
+                "id": str(row["id"]),
+                "rfq_id": str(row["rfq_id"]),
+                "provider_id": str(row["provider_id"]),
+                "provider_name": row["firm_name"] or "",
+                "email_target": row["email_target"] or "",
+                "dispatch_status": str(row["dispatch_status"]) if row["dispatch_status"] else "",
+                "teaser_email_sent_at": row["teaser_email_sent_at"].isoformat() if row["teaser_email_sent_at"] else None,
+                "project_description": (row["project_description"] or "")[:200],
+                "urgency": str(row["urgency"]) if row["urgency"] else "",
+                "rfq_status": str(row["rfq_status"]) if row["rfq_status"] else "",
+                "rfq_created_at": row["rfq_created_at"].isoformat() if row["rfq_created_at"] else None,
+            }
+            for row in rows
+        ]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Extract failed: {str(exc)}")

@@ -231,7 +231,7 @@ async def dispatch_next_batch(
                     "nda_required": rfq.nda_required,
                     "batch_number": batch_number,
                 }
-                await send_teaser_email(email_target, rfq_data)
+                await send_teaser_email(email_target, rfq_data, db=db)
             except Exception as exc:
                 import logging
                 logging.getLogger(__name__).error(
