@@ -112,6 +112,8 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'DOC_LLM_API_KEY'       : _get('DOC_LLM_API_KEY'),
         'DOC_LLM_API_BASE'      : _get('DOC_LLM_API_BASE', 'https://api.openai.com/v1'),
         'DOC_LLM_MODEL'         : _get('DOC_LLM_MODEL', 'gpt-4o-mini'),
+        'EMBEDDING_API_KEY'     : _get('EMBEDDING_API_KEY'),
+        'EMBEDDING_API_BASE'    : _get('EMBEDDING_API_BASE', 'https://api.deepinfra.com/v1/openai'),
         'STRIPE_SECRET_KEY'     : _get('STRIPE_SECRET_KEY'),
         'STRIPE_PUBLISHABLE_KEY': _get('STRIPE_PUBLISHABLE_KEY'),
         'STRIPE_WEBHOOK_SECRET'  : _get('STRIPE_WEBHOOK_SECRET'),
