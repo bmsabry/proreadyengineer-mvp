@@ -279,8 +279,7 @@ async def _send_email_now(
         "(or configure via admin panel) to enable delivery."
     )
     if text_content:
-        logger.warning(f"Email body preview:
-{text_content[:500]}")
+        logger.warning(f"Email body preview:\n{text_content[:500]}")
     return False
 
 
