@@ -1695,8 +1695,7 @@ async def admin_debug_test_doc_llm(
             else:
                 reasoning = getattr(msg, 'reasoning_content', None)
                 if reasoning and reasoning.strip():
-                    reply = f"[Reasoning model output]:
-{reasoning.strip()}"
+                    reply = f"[Reasoning model output]:\n{reasoning.strip()}"
                 else:
                     reply = f"(model returned empty content - raw: {repr(content_val)})"
         else:
