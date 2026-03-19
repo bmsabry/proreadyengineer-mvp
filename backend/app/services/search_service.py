@@ -1169,7 +1169,7 @@ async def check_search_quota(
                     if sub.subscription_type == 'search_tier_2':
                         limit = 200
                     elif sub.subscription_type == 'search_tier_1':
-                        limit = 100
+                        limit = 250
             except Exception:
                 pass  # Keep default limit of 10
 
@@ -1380,7 +1380,7 @@ async def _fetch_candidates(
     intent,
     filters,
     query_vec,
-    limit = 100,
+    limit = 250,
 ):
     """
     Steps 3+5: hard filters + pgvector or keyword pre-filter.
@@ -1413,7 +1413,7 @@ async def _fetch_candidates(
                     ORDER BY cosine_similarity DESC
                     LIMIT :lim
                 """)
-                result = await vec_db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': max(limit, 100)})
+                result = await vec_db.execute(sql, {'vec': _json.dumps(query_vec), 'lim': max(limit, 250)})
                 rows = result.mappings().all()
                 logger.info(f'[SEARCH] pgvector returned {len(rows)} candidates')
                 # ── Project injection: find providers with matching case studies ─────
@@ -1516,7 +1516,7 @@ async def _fetch_candidates(
             if not rows:
                 logger.warning('[SEARCH] No keyword matches, returning providers by tier')
                 fallback_reason = fallback_reason or 'no_keyword_match'
-                rows = await _all_providers_by_tier(kw_db, base_filters, max(limit, 100))
+                rows = await _all_providers_by_tier(kw_db, base_filters, max(limit, 250))
 
             return rows, False, fallback_reason
     except Exception as exc:
@@ -1631,7 +1631,7 @@ async def search_providers(
             fallback_reason = fallback_reason or f'embedding_failed:{type(exc).__name__}'
     try:
         rows, used_vector, fetch_fallback = await _fetch_candidates(
-            db, intent, filters, query_vec, limit=100
+            db, intent, filters, query_vec, limit=250
         )
         if fetch_fallback:
             fallback_reason = fallback_reason or fetch_fallback
@@ -1698,7 +1698,7 @@ async def search_providers(
             try:
                 name = _display_name(provider)
                 # rank 1=100pts, rank 2=90pts ... floor at 10pts
-                base_score = max(10.0, 110.0 - (rank_pos * 10.0))
+                base_score = max(1.0, 101.0 - rank_pos)
                 tier_raw = _safe_str(getattr(provider, 'tier', '') or '').strip()
                 bonus = tier_bonus.get(tier_raw, 1)
                 # LLM Pass 2 `sim_proj` flag is the authoritative signal for similar project.
