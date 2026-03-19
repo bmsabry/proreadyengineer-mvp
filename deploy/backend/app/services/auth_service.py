@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import bcrypt
@@ -56,7 +56,7 @@ def create_access_token(user_id: uuid.UUID) -> str:
     Returns:
         str: JWT access token, expires in 15 minutes.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
         "type": "access",
@@ -76,7 +76,7 @@ def create_refresh_token(user_id: uuid.UUID) -> str:
     Returns:
         str: JWT refresh token, expires in 7 days.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     payload = {
         "sub": str(user_id),
         "type": "refresh",
@@ -135,7 +135,7 @@ async def authenticate_user(
         return None
 
     # Check if account is locked
-    if user.locked_until and user.locked_until > datetime.utcnow():
+    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
         return None
 
     if not verify_password(password, user.password_hash):
@@ -144,7 +144,7 @@ async def authenticate_user(
 
         # Lock account after 5 failed attempts (15 minutes)
         if user.failed_login_count >= 5:
-            user.locked_until = datetime.utcnow() + timedelta(minutes=15)
+            user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
 
         await db.commit()
         return None
@@ -152,7 +152,7 @@ async def authenticate_user(
     # Reset failed login count on success
     user.failed_login_count = 0
     user.locked_until = None
-    user.last_login_at = datetime.utcnow()
+    user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
 
     return user
@@ -216,7 +216,7 @@ async def create_refresh_token_record(
         RefreshToken: Created refresh token record.
     """
     token_hash = _hash_token(token)
-    expires_at = datetime.utcnow() + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
 
     refresh_token = RefreshToken(
         user_id=user_id,
@@ -263,7 +263,7 @@ async def rotate_refresh_token(
     if old_record.revoked_at:
         raise ValueError("Token already revoked")
 
-    if old_record.expires_at < datetime.utcnow():
+    if old_record.expires_at < datetime.now(timezone.utc):
         raise ValueError("Token expired")
 
     # Create new token record
@@ -274,7 +274,7 @@ async def rotate_refresh_token(
     )
 
     # Revoke old token and link to new one
-    old_record.revoked_at = datetime.utcnow()
+    old_record.revoked_at = datetime.now(timezone.utc)
     old_record.replaced_by_token_id = new_record.id
 
     await db.commit()
@@ -298,7 +298,7 @@ async def revoke_all_user_tokens(db: AsyncSession, user_id: uuid.UUID) -> None:
     tokens = result.scalars().all()
 
     for token in tokens:
-        token.revoked_at = datetime.utcnow()
+        token.revoked_at = datetime.now(timezone.utc)
 
     await db.commit()
 
@@ -318,7 +318,7 @@ async def create_password_reset_token(
     """
     token = secrets.token_urlsafe(32)
     token_hash = _hash_token(token)
-    expires_at = datetime.utcnow() + timedelta(hours=1)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
 
     reset_token = PasswordResetToken(
         user_id=user_id,
@@ -358,7 +358,7 @@ async def generate_password_reset_token(
     reset_token = PasswordResetToken(
         user_id=user_id,
         token_hash=token_hash,
-        expires_at=datetime.utcnow() + timedelta(hours=1),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
         created_ip=ip,
     )
 
@@ -385,7 +385,7 @@ async def verify_password_reset_token(
         select(PasswordResetToken).where(
             PasswordResetToken.token_hash == token_hash,
             PasswordResetToken.used_at.is_(None),
-            PasswordResetToken.expires_at > datetime.utcnow(),
+            PasswordResetToken.expires_at > datetime.now(timezone.utc),
         )
     )
     return result.scalar_one_or_none()
@@ -414,7 +414,7 @@ async def reset_password(
         return False
 
     user.password_hash = hash_password(new_password)
-    reset_record.used_at = datetime.utcnow()
+    reset_record.used_at = datetime.now(timezone.utc)
 
     # Revoke all sessions for security
     await revoke_all_user_tokens(db, user.id)
