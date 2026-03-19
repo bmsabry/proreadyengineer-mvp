@@ -272,10 +272,7 @@ async def extract_structured_intent(
     norm = _normalize_query(query)
     combined = norm
     if document_text:
-        combined = norm + '
-
-Document:
-' + document_text
+        combined = norm + '\n\nDocument:\n' + document_text
 
     prompt_parts = [
         'Analyze this engineering services search query and extract structured information.',
