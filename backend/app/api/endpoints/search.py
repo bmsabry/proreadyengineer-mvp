@@ -415,7 +415,7 @@ async def extract_and_describe(
     # Priority: LLM3 (Document Collapse) -> LLM2 (Firm Ranking) -> raw text fallback
     ai_query = ""
     try:
-        from app.services.search_service import _get_runtime_config
+        from app.services.config_service import get_runtime_config as _get_runtime_config
         from openai import AsyncOpenAI
         config = await _get_runtime_config(db)
 
