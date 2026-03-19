@@ -97,12 +97,16 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
                 pass
 
     def _get(key: str, default: str = '') -> str:
-        return (
+        val = (
             db_cfg.get(key)
             or getattr(settings, key.lower(), None)
             or getattr(settings, key, None)
             or default
         )
+        # Always return a string - settings object may return int/bool (e.g. SMTP_PORT=587, SMTP_TLS=True)
+        if val is None or val == '':
+            return ''
+        return str(val)
 
     return {
         'OPENAI_API_KEY'        : _get('OPENAI_API_KEY'),

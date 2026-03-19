@@ -657,13 +657,27 @@ async def admin_suspend_user(
 
 
 # ─── System Configuration Endpoints ──────────────────────────────────────────
-from pydantic import BaseModel as _BaseModel, ConfigDict
+from pydantic import BaseModel as _BaseModel, ConfigDict, field_validator
 from app.services.config_service import get_runtime_config as _get_runtime_config
 from app.services.config_service import save_config_values as _save_config_values
 
 
 class SystemConfigRequest(_BaseModel):
     model_config = ConfigDict(extra='ignore')
+
+    @field_validator('*', mode='before')
+    @classmethod
+    def coerce_to_str(cls, v):
+        """Coerce any non-string value to string.
+        Handles cases where settings object returns int (SMTP_PORT=587) or bool (SMTP_TLS=True).
+        """
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            return 'true' if v else 'false'
+        if isinstance(v, (int, float)):
+            return str(v)
+        return v
     # Extra AI/Search fields from frontend
     embedding_api_key: Optional[str] = None
     embedding_api_base: Optional[str] = None
