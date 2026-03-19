@@ -1701,20 +1701,26 @@ async def search_providers(
                 base_score = max(10.0, 110.0 - (rank_pos * 10.0))
                 tier_raw = _safe_str(getattr(provider, 'tier', '') or '').strip()
                 bonus = tier_bonus.get(tier_raw, 1)
-                final_score = min(100.0, base_score + bonus)
+                # LLM Pass 2 `sim_proj` flag is the authoritative signal for similar project.
+                # +30 boost is the greatest score component — applied when LLM confirms similarity.
+                sim_matched = bool(sim_proj)
+                sim_boost = 30.0 if sim_matched else 0.0
+                final_score = min(100.0, base_score + bonus + sim_boost)
 
-                sim_matched, sim_title, _ratio = _detect_similar_project(
+                # Use keyword detector ONLY to find a display title — not to override LLM verdict.
+                _kw_matched, sim_title, _ratio = _detect_similar_project(
                     provider, intent, raw_query=query
                 )
-                if sim_proj:
-                    sim_matched = True
+                # If LLM says similar but keyword detector found no title, use a generic label.
+                if sim_matched and not sim_title:
+                    sim_title = 'Similar project confirmed by AI'
 
                 if sim_matched and sim_title:
                     short = sim_title[:120] + ('...' if len(sim_title) > 120 else '')
                     explanation = (
                         f'Similar project: {short} | '
                         f'{name}: Ranked #{rank_pos} by AI project relevance '
-                        f'(Score: {final_score:.0f}/100, Tier: {tier_raw or "E"})'
+                        f'(Score: {final_score:.0f}/100, Tier: {tier_raw or "E"}, +30 similar project boost)'
                     )
                 else:
                     explanation = (
@@ -1728,6 +1734,7 @@ async def search_providers(
                     'capabilities': round(base_score, 2),
                     'tier': float(bonus),
                     'software_bonus': 0.0,
+                    'sim_boost': round(sim_boost, 2),
                     'similarity': round(similarity, 4),
                 }
                 scored.append((
