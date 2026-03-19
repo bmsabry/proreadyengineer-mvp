@@ -759,6 +759,7 @@ export default function AdminSettingsPage() {
                 fieldName='smtp_tls'
                 value={form.smtp_tls}
                 onChange={handleChange}
+                isSet={isFieldSet('smtp_tls')}
                 placeholder='true'
                 hint='Set to true for STARTTLS (port 587). Set to false for plain or SSL.'
               />
@@ -767,6 +768,7 @@ export default function AdminSettingsPage() {
                 fieldName='smtp_ssl'
                 value={form.smtp_ssl}
                 onChange={handleChange}
+                isSet={isFieldSet('smtp_ssl')}
                 placeholder='false'
                 hint='Set to true for implicit SSL (port 465). Overrides STARTTLS.'
               />
