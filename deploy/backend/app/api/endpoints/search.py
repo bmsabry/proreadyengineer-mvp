@@ -422,11 +422,19 @@ async def extract_and_describe(
         llm_base_url = config.get("deepinfra_base_url") or "https://api.deepinfra.com/v1/openai"
         client = AsyncOpenAI(api_key=llm_api_key or "dummy", base_url=llm_base_url)
         system_prompt = (
-            "You are an engineering project analyst. A customer uploaded a project document. "
-            "Read it and write 2-4 sentences describing the engineering services needed: "
-            "what type of analysis or work is required, key technical disciplines, methods, "
-            "software tools, standards, or constraints. Write as a search query for finding "
-            "an engineering service provider. Be specific and technical. No company names or prices."
+            "You are an engineering project analyst. A customer uploaded a mechanical engineering "
+            "scope of work document. Extract and summarize the following in 2-4 concise sentences "
+            "suitable as a search query for finding an engineering service provider:
+"
+            "1. Analysis type (e.g. CFD, FEA, thermal analysis, structural analysis, fatigue, etc.)
+"
+            "2. Application (what system, component, or process is being analyzed)
+"
+            "3. Preparatory work required (e.g. CAD modeling, meshing, test setup, data collection)
+"
+            "4. Compliance standards or regulations that apply (e.g. ASME, MIL-SPEC, FAA, API, etc.)
+"
+            "Be specific and technical. Do not include company names or prices."
         )
         response = await client.chat.completions.create(
             model=llm_model,

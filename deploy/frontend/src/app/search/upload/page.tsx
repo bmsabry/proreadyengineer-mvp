@@ -85,8 +85,8 @@ export default function UploadPage() {
     try {
       const formData = new FormData();
       formData.append('file', selectedFile);
-      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-      const response = await fetch(`${apiBase}/api/v1/search/extract-and-describe`, {
+      // Use Next.js API proxy to avoid CORS issues
+      const response = await fetch('/api/upload-doc', {
         method: 'POST',
         body: formData,
       });
