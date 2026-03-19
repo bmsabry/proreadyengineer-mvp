@@ -107,19 +107,15 @@ async def migrate_data():
         existing = result.scalar()
         print(f"Existing providers in PostgreSQL: {existing}")
 
-        if existing >= total_rows * 0.5:  # If more than 50% already migrated, skip
-            print(f"\nProviders already migrated ({existing}/{total_rows}). Skipping.")
-            print("To re-migrate, delete existing providers first.")
-            sqlite_conn.close()
-            return existing, 0
-
-        # Clear any partial migration
-        if 0 < existing < total_rows * 0.5:
-            print(f"Partial migration detected ({existing} records). Clearing and restarting...")
+        # Always clear existing providers before fresh migration
+        # This ensures idempotent re-runs without duplicate key errors
+        if existing > 0:
+            print(f"Clearing {existing} existing providers for fresh migration...")
             await session.execute(text("DELETE FROM providers"))
             await session.commit()
-
-        # Insert providers
+            print("Cleared. Starting fresh migration...")
+        else:
+            print("No existing providers. Starting migration...")
         batch_size = 100
         inserted = 0
         errors = []
