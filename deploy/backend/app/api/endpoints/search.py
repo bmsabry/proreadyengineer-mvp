@@ -412,15 +412,31 @@ async def extract_and_describe(
     text_for_llm = extracted_text[:8000]
 
     # Use LLM to generate concise search description
+    # Priority: LLM3 (Document Collapse) -> LLM2 (Firm Ranking) -> raw text fallback
     ai_query = ""
     try:
         from app.services.search_service import _get_runtime_config
         from openai import AsyncOpenAI
         config = await _get_runtime_config(db)
-        llm_model = config.get("llm_model") or "meta-llama/Llama-3.3-70B-Instruct"
-        llm_api_key = config.get("deepinfra_api_key") or ""
-        llm_base_url = config.get("deepinfra_base_url") or "https://api.deepinfra.com/v1/openai"
-        client = AsyncOpenAI(api_key=llm_api_key or "dummy", base_url=llm_base_url)
+
+        # Use LLM3 (Document Collapse) keys first; fall back to LLM2 if not configured
+        doc_api_key = config.get("DOC_LLM_API_KEY") or ""
+        if doc_api_key:
+            llm_api_key = doc_api_key
+            llm_base_url = config.get("DOC_LLM_API_BASE") or "https://api.openai.com/v1"
+            llm_model = config.get("DOC_LLM_MODEL") or "gpt-4o-mini"
+            logger.info("[DOC_LLM] Using LLM3 (Document Collapse) for document summarization")
+        else:
+            llm_api_key = config.get("OPENAI_API_KEY") or ""
+            llm_base_url = config.get("OPENAI_API_BASE") or "https://api.deepinfra.com/v1/openai"
+            llm_model = config.get("OPENAI_LLM_MODEL") or "moonshotai/Kimi-K2.5"
+            logger.info("[DOC_LLM] LLM3 not configured, falling back to LLM2 (Firm Ranking) for document summarization")
+
+        if not llm_api_key:
+            logger.warning("[DOC_LLM] No API key configured for document summarization, will use raw text fallback")
+            raise ValueError("No LLM API key configured")
+
+        client = AsyncOpenAI(api_key=llm_api_key, base_url=llm_base_url)
         system_prompt = (
             "You are an engineering project analyst. A customer uploaded a mechanical engineering "
             "scope of work document. Extract and summarize in 2-4 concise technical sentences "
@@ -444,8 +460,9 @@ async def extract_and_describe(
         ai_query = (msg.content or "").strip()
         if not ai_query and hasattr(msg, "reasoning_content"):
             ai_query = (getattr(msg, "reasoning_content", "") or "").strip()
-    except Exception:
-        pass
+        logger.info(f"[DOC_LLM] Document summarization successful, query length: {len(ai_query)}")
+    except Exception as e:
+        logger.warning(f"[DOC_LLM] LLM summarization failed: {e}. Will use raw text fallback.")
 
     # Fallback: use beginning of extracted text
     if not ai_query:
