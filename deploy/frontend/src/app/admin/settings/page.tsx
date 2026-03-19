@@ -23,6 +23,9 @@ interface ServerConfig {
   openai_llm_model_set: boolean
   openai_embedding_model: string
   openai_embedding_model_set: boolean
+  embedding_api_key_set: boolean
+  embedding_api_base: string
+  embedding_api_base_set: boolean
   doc_llm_api_key_set: boolean
   doc_llm_api_base: string
   doc_llm_api_base_set: boolean
@@ -44,6 +47,14 @@ interface ServerConfig {
   resend_api_key_set: boolean
   resend_from_email: string
   resend_from_email_set: boolean
+  smtp_host: string
+  smtp_host_set: boolean
+  smtp_port: string
+  smtp_user: string
+  smtp_user_set: boolean
+  smtp_password_set: boolean
+  smtp_tls: string
+  smtp_ssl: string
   signwell_api_key_set: boolean
   signwell_template_id: string
   signwell_template_id_set: boolean
@@ -60,6 +71,11 @@ interface FormFields {
   openai_api_base: string
   openai_llm_model: string
   openai_embedding_model: string
+  embedding_api_key: string
+  embedding_api_base: string
+  doc_llm_api_key: string
+  doc_llm_api_base: string
+  doc_llm_model: string
   stripe_secret_key: string
   stripe_publishable_key: string
   stripe_webhook_secret: string
@@ -77,6 +93,12 @@ interface FormFields {
   aws_s3_bucket: string
   resend_api_key: string
   resend_from_email: string
+  smtp_host: string
+  smtp_port: string
+  smtp_user: string
+  smtp_password: string
+  smtp_tls: string
+  smtp_ssl: string
   signwell_api_key: string
   signwell_template_id: string
   rfq_batch_size: string
@@ -90,8 +112,9 @@ const SECRET_FIELDS: (keyof FormFields)[] = [
   'paypal_plan_search_tier1', 'paypal_plan_search_tier2',
   'paypal_plan_provider_profile', 'paypal_plan_advertisement',
   'aws_access_key_id', 'aws_secret_access_key',
-  'resend_api_key', 'signwell_api_key',
+  'resend_api_key', 'smtp_password', 'signwell_api_key',
   'doc_llm_api_key',
+  'embedding_api_key',
 ]
 
 const EMPTY_FORM: FormFields = {
@@ -99,6 +122,8 @@ const EMPTY_FORM: FormFields = {
   openai_api_base: '',
   openai_llm_model: '',
   openai_embedding_model: '',
+  embedding_api_key: '',
+  embedding_api_base: '',
   doc_llm_api_key: '',
   doc_llm_api_base: '',
   doc_llm_model: '',
@@ -119,6 +144,12 @@ const EMPTY_FORM: FormFields = {
   aws_s3_bucket: '',
   resend_api_key: '',
   resend_from_email: '',
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_user: '',
+  smtp_password: '',
+  smtp_tls: 'true',
+  smtp_ssl: 'false',
   signwell_api_key: '',
   signwell_template_id: '',
   rfq_batch_size: '',
@@ -131,6 +162,7 @@ function populateFormFromConfig(cfg: ServerConfig): Partial<FormFields> {
     openai_api_base: cfg.openai_api_base || '',
     openai_llm_model: cfg.openai_llm_model || '',
     openai_embedding_model: cfg.openai_embedding_model || '',
+    embedding_api_base: cfg.embedding_api_base || '',
     doc_llm_api_base: cfg.doc_llm_api_base || '',
     doc_llm_model: cfg.doc_llm_model || '',
     stripe_publishable_key: cfg.stripe_publishable_key || '',
@@ -138,6 +170,11 @@ function populateFormFromConfig(cfg: ServerConfig): Partial<FormFields> {
     aws_region: cfg.aws_region || '',
     aws_s3_bucket: cfg.aws_s3_bucket || '',
     resend_from_email: cfg.resend_from_email || '',
+    smtp_host: cfg.smtp_host || '',
+    smtp_port: cfg.smtp_port || '587',
+    smtp_user: cfg.smtp_user || '',
+    smtp_tls: cfg.smtp_tls || 'true',
+    smtp_ssl: cfg.smtp_ssl || 'false',
     signwell_template_id: cfg.signwell_template_id || '',
     rfq_batch_size: cfg.rfq_batch_size || '',
     rfq_batch_interval_hours: cfg.rfq_batch_interval_hours || '',
@@ -249,6 +286,8 @@ export default function AdminSettingsPage() {
       openai_api_base: 'openai_api_base_set',
       openai_llm_model: 'openai_llm_model_set',
       openai_embedding_model: 'openai_embedding_model_set',
+      embedding_api_key: 'embedding_api_key_set',
+      embedding_api_base: 'embedding_api_base_set',
       doc_llm_api_key: 'doc_llm_api_key_set',
       doc_llm_api_base: 'doc_llm_api_base_set',
       doc_llm_model: 'doc_llm_model_set',
@@ -269,6 +308,9 @@ export default function AdminSettingsPage() {
       aws_s3_bucket: 'aws_s3_bucket_set',
       resend_api_key: 'resend_api_key_set',
       resend_from_email: 'resend_from_email_set',
+      smtp_host: 'smtp_host_set',
+      smtp_user: 'smtp_user_set',
+      smtp_password: 'smtp_password_set',
       signwell_api_key: 'signwell_api_key_set',
       signwell_template_id: 'signwell_template_id_set',
       rfq_batch_size: 'rfq_batch_size_set',
@@ -306,12 +348,21 @@ export default function AdminSettingsPage() {
       })
       // Re-fetch config: updates Set/Not Set indicators and repopulates non-secret fields
       await loadConfig()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      setErrorMsg(`Failed to save configuration: ${message}`)
-    } finally {
-      setSaving(false)
+  } catch (err: any) {
+    // Extract detailed validation error from response if available
+    const detail = err?.response?.data?.detail
+    let message: string
+    if (Array.isArray(detail)) {
+      message = detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('; ')
+    } else if (typeof detail === 'string') {
+      message = detail
+    } else if (detail) {
+      message = JSON.stringify(detail)
+    } else {
+      message = err instanceof Error ? err.message : String(err)
     }
+    setErrorMsg(`Failed to save configuration: ${message}`)
+  }
   }
 
   if (authLoading) {
@@ -382,104 +433,132 @@ export default function AdminSettingsPage() {
         </TabsList>
 
         {/* ── AI / Search ── */}
-        <TabsContent value='ai'>
-          <div className='space-y-6'>
-            {/* ── LLM 2: Firm Ranking ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <Brain className='w-5 h-5' />
-                  Firm Ranking LLM — Pass 1 &amp; Pass 2
-                </CardTitle>
-                <CardDescription>
-                  Used to analyze the customer&apos;s search query and rank/arrange matching engineering firms. Configure the API endpoint and model for this pipeline.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                <FieldRow
-                  label='API Key'
-                  fieldName='openai_api_key'
-                  value={form.openai_api_key}
-                  onChange={handleChange}
-                  isSet={isFieldSet('openai_api_key')}
-                  isSecret
-                  hint='API key for the firm ranking LLM (Pass 1 & Pass 2 pipeline).'
-                />
-                <FieldRow
-                  label='API Base URL'
-                  fieldName='openai_api_base'
-                  value={form.openai_api_base}
-                  onChange={handleChange}
-                  isSet={isFieldSet('openai_api_base')}
-                  placeholder='https://api.deepinfra.com/v1/openai'
-                  hint='Base URL of the firm ranking LLM provider endpoint.'
-                />
-                <FieldRow
-                  label='Model Name'
-                  fieldName='openai_llm_model'
-                  value={form.openai_llm_model}
-                  onChange={handleChange}
-                  isSet={isFieldSet('openai_llm_model')}
-                  placeholder='moonshotai/Kimi-K2.5'
-                  hint='Model used for Pass 1 & Pass 2 firm ranking and arrangement.'
-                />
-                <div className='border-t pt-4'>
-                  <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3'>Embeddings (LLM 1 — managed via Render, no changes needed here)</p>
-                  <FieldRow
-                    label='Embedding Model'
-                    fieldName='openai_embedding_model'
-                    value={form.openai_embedding_model}
-                    onChange={handleChange}
-                    isSet={isFieldSet('openai_embedding_model')}
-                    placeholder='BAAI/bge-large-en-v1.5'
-                    hint='Model used for provider and query vector embeddings. Managed via Render.'
-                  />
-                </div>
-              </CardContent>
-            </Card>
+        <TabsContent value='ai' className='space-y-4'>
+          {/* Sub-section 1: Embeddings (LLM 1) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Brain className='w-5 h-5' />
+                Embeddings — LLM 1
+              </CardTitle>
+              <CardDescription>
+                API credentials used to generate vector embeddings for provider and query search matching.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <FieldRow
+                label='API Key'
+                fieldName='embedding_api_key'
+                value={form.embedding_api_key}
+                onChange={handleChange}
+                isSet={isFieldSet('embedding_api_key')}
+                isSecret
+                hint='API key for the embeddings service (separate from LLM 2 key). Run generate_embeddings.py from shell with this key.'
+              />
+              <FieldRow
+                label='API Base URL'
+                fieldName='embedding_api_base'
+                value={form.embedding_api_base}
+                onChange={handleChange}
+                isSet={isFieldSet('embedding_api_base')}
+                placeholder='https://api.deepinfra.com/v1/openai'
+                hint='Base URL for the embeddings API endpoint (e.g. DeepInfra, OpenAI).'
+              />
+              <FieldRow
+                label='Embedding Model'
+                fieldName='openai_embedding_model'
+                value={form.openai_embedding_model}
+                onChange={handleChange}
+                isSet={isFieldSet('openai_embedding_model')}
+                placeholder='BAAI/bge-large-en-v1.5'
+                hint='Model name passed to the embeddings API.'
+              />
+            </CardContent>
+          </Card>
 
-            {/* ── LLM 3: Document Collapse ── */}
-            <Card>
-              <CardHeader>
-                <CardTitle className='flex items-center gap-2'>
-                  <Brain className='w-5 h-5' />
-                  Document Collapse LLM
-                </CardTitle>
-                <CardDescription>
-                  Used to collapse attached RFQ/scope-of-work documents into a single summary sentence. This is a separate model from the firm ranking LLM above.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className='space-y-4'>
-                <FieldRow
-                  label='API Key'
-                  fieldName='doc_llm_api_key'
-                  value={form.doc_llm_api_key}
-                  onChange={handleChange}
-                  isSet={isFieldSet('doc_llm_api_key')}
-                  isSecret
-                  hint='API key for the document collapse LLM.'
-                />
-                <FieldRow
-                  label='API Base URL'
-                  fieldName='doc_llm_api_base'
-                  value={form.doc_llm_api_base}
-                  onChange={handleChange}
-                  isSet={isFieldSet('doc_llm_api_base')}
-                  placeholder='https://api.openai.com/v1'
-                  hint='Base URL of the document collapse LLM provider endpoint.'
-                />
-                <FieldRow
-                  label='Model Name'
-                  fieldName='doc_llm_model'
-                  value={form.doc_llm_model}
-                  onChange={handleChange}
-                  isSet={isFieldSet('doc_llm_model')}
-                  placeholder='gpt-4o-mini'
-                  hint='Model used for document collapse (RFQ/scope-of-work summarization).'
-                />
-              </CardContent>
-            </Card>
-          </div>
+          {/* Sub-section 2: Firm Ranking LLM (LLM 2) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Brain className='w-5 h-5' />
+                Firm Ranking — LLM 2
+              </CardTitle>
+              <CardDescription>
+                LLM used for the Pass 1 &amp; Pass 2 firm ranking pipeline — structured extraction from customer queries, specialty inference, and provider scoring.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <FieldRow
+                label='API Key'
+                fieldName='openai_api_key'
+                value={form.openai_api_key}
+                onChange={handleChange}
+                isSet={isFieldSet('openai_api_key')}
+                isSecret
+                hint='API key for the firm ranking LLM (separate from LLM 1 embeddings key).'
+              />
+              <FieldRow
+                label='API Base URL'
+                fieldName='openai_api_base'
+                value={form.openai_api_base}
+                onChange={handleChange}
+                isSet={isFieldSet('openai_api_base')}
+                placeholder='https://api.deepinfra.com/v1/openai'
+                hint='Base URL for the firm ranking LLM API endpoint.'
+              />
+              <FieldRow
+                label='LLM Model'
+                fieldName='openai_llm_model'
+                value={form.openai_llm_model}
+                onChange={handleChange}
+                isSet={isFieldSet('openai_llm_model')}
+                placeholder='moonshotai/kimi-k2.5'
+                hint='Model used for Pass 1 query extraction and Pass 2 firm ranking scoring.'
+              />
+            </CardContent>
+          </Card>
+
+          {/* Sub-section 3: Document Collapse LLM (LLM 3) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Brain className='w-5 h-5' />
+                Document Collapse — LLM 3
+              </CardTitle>
+              <CardDescription>
+                Separate LLM used exclusively for summarising and collapsing RFQ documents uploaded by customers before they are processed by the ranking pipeline.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <FieldRow
+                label='API Key'
+                fieldName='doc_llm_api_key'
+                value={form.doc_llm_api_key}
+                onChange={handleChange}
+                isSet={isFieldSet('doc_llm_api_key')}
+                isSecret
+                hint='API key for the document collapse LLM (can differ from LLM 1/2 key).'
+              />
+              <FieldRow
+                label='API Base URL'
+                fieldName='doc_llm_api_base'
+                value={form.doc_llm_api_base}
+                onChange={handleChange}
+                isSet={isFieldSet('doc_llm_api_base')}
+                placeholder='https://api.openai.com/v1'
+                hint='Leave blank to use the default OpenAI endpoint.'
+              />
+              <FieldRow
+                label='LLM Model'
+                fieldName='doc_llm_model'
+                value={form.doc_llm_model}
+                onChange={handleChange}
+                isSet={isFieldSet('doc_llm_model')}
+                placeholder='gpt-4o-mini'
+                hint='Model used to summarise RFQ documents before ranking.'
+              />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ── Payments ── */}
@@ -605,14 +684,15 @@ export default function AdminSettingsPage() {
 
         {/* ── Email ── */}
         <TabsContent value='email'>
+          <div className='space-y-4'>
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
                 <Mail className='w-5 h-5' />
-                Email Configuration
+                Resend (Transactional Email)
               </CardTitle>
               <CardDescription>
-                Resend API credentials for transactional email delivery.
+                Resend API credentials for transactional email delivery (recommended).
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-4'>
@@ -623,7 +703,7 @@ export default function AdminSettingsPage() {
                 onChange={handleChange}
                 isSet={isFieldSet('resend_api_key')}
                 isSecret
-                hint='API key for sending transactional emails via Resend.'
+                hint='API key from resend.com for sending transactional emails.'
               />
               <FieldRow
                 label='From Email Address'
@@ -636,6 +716,74 @@ export default function AdminSettingsPage() {
               />
             </CardContent>
           </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Mail className='w-5 h-5' />
+                SMTP (Alternative Email)
+              </CardTitle>
+              <CardDescription>
+                SMTP server settings as an alternative to Resend. Used if Resend is not configured.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <FieldRow
+                label='SMTP Host'
+                fieldName='smtp_host'
+                value={form.smtp_host}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_host')}
+                placeholder='smtp.gmail.com'
+                hint='SMTP server hostname (e.g. smtp.gmail.com, smtp.sendgrid.net).'
+              />
+              <FieldRow
+                label='SMTP Port'
+                fieldName='smtp_port'
+                value={form.smtp_port}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_port')}
+                placeholder='587'
+                hint='SMTP port: 587 for STARTTLS, 465 for SSL, 25 for plain.'
+              />
+              <FieldRow
+                label='SMTP Username'
+                fieldName='smtp_user'
+                value={form.smtp_user}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_user')}
+                placeholder='user@example.com'
+                hint='SMTP login username.'
+              />
+              <FieldRow
+                label='SMTP Password'
+                fieldName='smtp_password'
+                value={form.smtp_password}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_password')}
+                isSecret
+                hint='SMTP login password or app-specific password.'
+              />
+              <FieldRow
+                label='Use STARTTLS'
+                fieldName='smtp_tls'
+                value={form.smtp_tls}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_tls')}
+                placeholder='true'
+                hint='Set to true for STARTTLS (port 587). Set to false for plain or SSL.'
+              />
+              <FieldRow
+                label='Use SSL'
+                fieldName='smtp_ssl'
+                value={form.smtp_ssl}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_ssl')}
+                placeholder='false'
+                hint='Set to true for implicit SSL (port 465). Overrides STARTTLS.'
+              />
+            </CardContent>
+          </Card>
+          </div>
         </TabsContent>
 
         {/* ── Storage ── */}

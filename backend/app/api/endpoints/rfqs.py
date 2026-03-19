@@ -19,7 +19,7 @@ from app.core.celery import celery_app
 router = APIRouter()
 
 
-@router.post("", response_model=RFQResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/rfqs", response_model=RFQResponse, status_code=status.HTTP_201_CREATED)
 async def create_rfq_endpoint(
     data: RFQCreateRequest,
     db: AsyncSession = Depends(get_db),
@@ -121,7 +121,7 @@ async def get_rfq_tracking(
     }
 
 
-@router.get("/{rfq_id}", response_model=RFQResponse)
+@router.get("/rfqs/{rfq_id}", response_model=RFQResponse)
 async def get_rfq(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
@@ -143,7 +143,7 @@ async def get_rfq(
     return RFQResponse.from_orm(rfq)
 
 
-@router.post("/{rfq_id}/files/initiate")
+@router.post("/rfqs/{rfq_id}/files/initiate")
 async def initiate_file_upload(
     rfq_id: str,
     filename: str,
@@ -158,7 +158,7 @@ async def initiate_file_upload(
     return {"upload_url": url_data["url"], "fields": url_data["fields"], "key": key}
 
 
-@router.post("/{rfq_id}/files/complete")
+@router.post("/rfqs/{rfq_id}/files/complete")
 async def complete_file_upload(
     rfq_id: str,
     key: str,
@@ -189,7 +189,7 @@ async def complete_file_upload(
     return {"file_id": str(rfq_file.id), "status": "uploaded"}
 
 
-@router.post("/{rfq_id}/nda/checkout", response_model=PaymentIntentResponse)
+@router.post("/rfqs/{rfq_id}/nda/checkout", response_model=PaymentIntentResponse)
 async def nda_checkout(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
@@ -218,7 +218,7 @@ async def nda_checkout(
     )
 
 
-@router.get("/{rfq_id}/status", response_model=RFQStatusResponse)
+@router.get("/rfqs/{rfq_id}/status", response_model=RFQStatusResponse)
 async def get_rfq_status(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
@@ -260,7 +260,7 @@ async def get_rfq_status(
     )
 
 
-@router.post("/{rfq_id}/submit")
+@router.post("/rfqs/{rfq_id}/submit")
 async def submit_rfq_endpoint(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
@@ -454,7 +454,7 @@ async def get_rfq_files(
 
 # ─── NDA Endpoints ─────────────────────────────────────────────────────────────
 
-@router.post("/{rfq_id}/nda/initiate")
+@router.post("/rfqs/{rfq_id}/nda/initiate")
 async def nda_initiate(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
@@ -518,7 +518,7 @@ async def nda_initiate(
     return result
 
 
-@router.get("/{rfq_id}/nda/signing-url")
+@router.get("/rfqs/{rfq_id}/nda/signing-url")
 async def get_nda_signing_url(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
@@ -541,7 +541,7 @@ async def get_nda_signing_url(
     return {"signing_url": signing_url}
 
 
-@router.get("/{rfq_id}/nda/status")
+@router.get("/rfqs/{rfq_id}/nda/status")
 async def get_nda_status(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),

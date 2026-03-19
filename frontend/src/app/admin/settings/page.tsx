@@ -348,12 +348,21 @@ export default function AdminSettingsPage() {
       })
       // Re-fetch config: updates Set/Not Set indicators and repopulates non-secret fields
       await loadConfig()
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      setErrorMsg(`Failed to save configuration: ${message}`)
-    } finally {
-      setSaving(false)
+  } catch (err: any) {
+    // Extract detailed validation error from response if available
+    const detail = err?.response?.data?.detail
+    let message: string
+    if (Array.isArray(detail)) {
+      message = detail.map((d: any) => `${d.loc?.join('.')}: ${d.msg}`).join('; ')
+    } else if (typeof detail === 'string') {
+      message = detail
+    } else if (detail) {
+      message = JSON.stringify(detail)
+    } else {
+      message = err instanceof Error ? err.message : String(err)
     }
+    setErrorMsg(`Failed to save configuration: ${message}`)
+  }
   }
 
   if (authLoading) {

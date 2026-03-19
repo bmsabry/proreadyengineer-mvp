@@ -471,7 +471,7 @@ const admin = {
   testLlm: (prompt: string) =>
     apiClient.post<any>('/admin/debug/test-llm', { prompt }),
   testDocLlm: (prompt: string) =>
-    apiClient.post('/admin/debug/test-doc-llm', { prompt }),
+    apiClient.post<any>('/admin/debug/test-doc-llm', { prompt }),
 };
 
 // Webhooks (server-side only, usually)
@@ -510,7 +510,7 @@ import type { CustomerRFQSummary, RFQTrackingData } from '@/types';
 
 export const customerRfqApi = {
   getMyRfqs: async (): Promise<CustomerRFQSummary[]> => {
-    const res = await fetch(`${API_URL}/rfqs/customer/my-rfqs`, {
+    const res = await fetch(`${API_URL}/api/v1/customer/my-rfqs`, {
       method: 'GET', credentials: 'include',
       headers: { 'Content-Type': 'application/json',  },
     });
@@ -518,7 +518,7 @@ export const customerRfqApi = {
     return res.json();
   },
   getRfqTracking: async (rfqId: string): Promise<RFQTrackingData> => {
-    const res = await fetch(`${API_URL}/rfqs/customer/rfqs/${rfqId}/tracking`, {
+    const res = await fetch(`${API_URL}/api/v1/customer/rfqs/${rfqId}/tracking`, {
       method: 'GET', credentials: 'include',
       headers: { 'Content-Type': 'application/json',  },
     });
