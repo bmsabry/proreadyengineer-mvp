@@ -1692,7 +1692,7 @@ async def admin_debug_test_doc_llm(
         response = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
+            
             temperature=0.3,
         )
         reply = None
@@ -2185,7 +2185,7 @@ async def admin_debug_test_llm(
         response = await client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
+            
             temperature=0.3,
         )
         # Handle reasoning models (like Kimi-K2.5) that may return content in different fields

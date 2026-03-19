@@ -453,7 +453,7 @@ async def extract_and_describe(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Document:\n\n{text_for_llm}\n\nSearch query:"},
             ],
-            max_tokens=300,
+            
             temperature=0.3,
         )
         msg = response.choices[0].message
@@ -466,7 +466,7 @@ async def extract_and_describe(
 
     # Fallback: use beginning of extracted text
     if not ai_query:
-        ai_query = extracted_text[:400].strip()
+        ai_query = extracted_text.strip()
 
     return {
         "query": ai_query,

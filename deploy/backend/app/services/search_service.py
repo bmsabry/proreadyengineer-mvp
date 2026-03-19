@@ -307,7 +307,7 @@ Document:
                 {'role': 'user',   'content': prompt},
             ],
             temperature=0.1,
-            max_tokens=600,
+            
         )
         raw = response.choices[0].message.content.strip()
         raw = re.sub(r'^```(?:json)?\s*', '', raw)
@@ -364,7 +364,7 @@ def _provider_embed_text(p) -> str:
             notable_raw = json.loads(notable_raw)
         except Exception:
             notable_raw = [notable_raw]
-    notable_text = ' '.join(str(n)[:200] for n in (notable_raw or []))[:1000]
+    notable_text = ' '.join(str(n) for n in (notable_raw or []))
 
     parts = [
         _safe_str(getattr(p, 'firm_name', '') or getattr(p, 'name', '')),
@@ -871,7 +871,7 @@ def _provider_summary_for_llm(provider, idx: int) -> dict:
     notable = _safe_list(getattr(provider, 'proven_experience_notable_projects', []))[:3]
     case_studies = _safe_list(getattr(provider, 'proven_experience_case_studies', []))[:3]
     projects = notable + case_studies
-    proj_texts = [str(p)[:300] for p in projects[:5]]  # 300 chars exposes service vs design
+    proj_texts = [str(p) for p in projects]
     description = _safe_str(getattr(provider, 'business_description', ''))
     tier = (getattr(provider, 'business_evaluation_tier', None)
             or getattr(provider, 'tier', None) or 'unknown')
@@ -945,7 +945,7 @@ async def llm_pass1_filter(
             })
         specialty = _safe_str(intent.get('inferred_specialty', ''))
         caps = _safe_list(intent.get('capabilities_needed', []))
-        caps_str = json.dumps(caps[:6])
+        caps_str = json.dumps(caps)
         prompt_lines = [
             'You are an expert engineering services classifier.',
             '',
@@ -977,7 +977,7 @@ async def llm_pass1_filter(
                 {'role': 'user', 'content': prompt},
             ],
             temperature=0.1,
-            max_tokens=4000,
+            
         )
         raw = _extract_llm_content(response)
         parsed = _parse_json_from_llm(raw)
@@ -1078,7 +1078,7 @@ async def llm_pass2_rank(
                 {'role': 'user', 'content': prompt},
             ],
             temperature=0.1,
-            max_tokens=4000,
+            
         )
         raw = _extract_llm_content(response)
         parsed = _parse_json_from_llm(raw)
