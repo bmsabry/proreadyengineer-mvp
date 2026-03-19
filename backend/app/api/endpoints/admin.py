@@ -676,6 +676,13 @@ class SystemConfigRequest(_BaseModel):
     aws_s3_bucket: Optional[str] = None
     resend_api_key: Optional[str] = None
     resend_from_email: Optional[str] = None
+    # SMTP Email
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_tls: Optional[str] = None
+    smtp_ssl: Optional[str] = None
     signrequest_api_key: Optional[str] = None
     signwell_api_key: Optional[str] = None
     signwell_template_id: Optional[str] = None
@@ -692,13 +699,6 @@ class SystemConfigRequest(_BaseModel):
     rfq_batch_size: Optional[str] = None
     rfq_batch_interval_hours: Optional[str] = None
     rfq_closed_message: Optional[str] = None
-    # Document Collapse LLM
-    doc_llm_api_key: Optional[str] = None
-    doc_llm_api_base: Optional[str] = None
-    doc_llm_model: Optional[str] = None
-    # Embeddings LLM (LLM 1 - separate credentials from LLM 2)
-    embedding_api_key: Optional[str] = None
-    embedding_api_base: Optional[str] = None
 
 
 def _mask(v: str) -> str:
@@ -747,16 +747,6 @@ async def get_system_config(
         "openai_llm_model_set": _is_set("OPENAI_LLM_MODEL"),
         "openai_embedding_model": config.get("OPENAI_EMBEDDING_MODEL", ""),
         "openai_embedding_model_set": _is_set("OPENAI_EMBEDDING_MODEL"),
-        "doc_llm_api_key": _mask(config.get("DOC_LLM_API_KEY", "")),
-        "doc_llm_api_key_set": _is_set("DOC_LLM_API_KEY"),
-        "doc_llm_api_base": config.get("DOC_LLM_API_BASE", ""),
-        "doc_llm_api_base_set": _is_set("DOC_LLM_API_BASE"),
-        "doc_llm_model": config.get("DOC_LLM_MODEL", ""),
-        "doc_llm_model_set": _is_set("DOC_LLM_MODEL"),
-        "embedding_api_key": _mask(config.get("EMBEDDING_API_KEY", "")),
-        "embedding_api_key_set": _is_set("EMBEDDING_API_KEY"),
-        "embedding_api_base": config.get("EMBEDDING_API_BASE", ""),
-        "embedding_api_base_set": _is_set("EMBEDDING_API_BASE"),
         "stripe_secret_key": _mask(config.get("STRIPE_SECRET_KEY", "")),
         "stripe_secret_key_set": _is_set("STRIPE_SECRET_KEY"),
         "stripe_publishable_key": config.get("STRIPE_PUBLISHABLE_KEY", ""),
@@ -768,6 +758,15 @@ async def get_system_config(
         "aws_region_set": _is_set("AWS_REGION"),
         "aws_s3_bucket": config.get("AWS_S3_BUCKET", ""),
         "aws_s3_bucket_set": _is_set("AWS_S3_BUCKET"),
+        "smtp_host": config.get("SMTP_HOST", ""),
+        "smtp_host_set": _is_set("SMTP_HOST"),
+        "smtp_port": config.get("SMTP_PORT", "587"),
+        "smtp_user": config.get("SMTP_USER", ""),
+        "smtp_user_set": _is_set("SMTP_USER"),
+        "smtp_password": _mask(config.get("SMTP_PASSWORD", "")),
+        "smtp_password_set": _is_set("SMTP_PASSWORD"),
+        "smtp_tls": config.get("SMTP_TLS", "true"),
+        "smtp_ssl": config.get("SMTP_SSL", "false"),
         "resend_api_key": _mask(config.get("RESEND_API_KEY", "")),
         "resend_api_key_set": _is_set("RESEND_API_KEY"),
         "resend_from_email": config.get("RESEND_FROM_EMAIL", ""),
@@ -806,11 +805,6 @@ async def save_system_config(
         if data.openai_api_base:        config_map["OPENAI_API_BASE"]        = data.openai_api_base
         if data.openai_llm_model:       config_map["OPENAI_LLM_MODEL"]       = data.openai_llm_model
         if data.openai_embedding_model: config_map["OPENAI_EMBEDDING_MODEL"] = data.openai_embedding_model
-        if data.doc_llm_api_key:    config_map["DOC_LLM_API_KEY"]  = data.doc_llm_api_key
-        if data.doc_llm_api_base:   config_map["DOC_LLM_API_BASE"] = data.doc_llm_api_base
-        if data.doc_llm_model:      config_map["DOC_LLM_MODEL"]    = data.doc_llm_model
-        if data.embedding_api_key:  config_map["EMBEDDING_API_KEY"] = data.embedding_api_key
-        if data.embedding_api_base: config_map["EMBEDDING_API_BASE"] = data.embedding_api_base
         if data.stripe_secret_key:      config_map["STRIPE_SECRET_KEY"]      = data.stripe_secret_key
         if data.stripe_publishable_key: config_map["STRIPE_PUBLISHABLE_KEY"] = data.stripe_publishable_key
         if data.stripe_webhook_secret:  config_map["STRIPE_WEBHOOK_SECRET"]  = data.stripe_webhook_secret
@@ -818,6 +812,12 @@ async def save_system_config(
         if data.aws_secret_access_key:  config_map["AWS_SECRET_ACCESS_KEY"]  = data.aws_secret_access_key
         if data.aws_region:             config_map["AWS_REGION"]             = data.aws_region
         if data.aws_s3_bucket:          config_map["AWS_S3_BUCKET"]          = data.aws_s3_bucket
+        if data.smtp_host is not None:     config_map["SMTP_HOST"]     = data.smtp_host
+        if data.smtp_port is not None:     config_map["SMTP_PORT"]     = data.smtp_port
+        if data.smtp_user is not None:     config_map["SMTP_USER"]     = data.smtp_user
+        if data.smtp_password:             config_map["SMTP_PASSWORD"] = data.smtp_password
+        if data.smtp_tls is not None:      config_map["SMTP_TLS"]      = data.smtp_tls
+        if data.smtp_ssl is not None:      config_map["SMTP_SSL"]      = data.smtp_ssl
         if data.resend_api_key:         config_map["RESEND_API_KEY"]         = data.resend_api_key
         if data.resend_from_email:      config_map["RESEND_FROM_EMAIL"]      = data.resend_from_email
         if data.signrequest_api_key:    config_map["SIGNREQUEST_API_KEY"]    = data.signrequest_api_key
@@ -1667,60 +1667,6 @@ async def admin_debug_test_stripe(
         }
     except Exception as exc:
         return {"status": "error", "error": str(exc)}
-
-
-
-
-@router.post("/admin/debug/test-doc-llm")
-async def admin_debug_test_doc_llm(
-    body: dict,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_role(["admin"])),
-):
-    """Test Document Collapse LLM connectivity."""
-    from openai import AsyncOpenAI
-    try:
-        cfg = await _get_runtime_config(db)
-        api_key = cfg.get("DOC_LLM_API_KEY", "")
-        if not api_key:
-            return {"success": False, "error": "No API key configured (DOC_LLM_API_KEY)",
-                    "model": None, "response": None}
-        api_base = cfg.get("DOC_LLM_API_BASE", "https://api.openai.com/v1")
-        model = cfg.get("DOC_LLM_MODEL", "gpt-4o-mini")
-        prompt = body.get("prompt", "In one sentence, summarize what a heat exchanger does.")
-        client = AsyncOpenAI(api_key=api_key, base_url=api_base)
-        response = await client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            
-            temperature=0.3,
-        )
-        reply = None
-        if response.choices:
-            msg = response.choices[0].message
-            content_val = getattr(msg, 'content', None)
-            if content_val and content_val.strip():
-                reply = content_val.strip()
-            else:
-                reasoning = getattr(msg, 'reasoning_content', None)
-                if reasoning and reasoning.strip():
-                    reply = f"[Reasoning model output]:\n{reasoning.strip()}"
-                else:
-                    reply = f"(model returned empty content - raw: {repr(content_val)})"
-        else:
-            reply = "(no choices in response)"
-        return {
-            "success": True,
-            "model": model,
-            "prompt": prompt,
-            "response": reply,
-            "usage": {
-                "prompt_tokens": response.usage.prompt_tokens if response.usage else None,
-                "completion_tokens": response.usage.completion_tokens if response.usage else None,
-            }
-        }
-    except Exception as e:
-        return {"success": False, "error": str(e), "model": None, "response": None}
 
 
 # ─── Data Export Endpoint ────────────────────────────────────────────────────

@@ -47,6 +47,14 @@ interface ServerConfig {
   resend_api_key_set: boolean
   resend_from_email: string
   resend_from_email_set: boolean
+  smtp_host: string
+  smtp_host_set: boolean
+  smtp_port: string
+  smtp_user: string
+  smtp_user_set: boolean
+  smtp_password_set: boolean
+  smtp_tls: string
+  smtp_ssl: string
   signwell_api_key_set: boolean
   signwell_template_id: string
   signwell_template_id_set: boolean
@@ -85,6 +93,12 @@ interface FormFields {
   aws_s3_bucket: string
   resend_api_key: string
   resend_from_email: string
+  smtp_host: string
+  smtp_port: string
+  smtp_user: string
+  smtp_password: string
+  smtp_tls: string
+  smtp_ssl: string
   signwell_api_key: string
   signwell_template_id: string
   rfq_batch_size: string
@@ -98,7 +112,7 @@ const SECRET_FIELDS: (keyof FormFields)[] = [
   'paypal_plan_search_tier1', 'paypal_plan_search_tier2',
   'paypal_plan_provider_profile', 'paypal_plan_advertisement',
   'aws_access_key_id', 'aws_secret_access_key',
-  'resend_api_key', 'signwell_api_key',
+  'resend_api_key', 'smtp_password', 'signwell_api_key',
   'doc_llm_api_key',
   'embedding_api_key',
 ]
@@ -130,6 +144,12 @@ const EMPTY_FORM: FormFields = {
   aws_s3_bucket: '',
   resend_api_key: '',
   resend_from_email: '',
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_user: '',
+  smtp_password: '',
+  smtp_tls: 'true',
+  smtp_ssl: 'false',
   signwell_api_key: '',
   signwell_template_id: '',
   rfq_batch_size: '',
@@ -150,6 +170,11 @@ function populateFormFromConfig(cfg: ServerConfig): Partial<FormFields> {
     aws_region: cfg.aws_region || '',
     aws_s3_bucket: cfg.aws_s3_bucket || '',
     resend_from_email: cfg.resend_from_email || '',
+    smtp_host: cfg.smtp_host || '',
+    smtp_port: cfg.smtp_port || '587',
+    smtp_user: cfg.smtp_user || '',
+    smtp_tls: cfg.smtp_tls || 'true',
+    smtp_ssl: cfg.smtp_ssl || 'false',
     signwell_template_id: cfg.signwell_template_id || '',
     rfq_batch_size: cfg.rfq_batch_size || '',
     rfq_batch_interval_hours: cfg.rfq_batch_interval_hours || '',
@@ -283,6 +308,9 @@ export default function AdminSettingsPage() {
       aws_s3_bucket: 'aws_s3_bucket_set',
       resend_api_key: 'resend_api_key_set',
       resend_from_email: 'resend_from_email_set',
+      smtp_host: 'smtp_host_set',
+      smtp_user: 'smtp_user_set',
+      smtp_password: 'smtp_password_set',
       signwell_api_key: 'signwell_api_key_set',
       signwell_template_id: 'signwell_template_id_set',
       rfq_batch_size: 'rfq_batch_size_set',
@@ -647,14 +675,15 @@ export default function AdminSettingsPage() {
 
         {/* ── Email ── */}
         <TabsContent value='email'>
+          <div className='space-y-4'>
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
                 <Mail className='w-5 h-5' />
-                Email Configuration
+                Resend (Transactional Email)
               </CardTitle>
               <CardDescription>
-                Resend API credentials for transactional email delivery.
+                Resend API credentials for transactional email delivery (recommended).
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-4'>
@@ -665,7 +694,7 @@ export default function AdminSettingsPage() {
                 onChange={handleChange}
                 isSet={isFieldSet('resend_api_key')}
                 isSecret
-                hint='API key for sending transactional emails via Resend.'
+                hint='API key from resend.com for sending transactional emails.'
               />
               <FieldRow
                 label='From Email Address'
@@ -678,6 +707,71 @@ export default function AdminSettingsPage() {
               />
             </CardContent>
           </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Mail className='w-5 h-5' />
+                SMTP (Alternative Email)
+              </CardTitle>
+              <CardDescription>
+                SMTP server settings as an alternative to Resend. Used if Resend is not configured.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <FieldRow
+                label='SMTP Host'
+                fieldName='smtp_host'
+                value={form.smtp_host}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_host')}
+                placeholder='smtp.gmail.com'
+                hint='SMTP server hostname (e.g. smtp.gmail.com, smtp.sendgrid.net).'
+              />
+              <FieldRow
+                label='SMTP Port'
+                fieldName='smtp_port'
+                value={form.smtp_port}
+                onChange={handleChange}
+                placeholder='587'
+                hint='SMTP port: 587 for STARTTLS, 465 for SSL, 25 for plain.'
+              />
+              <FieldRow
+                label='SMTP Username'
+                fieldName='smtp_user'
+                value={form.smtp_user}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_user')}
+                placeholder='user@example.com'
+                hint='SMTP login username.'
+              />
+              <FieldRow
+                label='SMTP Password'
+                fieldName='smtp_password'
+                value={form.smtp_password}
+                onChange={handleChange}
+                isSet={isFieldSet('smtp_password')}
+                isSecret
+                hint='SMTP login password or app-specific password.'
+              />
+              <FieldRow
+                label='Use STARTTLS'
+                fieldName='smtp_tls'
+                value={form.smtp_tls}
+                onChange={handleChange}
+                placeholder='true'
+                hint='Set to true for STARTTLS (port 587). Set to false for plain or SSL.'
+              />
+              <FieldRow
+                label='Use SSL'
+                fieldName='smtp_ssl'
+                value={form.smtp_ssl}
+                onChange={handleChange}
+                placeholder='false'
+                hint='Set to true for implicit SSL (port 465). Overrides STARTTLS.'
+              />
+            </CardContent>
+          </Card>
+          </div>
         </TabsContent>
 
         {/* ── Storage ── */}

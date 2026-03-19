@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: Optional[str] = None
     EMAIL_FROM: str = "info@promechdirectory.com"
     EMAIL_FROM_NAME: str = "ProMechDirectory"
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = int(os.getenv('SMTP_PORT', '587'))
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_TLS: bool = True
+    SMTP_SSL: bool = False
+
 
     # OpenAI
     OPENAI_API_KEY: Optional[str] = None

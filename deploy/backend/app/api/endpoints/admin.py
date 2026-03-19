@@ -676,6 +676,13 @@ class SystemConfigRequest(_BaseModel):
     aws_s3_bucket: Optional[str] = None
     resend_api_key: Optional[str] = None
     resend_from_email: Optional[str] = None
+    # SMTP Email
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_tls: Optional[str] = None
+    smtp_ssl: Optional[str] = None
     signrequest_api_key: Optional[str] = None
     signwell_api_key: Optional[str] = None
     signwell_template_id: Optional[str] = None
@@ -751,6 +758,15 @@ async def get_system_config(
         "aws_region_set": _is_set("AWS_REGION"),
         "aws_s3_bucket": config.get("AWS_S3_BUCKET", ""),
         "aws_s3_bucket_set": _is_set("AWS_S3_BUCKET"),
+        "smtp_host": config.get("SMTP_HOST", ""),
+        "smtp_host_set": _is_set("SMTP_HOST"),
+        "smtp_port": config.get("SMTP_PORT", "587"),
+        "smtp_user": config.get("SMTP_USER", ""),
+        "smtp_user_set": _is_set("SMTP_USER"),
+        "smtp_password": _mask(config.get("SMTP_PASSWORD", "")),
+        "smtp_password_set": _is_set("SMTP_PASSWORD"),
+        "smtp_tls": config.get("SMTP_TLS", "true"),
+        "smtp_ssl": config.get("SMTP_SSL", "false"),
         "resend_api_key": _mask(config.get("RESEND_API_KEY", "")),
         "resend_api_key_set": _is_set("RESEND_API_KEY"),
         "resend_from_email": config.get("RESEND_FROM_EMAIL", ""),
@@ -796,6 +812,12 @@ async def save_system_config(
         if data.aws_secret_access_key:  config_map["AWS_SECRET_ACCESS_KEY"]  = data.aws_secret_access_key
         if data.aws_region:             config_map["AWS_REGION"]             = data.aws_region
         if data.aws_s3_bucket:          config_map["AWS_S3_BUCKET"]          = data.aws_s3_bucket
+        if data.smtp_host is not None:     config_map["SMTP_HOST"]     = data.smtp_host
+        if data.smtp_port is not None:     config_map["SMTP_PORT"]     = data.smtp_port
+        if data.smtp_user is not None:     config_map["SMTP_USER"]     = data.smtp_user
+        if data.smtp_password:             config_map["SMTP_PASSWORD"] = data.smtp_password
+        if data.smtp_tls is not None:      config_map["SMTP_TLS"]      = data.smtp_tls
+        if data.smtp_ssl is not None:      config_map["SMTP_SSL"]      = data.smtp_ssl
         if data.resend_api_key:         config_map["RESEND_API_KEY"]         = data.resend_api_key
         if data.resend_from_email:      config_map["RESEND_FROM_EMAIL"]      = data.resend_from_email
         if data.signrequest_api_key:    config_map["SIGNREQUEST_API_KEY"]    = data.signrequest_api_key
