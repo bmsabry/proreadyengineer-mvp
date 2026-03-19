@@ -22,7 +22,15 @@ interface ServerConfig {
   openai_llm_model: string
   openai_llm_model_set: boolean
   openai_embedding_model: string
+  doc_llm_api_key: string
+  doc_llm_api_base: string
+  doc_llm_model: string
   openai_embedding_model_set: boolean
+  doc_llm_api_key_set: boolean
+  doc_llm_api_base: string
+  doc_llm_api_base_set: boolean
+  doc_llm_model: string
+  doc_llm_model_set: boolean
   stripe_secret_key_set: boolean
   stripe_webhook_secret_set: boolean
   stripe_publishable_key: string
@@ -86,6 +94,7 @@ const SECRET_FIELDS: (keyof FormFields)[] = [
   'paypal_plan_provider_profile', 'paypal_plan_advertisement',
   'aws_access_key_id', 'aws_secret_access_key',
   'resend_api_key', 'signwell_api_key',
+  'doc_llm_api_key',
 ]
 
 const EMPTY_FORM: FormFields = {
@@ -93,6 +102,9 @@ const EMPTY_FORM: FormFields = {
   openai_api_base: '',
   openai_llm_model: '',
   openai_embedding_model: '',
+  doc_llm_api_key: '',
+  doc_llm_api_base: '',
+  doc_llm_model: '',
   stripe_secret_key: '',
   stripe_publishable_key: '',
   stripe_webhook_secret: '',
@@ -122,6 +134,8 @@ function populateFormFromConfig(cfg: ServerConfig): Partial<FormFields> {
     openai_api_base: cfg.openai_api_base || '',
     openai_llm_model: cfg.openai_llm_model || '',
     openai_embedding_model: cfg.openai_embedding_model || '',
+    doc_llm_api_base: cfg.doc_llm_api_base || '',
+    doc_llm_model: cfg.doc_llm_model || '',
     stripe_publishable_key: cfg.stripe_publishable_key || '',
     paypal_mode: cfg.paypal_mode || '',
     aws_region: cfg.aws_region || '',
@@ -238,6 +252,9 @@ export default function AdminSettingsPage() {
       openai_api_base: 'openai_api_base_set',
       openai_llm_model: 'openai_llm_model_set',
       openai_embedding_model: 'openai_embedding_model_set',
+      doc_llm_api_key: 'doc_llm_api_key_set',
+      doc_llm_api_base: 'doc_llm_api_base_set',
+      doc_llm_model: 'doc_llm_model_set',
       stripe_secret_key: 'stripe_secret_key_set',
       stripe_webhook_secret: 'stripe_webhook_secret_set',
       stripe_publishable_key: 'stripe_publishable_key_set',
@@ -368,15 +385,16 @@ export default function AdminSettingsPage() {
         </TabsList>
 
         {/* ── AI / Search ── */}
-        <TabsContent value='ai'>
+        <TabsContent value='ai' className='space-y-4'>
+          {/* Sub-section 1: Embeddings (LLM 1) */}
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
                 <Brain className='w-5 h-5' />
-                AI / Search Configuration
+                Embeddings — LLM 1
               </CardTitle>
               <CardDescription>
-                OpenAI API credentials for search embedding and LLM extraction.
+                API credentials used to generate vector embeddings for provider and query search matching.
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-4'>
@@ -387,10 +405,34 @@ export default function AdminSettingsPage() {
                 onChange={handleChange}
                 isSet={isFieldSet('openai_api_key')}
                 isSecret
-                hint='Used for embeddings and LLM extraction.'
+                hint='Shared key used for both embeddings (LLM 1) and firm ranking (LLM 2).'
               />
               <FieldRow
-                label='OpenAI API Base URL'
+                label='Embedding Model'
+                fieldName='openai_embedding_model'
+                value={form.openai_embedding_model}
+                onChange={handleChange}
+                isSet={isFieldSet('openai_embedding_model')}
+                placeholder='text-embedding-3-small'
+                hint='Model used to generate vector embeddings for provider and query matching.'
+              />
+            </CardContent>
+          </Card>
+
+          {/* Sub-section 2: Firm Ranking LLM (LLM 2) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Brain className='w-5 h-5' />
+                Firm Ranking — LLM 2
+              </CardTitle>
+              <CardDescription>
+                LLM used for the Pass 1 &amp; Pass 2 firm ranking pipeline — structured extraction from customer queries, specialty inference, and provider scoring. Uses the same API key as LLM 1.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <FieldRow
+                label='API Base URL'
                 fieldName='openai_api_base'
                 value={form.openai_api_base}
                 onChange={handleChange}
@@ -405,320 +447,50 @@ export default function AdminSettingsPage() {
                 onChange={handleChange}
                 isSet={isFieldSet('openai_llm_model')}
                 placeholder='gpt-4o'
-                hint='Model used for structured extraction from customer queries.'
-              />
-              <FieldRow
-                label='Embedding Model'
-                fieldName='openai_embedding_model'
-                value={form.openai_embedding_model}
-                onChange={handleChange}
-                isSet={isFieldSet('openai_embedding_model')}
-                placeholder='text-embedding-3-small'
-                hint='Model used for provider and query embeddings.'
+                hint='Model used for Pass 1 query extraction and Pass 2 firm ranking scoring.'
               />
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* ── Payments ── */}
-        <TabsContent value='payments' className='space-y-4'>
+          {/* Sub-section 3: Document Collapse LLM (LLM 3) */}
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
-                <CreditCard className='w-5 h-5' />
-                Stripe
+                <Brain className='w-5 h-5' />
+                Document Collapse — LLM 3
               </CardTitle>
               <CardDescription>
-                Stripe keys for card payments, subscriptions, and billing portal.
+                Separate LLM used exclusively for summarising and collapsing RFQ documents uploaded by customers before they are processed by the ranking pipeline.
               </CardDescription>
             </CardHeader>
             <CardContent className='space-y-4'>
               <FieldRow
-                label='Stripe Secret Key'
-                fieldName='stripe_secret_key'
-                value={form.stripe_secret_key}
+                label='API Key'
+                fieldName='doc_llm_api_key'
+                value={form.doc_llm_api_key}
                 onChange={handleChange}
-                isSet={isFieldSet('stripe_secret_key')}
+                isSet={isFieldSet('doc_llm_api_key')}
                 isSecret
+                hint='API key for the document collapse LLM (can differ from LLM 1/2 key).'
               />
               <FieldRow
-                label='Stripe Publishable Key'
-                fieldName='stripe_publishable_key'
-                value={form.stripe_publishable_key}
+                label='API Base URL'
+                fieldName='doc_llm_api_base'
+                value={form.doc_llm_api_base}
                 onChange={handleChange}
-                isSet={isFieldSet('stripe_publishable_key')}
-                placeholder='pk_live_...'
+                isSet={isFieldSet('doc_llm_api_base')}
+                placeholder='https://api.openai.com/v1'
+                hint='Leave blank to use the default OpenAI endpoint.'
               />
               <FieldRow
-                label='Stripe Webhook Secret'
-                fieldName='stripe_webhook_secret'
-                value={form.stripe_webhook_secret}
+                label='LLM Model'
+                fieldName='doc_llm_model'
+                value={form.doc_llm_model}
                 onChange={handleChange}
-                isSet={isFieldSet('stripe_webhook_secret')}
-                isSecret
-                hint='Signing secret for verifying Stripe webhook events.'
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>PayPal / Braintree</CardTitle>
-              <CardDescription>
-                PayPal credentials for PayPal and Venmo payment support.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='space-y-4'>
-              <FieldRow
-                label='PayPal Client ID'
-                fieldName='paypal_client_id'
-                value={form.paypal_client_id}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_client_id')}
-                isSecret
-              />
-              <FieldRow
-                label='PayPal Client Secret'
-                fieldName='paypal_client_secret'
-                value={form.paypal_client_secret}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_client_secret')}
-                isSecret
-              />
-              <FieldRow
-                label='PayPal Mode'
-                fieldName='paypal_mode'
-                value={form.paypal_mode}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_mode')}
-                placeholder='sandbox or live'
-              />
-              <FieldRow
-                label='PayPal Webhook ID'
-                fieldName='paypal_webhook_id'
-                value={form.paypal_webhook_id}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_webhook_id')}
-                isSecret
-              />
-              <FieldRow
-                label='PayPal Plan — Search Tier 1'
-                fieldName='paypal_plan_search_tier1'
-                value={form.paypal_plan_search_tier1}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_plan_search_tier1')}
-                isSecret
-                hint='Plan ID for 100 searches/month ($10/month).'
-              />
-              <FieldRow
-                label='PayPal Plan — Search Tier 2'
-                fieldName='paypal_plan_search_tier2'
-                value={form.paypal_plan_search_tier2}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_plan_search_tier2')}
-                isSecret
-                hint='Plan ID for 200 searches/month ($20/month).'
-              />
-              <FieldRow
-                label='PayPal Plan — Provider Profile'
-                fieldName='paypal_plan_provider_profile'
-                value={form.paypal_plan_provider_profile}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_plan_provider_profile')}
-                isSecret
-                hint='Plan ID for provider profile subscription ($10/month).'
-              />
-              <FieldRow
-                label='PayPal Plan — Advertisement'
-                fieldName='paypal_plan_advertisement'
-                value={form.paypal_plan_advertisement}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_plan_advertisement')}
-                isSecret
-                hint='Plan ID for ad slot subscription ($50/month).'
+                isSet={isFieldSet('doc_llm_model')}
+                placeholder='gpt-4o-mini'
+                hint='Model used to summarise RFQ documents before ranking.'
               />
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* ── Email ── */}
-        <TabsContent value='email'>
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <Mail className='w-5 h-5' />
-                Email Configuration
-              </CardTitle>
-              <CardDescription>
-                Resend API credentials for transactional email delivery.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='space-y-4'>
-              <FieldRow
-                label='Resend API Key'
-                fieldName='resend_api_key'
-                value={form.resend_api_key}
-                onChange={handleChange}
-                isSet={isFieldSet('resend_api_key')}
-                isSecret
-                hint='API key for sending transactional emails via Resend.'
-              />
-              <FieldRow
-                label='From Email Address'
-                fieldName='resend_from_email'
-                value={form.resend_from_email}
-                onChange={handleChange}
-                isSet={isFieldSet('resend_from_email')}
-                placeholder='noreply@yourdomain.com'
-                hint='The sender address shown on outbound system emails.'
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── Storage ── */}
-        <TabsContent value='storage'>
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <HardDrive className='w-5 h-5' />
-                AWS S3 Storage
-              </CardTitle>
-              <CardDescription>
-                AWS credentials for S3 file storage (RFQ files, NDAs, ad assets).
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='space-y-4'>
-              <FieldRow
-                label='AWS Access Key ID'
-                fieldName='aws_access_key_id'
-                value={form.aws_access_key_id}
-                onChange={handleChange}
-                isSet={isFieldSet('aws_access_key_id')}
-                isSecret
-              />
-              <FieldRow
-                label='AWS Secret Access Key'
-                fieldName='aws_secret_access_key'
-                value={form.aws_secret_access_key}
-                onChange={handleChange}
-                isSet={isFieldSet('aws_secret_access_key')}
-                isSecret
-              />
-              <FieldRow
-                label='AWS Region'
-                fieldName='aws_region'
-                value={form.aws_region}
-                onChange={handleChange}
-                isSet={isFieldSet('aws_region')}
-                placeholder='us-east-1'
-              />
-              <FieldRow
-                label='S3 Bucket Name'
-                fieldName='aws_s3_bucket'
-                value={form.aws_s3_bucket}
-                onChange={handleChange}
-                isSet={isFieldSet('aws_s3_bucket')}
-                placeholder='my-proready-bucket'
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── Doc Signing ── */}
-        <TabsContent value='signing'>
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <FileSignature className='w-5 h-5' />
-                Document Signing
-              </CardTitle>
-              <CardDescription>
-                SignWell API credentials for embedded NDA signing flows.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='space-y-4'>
-              <FieldRow
-                label='SignWell API Key'
-                fieldName='signwell_api_key'
-                value={form.signwell_api_key}
-                onChange={handleChange}
-                isSet={isFieldSet('signwell_api_key')}
-                isSecret
-              />
-              <FieldRow
-                label='SignWell Template ID'
-                fieldName='signwell_template_id'
-                value={form.signwell_template_id}
-                onChange={handleChange}
-                isSet={isFieldSet('signwell_template_id')}
-                placeholder='template_...'
-                hint='ID of the NDA template in SignWell.'
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── RFQ ── */}
-        <TabsContent value='rfq'>
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <LayoutDashboard className='w-5 h-5' />
-                RFQ Settings
-              </CardTitle>
-              <CardDescription>
-                Configure RFQ dispatch batching and messaging behaviour.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='space-y-4'>
-              <FieldRow
-                label='Batch Size'
-                fieldName='rfq_batch_size'
-                value={form.rfq_batch_size}
-                onChange={handleChange}
-                isSet={isFieldSet('rfq_batch_size')}
-                placeholder='5'
-                inputType='number'
-                hint='Number of providers emailed per dispatch batch.'
-              />
-              <FieldRow
-                label='Batch Interval (hours)'
-                fieldName='rfq_batch_interval_hours'
-                value={form.rfq_batch_interval_hours}
-                onChange={handleChange}
-                isSet={isFieldSet('rfq_batch_interval_hours')}
-                placeholder='24'
-                inputType='number'
-                hint='Hours between each dispatch batch.'
-              />
-              <FieldRow
-                label='RFQ Closed Message'
-                fieldName='rfq_closed_message'
-                value={form.rfq_closed_message}
-                onChange={handleChange}
-                isSet={isFieldSet('rfq_closed_message')}
-                placeholder='This RFQ is no longer accepting quotes.'
-                hint='Message shown to providers when an RFQ is closed.'
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* ── Save Button ── */}
-      <div className='flex justify-end pt-2'>
-        <Button onClick={handleSave} disabled={saving} className='min-w-[140px]'>
-          {saving ? (
-            <>
-              <Loader2 className='w-4 h-4 animate-spin mr-2' />
-              Saving...
-            </>
-          ) : (
-            'Save Configuration'
-          )}
-        </Button>
-      </div>
-    </div>
-  )
-}
