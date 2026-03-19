@@ -143,14 +143,9 @@ services:
     name: proreadyengineer-web
     env: node
     plan: free
-    buildCommand: |
-      cd frontend
-      rm -rf node_modules .next
-      npm ci
-      npm run build
-      cp -r public .next/standalone/public
-      cp -r .next/static .next/standalone/.next/static
-    startCommand: cd frontend && node .next/standalone/server.js
+    rootDir: frontend
+    buildCommand: rm -rf node_modules .next && npm ci && npm run build && cp -r public .next/standalone/public && cp -r .next/static .next/standalone/.next/static
+    startCommand: node .next/standalone/server.js
     envVars:
       - key: NODE_ENV
         value: production
