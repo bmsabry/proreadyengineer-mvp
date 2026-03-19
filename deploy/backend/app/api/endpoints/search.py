@@ -423,17 +423,12 @@ async def extract_and_describe(
         client = AsyncOpenAI(api_key=llm_api_key or "dummy", base_url=llm_base_url)
         system_prompt = (
             "You are an engineering project analyst. A customer uploaded a mechanical engineering "
-            "scope of work document. Extract and summarize the following in 2-4 concise sentences "
-            "suitable as a search query for finding an engineering service provider:
-"
-            "1. Analysis type (e.g. CFD, FEA, thermal analysis, structural analysis, fatigue, etc.)
-"
-            "2. Application (what system, component, or process is being analyzed)
-"
-            "3. Preparatory work required (e.g. CAD modeling, meshing, test setup, data collection)
-"
-            "4. Compliance standards or regulations that apply (e.g. ASME, MIL-SPEC, FAA, API, etc.)
-"
+            "scope of work document. Extract and summarize in 2-4 concise technical sentences "
+            "suitable as a search query for finding an engineering service provider. "
+            "Cover: (1) analysis type such as CFD, FEA, thermal, structural, or fatigue analysis; "
+            "(2) the application or system being analyzed; "
+            "(3) preparatory work required such as CAD modeling, meshing, or test setup; "
+            "(4) applicable compliance standards such as ASME, MIL-SPEC, FAA, or API. "
             "Be specific and technical. Do not include company names or prices."
         )
         response = await client.chat.completions.create(
