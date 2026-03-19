@@ -732,6 +732,7 @@ export default function AdminSettingsPage() {
                 fieldName='smtp_port'
                 value={form.smtp_port}
                 onChange={handleChange}
+                isSet={isFieldSet('smtp_port')}
                 placeholder='587'
                 hint='SMTP port: 587 for STARTTLS, 465 for SSL, 25 for plain.'
               />
