@@ -95,6 +95,12 @@ async def migrate_data():
     sqlite_cursor.execute("SELECT * FROM companies")
     companies = sqlite_cursor.fetchall()
 
+    # Find max existing ID to assign to null-ID rows (avoids PostgreSQL sequence conflicts)
+    sqlite_cursor.execute("SELECT COALESCE(MAX(id), 0) FROM companies")
+    max_existing_id = sqlite_cursor.fetchone()[0]
+    null_id_counter = max_existing_id
+    print(f"Max SQLite ID: {max_existing_id} - null-ID rows will be assigned IDs above this")
+
     # Get column names
     sqlite_cursor.execute("PRAGMA table_info(companies)")
     columns_info = sqlite_cursor.fetchall()
@@ -131,7 +137,7 @@ async def migrate_data():
 
                 # Map SQLite row to Provider model
                 provider = Provider(
-                    id=row_dict.get('id'),
+                    id=(row_dict.get('id') or (null_id_counter := null_id_counter + 1) or null_id_counter),
                     name=name,
                     firm_name=row_dict.get('firm_name') or name,
                     website=row_dict.get('website'),
@@ -205,6 +211,12 @@ async def migrate_data():
         # Final commit
         if inserted % batch_size != 0:
             await session.commit()
+        # Reset PostgreSQL sequence so NULL-id rows get IDs above existing max
+        # This is critical when SQLite rows have NULL ids (auto-inserted rows)
+        await session.execute(text("SELECT setval('providers_id_seq', (SELECT COALESCE(MAX(id), 1) FROM providers))"))
+        await session.commit()
+        print("PostgreSQL sequence reset to MAX(id) - new rows will get correct IDs")
+
 
         # Summary
         print("\n" + "=" * 60)
