@@ -696,6 +696,9 @@ class SystemConfigRequest(_BaseModel):
     doc_llm_api_key: Optional[str] = None
     doc_llm_api_base: Optional[str] = None
     doc_llm_model: Optional[str] = None
+    # Embeddings LLM (LLM 1 - separate credentials from LLM 2)
+    embedding_api_key: Optional[str] = None
+    embedding_api_base: Optional[str] = None
 
 
 def _mask(v: str) -> str:
@@ -750,6 +753,10 @@ async def get_system_config(
         "doc_llm_api_base_set": _is_set("DOC_LLM_API_BASE"),
         "doc_llm_model": config.get("DOC_LLM_MODEL", ""),
         "doc_llm_model_set": _is_set("DOC_LLM_MODEL"),
+        "embedding_api_key": _mask(config.get("EMBEDDING_API_KEY", "")),
+        "embedding_api_key_set": _is_set("EMBEDDING_API_KEY"),
+        "embedding_api_base": config.get("EMBEDDING_API_BASE", ""),
+        "embedding_api_base_set": _is_set("EMBEDDING_API_BASE"),
         "stripe_secret_key": _mask(config.get("STRIPE_SECRET_KEY", "")),
         "stripe_secret_key_set": _is_set("STRIPE_SECRET_KEY"),
         "stripe_publishable_key": config.get("STRIPE_PUBLISHABLE_KEY", ""),
@@ -802,6 +809,8 @@ async def save_system_config(
         if data.doc_llm_api_key:    config_map["DOC_LLM_API_KEY"]  = data.doc_llm_api_key
         if data.doc_llm_api_base:   config_map["DOC_LLM_API_BASE"] = data.doc_llm_api_base
         if data.doc_llm_model:      config_map["DOC_LLM_MODEL"]    = data.doc_llm_model
+        if data.embedding_api_key:  config_map["EMBEDDING_API_KEY"] = data.embedding_api_key
+        if data.embedding_api_base: config_map["EMBEDDING_API_BASE"] = data.embedding_api_base
         if data.stripe_secret_key:      config_map["STRIPE_SECRET_KEY"]      = data.stripe_secret_key
         if data.stripe_publishable_key: config_map["STRIPE_PUBLISHABLE_KEY"] = data.stripe_publishable_key
         if data.stripe_webhook_secret:  config_map["STRIPE_WEBHOOK_SECRET"]  = data.stripe_webhook_secret
