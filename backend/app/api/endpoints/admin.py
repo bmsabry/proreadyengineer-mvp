@@ -657,12 +657,19 @@ async def admin_suspend_user(
 
 
 # ─── System Configuration Endpoints ──────────────────────────────────────────
-from pydantic import BaseModel as _BaseModel
+from pydantic import BaseModel as _BaseModel, ConfigDict
 from app.services.config_service import get_runtime_config as _get_runtime_config
 from app.services.config_service import save_config_values as _save_config_values
 
 
 class SystemConfigRequest(_BaseModel):
+    model_config = ConfigDict(extra='ignore')
+    # Extra AI/Search fields from frontend
+    embedding_api_key: Optional[str] = None
+    embedding_api_base: Optional[str] = None
+    doc_llm_api_key: Optional[str] = None
+    doc_llm_api_base: Optional[str] = None
+    doc_llm_model: Optional[str] = None
     openai_api_key: Optional[str] = None
     openai_api_base: Optional[str] = None
     openai_llm_model: Optional[str] = None
@@ -805,6 +812,11 @@ async def save_system_config(
         if data.openai_api_base:        config_map["OPENAI_API_BASE"]        = data.openai_api_base
         if data.openai_llm_model:       config_map["OPENAI_LLM_MODEL"]       = data.openai_llm_model
         if data.openai_embedding_model: config_map["OPENAI_EMBEDDING_MODEL"] = data.openai_embedding_model
+        if data.embedding_api_key:      config_map["EMBEDDING_API_KEY"]      = data.embedding_api_key
+        if data.embedding_api_base:     config_map["EMBEDDING_API_BASE"]     = data.embedding_api_base
+        if data.doc_llm_api_key:        config_map["DOC_LLM_API_KEY"]        = data.doc_llm_api_key
+        if data.doc_llm_api_base:       config_map["DOC_LLM_API_BASE"]       = data.doc_llm_api_base
+        if data.doc_llm_model:          config_map["DOC_LLM_MODEL"]          = data.doc_llm_model
         if data.stripe_secret_key:      config_map["STRIPE_SECRET_KEY"]      = data.stripe_secret_key
         if data.stripe_publishable_key: config_map["STRIPE_PUBLISHABLE_KEY"] = data.stripe_publishable_key
         if data.stripe_webhook_secret:  config_map["STRIPE_WEBHOOK_SECRET"]  = data.stripe_webhook_secret
