@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 import httpx
 from jinja2 import Environment, PackageLoader, select_autoescape
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 
@@ -41,19 +42,66 @@ def _render_template(template_name: str, context: dict[str, Any]) -> tuple[str, 
     return html_content, text_content
 
 
-def _get_email_config() -> dict:
-    """Get email configuration from environment / settings."""
+async def _load_email_config_from_db(db: AsyncSession) -> dict:
+    """Load email configuration from the system_config DB table.
+
+    Calls get_runtime_config() from config_service and maps email-relevant
+    keys to the _get_email_config() dict format.
+
+    Returns an empty dict on any error so callers fall back gracefully to
+    environment variables (existing behaviour).
+    """
+    try:
+        from app.services.config_service import get_runtime_config
+        runtime = await get_runtime_config(db)
+        result: dict = {}
+        if runtime.get("RESEND_API_KEY"):
+            result["resend_api_key"] = runtime["RESEND_API_KEY"]
+        if runtime.get("RESEND_FROM_EMAIL"):
+            result["resend_from_email"] = runtime["RESEND_FROM_EMAIL"]
+        if runtime.get("SMTP_HOST"):
+            result["smtp_host"] = runtime["SMTP_HOST"]
+        if runtime.get("SMTP_PORT"):
+            try:
+                result["smtp_port"] = int(runtime["SMTP_PORT"])
+            except (ValueError, TypeError):
+                pass
+        if runtime.get("SMTP_USER"):
+            result["smtp_user"] = runtime["SMTP_USER"]
+        if runtime.get("SMTP_PASSWORD"):
+            result["smtp_password"] = runtime["SMTP_PASSWORD"]
+        if runtime.get("SMTP_TLS") is not None:
+            result["smtp_tls"] = str(runtime["SMTP_TLS"]).lower() == "true"
+        if runtime.get("SMTP_SSL") is not None:
+            result["smtp_ssl"] = str(runtime["SMTP_SSL"]).lower() == "true"
+        logger.debug(f"[EMAIL] Loaded {len(result)} email config keys from DB")
+        return result
+    except Exception as exc:
+        logger.warning(f"[EMAIL] Failed to load email config from DB: {exc}")
+        return {}
+
+
+def _get_email_config(override: Optional[dict] = None) -> dict:
+    """Get email configuration from environment / settings.
+
+    Args:
+        override: Optional dict of values that take priority over env vars.
+                  Typically loaded from the system_config DB table via
+                  _load_email_config_from_db(). When None, falls back to
+                  environment variables only (original behaviour).
+    """
+    _ov = override or {}
     return {
-        "resend_api_key": os.environ.get("RESEND_API_KEY") or getattr(settings, "RESEND_API_KEY", None),
-        "resend_from_email": os.environ.get("RESEND_FROM_EMAIL") or getattr(settings, "EMAIL_FROM", "info@promechdirectory.com"),
-        "smtp_host": os.environ.get("SMTP_HOST"),
-        "smtp_port": int(os.environ.get("SMTP_PORT", "587")),
-        "smtp_user": os.environ.get("SMTP_USER"),
-        "smtp_password": os.environ.get("SMTP_PASSWORD"),
-        "smtp_tls": os.environ.get("SMTP_TLS", "true").lower() == "true",
-        "smtp_ssl": os.environ.get("SMTP_SSL", "false").lower() == "true",
-        "from_email": os.environ.get("FROM_EMAIL") or getattr(settings, "FROM_EMAIL", "info@promechdirectory.com"),
-        "from_name": os.environ.get("EMAIL_FROM_NAME") or getattr(settings, "EMAIL_FROM_NAME", "ProReadyEngineer"),
+        "resend_api_key": _ov.get("resend_api_key") or os.environ.get("RESEND_API_KEY") or getattr(settings, "RESEND_API_KEY", None),
+        "resend_from_email": _ov.get("resend_from_email") or os.environ.get("RESEND_FROM_EMAIL") or getattr(settings, "EMAIL_FROM", "info@promechdirectory.com"),
+        "smtp_host": _ov.get("smtp_host") or os.environ.get("SMTP_HOST"),
+        "smtp_port": _ov.get("smtp_port") or int(os.environ.get("SMTP_PORT", "587")),
+        "smtp_user": _ov.get("smtp_user") or os.environ.get("SMTP_USER"),
+        "smtp_password": _ov.get("smtp_password") or os.environ.get("SMTP_PASSWORD"),
+        "smtp_tls": _ov["smtp_tls"] if "smtp_tls" in _ov else os.environ.get("SMTP_TLS", "true").lower() == "true",
+        "smtp_ssl": _ov["smtp_ssl"] if "smtp_ssl" in _ov else os.environ.get("SMTP_SSL", "false").lower() == "true",
+        "from_email": _ov.get("from_email") or os.environ.get("FROM_EMAIL") or getattr(settings, "FROM_EMAIL", "info@promechdirectory.com"),
+        "from_name": _ov.get("from_name") or os.environ.get("EMAIL_FROM_NAME") or getattr(settings, "EMAIL_FROM_NAME", "ProReadyEngineer"),
     }
 
 
@@ -157,6 +205,7 @@ async def _send_email_now(
     text_content: Optional[str],
     from_email: Optional[str] = None,
     reply_to: Optional[str] = None,
+    db: Optional[AsyncSession] = None,
 ) -> bool:
     """
     Attempt to deliver an email immediately.
@@ -166,9 +215,19 @@ async def _send_email_now(
       2. SMTP        (if SMTP_HOST is set)
       3. Console WARNING  (fallback — email is NOT sent)
 
+    Args:
+        db: Optional AsyncSession. When provided, email configuration is
+            loaded from the system_config DB table (admin panel settings)
+            and takes priority over environment variables.
+
     Returns True if the email was actually delivered.
     """
-    cfg = _get_email_config()
+    # Load DB config override when a session is available
+    db_override: Optional[dict] = None
+    if db is not None:
+        db_override = await _load_email_config_from_db(db)
+
+    cfg = _get_email_config(override=db_override)
     effective_from = from_email or cfg["from_email"]
     from_name = cfg["from_name"]
 
@@ -216,12 +275,14 @@ async def _send_email_now(
     logger.warning(
         "EMAIL NOT SENT (no delivery method configured). "
         f"To={to} | Subject={subject!r} | "
-        "Set RESEND_API_KEY or SMTP_HOST environment variables to enable delivery."
+        "Set RESEND_API_KEY or SMTP_HOST environment variables "
+        "(or configure via admin panel) to enable delivery."
     )
     if text_content:
         logger.warning(f"Email body preview:
 {text_content[:500]}")
     return False
+
 
 async def send_email(
     to: str | list[str],
@@ -230,6 +291,7 @@ async def send_email(
     context: dict[str, Any],
     from_email: Optional[str] = None,
     reply_to: Optional[str] = None,
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Send templated email immediately via Resend / SMTP / console fallback.
 
@@ -240,6 +302,8 @@ async def send_email(
         context: Template variables.
         from_email: Sender email override.
         reply_to: Reply-to address.
+        db: Optional AsyncSession for loading config from DB (admin panel
+            settings take priority over environment variables when provided).
 
     Returns:
         uuid.UUID: Email tracking ID (generated locally).
@@ -256,6 +320,7 @@ async def send_email(
         text_content=text_content,
         from_email=from_email,
         reply_to=reply_to,
+        db=db,
     )
 
     if not delivered:
@@ -405,12 +470,15 @@ async def send_welcome_email(
 async def send_password_reset_email(
     email: str,
     reset_token: str,
+    db: Optional[AsyncSession] = None,
 ) -> uuid.UUID:
     """Send password reset email.
 
     Args:
         email: User email.
         reset_token: Password reset token.
+        db: Optional AsyncSession for loading email config from DB
+            (admin panel settings take priority over env vars when provided).
 
     Returns:
         uuid.UUID: Email tracking ID.
@@ -429,6 +497,7 @@ async def send_password_reset_email(
         template="password_reset",
         subject=subject,
         context=context,
+        db=db,
     )
 
 

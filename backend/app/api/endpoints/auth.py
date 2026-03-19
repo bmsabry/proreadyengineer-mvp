@@ -274,7 +274,7 @@ async def password_forgot(
     if user:
         token = await generate_password_reset_token(db, user.id)
         from app.services.email_service import send_password_reset_email
-        await send_password_reset_email(data.email, token)
+        await send_password_reset_email(data.email, token, db=db)
 
     # Always return success to prevent email enumeration
     return {"message": "If email exists, reset link sent"}
