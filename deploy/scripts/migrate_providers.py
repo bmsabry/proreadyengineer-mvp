@@ -137,7 +137,7 @@ async def migrate_data():
                 provider = Provider(
                     id=row_dict.get('id'),
                     name=name,
-                    firm_name=row_dict.get('firm_name'),
+                    firm_name=row_dict.get('firm_name') or name,
                     website=row_dict.get('website'),
                     phone=row_dict.get('phone'),
                     address=row_dict.get('address'),
