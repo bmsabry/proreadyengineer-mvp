@@ -218,7 +218,7 @@ function SearchPageContent() {
   };
   const handleStartRfq = () => {
     setIsRequestingQuote(true);
-    router.push(`/rfq/new?q=${encodeURIComponent(query)}`);
+    router.push(`/customer/rfq/new?q=${encodeURIComponent(query)}`);
   };
   const getTierBadgeClass = (tier: string) => {
     switch ((tier || '').toUpperCase()) {
