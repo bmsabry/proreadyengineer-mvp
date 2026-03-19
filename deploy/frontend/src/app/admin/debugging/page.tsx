@@ -166,6 +166,58 @@ function AIPipelineBanner({ pipeline }: { pipeline: PipelineInfo }) {
       )}
 
 
+      {/* ---- Test Document Collapse LLM ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>📄</span> Test Document Collapse LLM
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Send a test prompt to the Document Collapse LLM to verify connectivity. This model is used to collapse attached RFQ/scope-of-work documents into a single summary sentence.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="flex-1 border rounded px-3 py-2 text-sm"
+              placeholder="Enter a test prompt..."
+              value={docLlmPrompt}
+              onChange={(e) => setDocLlmPrompt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') testDocLlm(); }}
+            />
+            <Button onClick={testDocLlm} disabled={docLlmLoading} size="sm">
+              {docLlmLoading ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Sending...</> : '🚀 Send'}
+            </Button>
+          </div>
+          {docLlmResult && (
+            <div className={`rounded-md border p-3 text-sm ${
+              docLlmResult.success
+                ? 'border-green-200 bg-green-50 text-green-800'
+                : 'border-red-200 bg-red-50 text-red-800'
+            }`}>
+              {docLlmResult.success ? (
+                <div className="space-y-2">
+                  <p className="font-semibold text-green-700">✅ Document Collapse LLM responded successfully</p>
+                  <p><span className="font-medium">Model:</span> <code className="bg-green-100 px-1 rounded text-xs">{docLlmResult.model}</code></p>
+                  <div className="bg-white border border-green-200 rounded p-2 text-gray-800 whitespace-pre-wrap">{docLlmResult.response}</div>
+                  {docLlmResult.usage && (
+                    <p className="text-xs text-gray-500">
+                      Tokens used: {docLlmResult.usage.prompt_tokens} prompt + {docLlmResult.usage.completion_tokens} completion
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-1">
+                  <p className="font-semibold">❌ Document Collapse LLM call failed</p>
+                  <p className="font-mono text-xs break-all">{docLlmResult.error}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
     </div>
   );
 }
@@ -213,6 +265,9 @@ export default function DebuggingPage() {
   const [llmPrompt, setLlmPrompt] = useState('In one sentence, what is gas turbine combustion?');
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmResult, setLlmResult] = useState<any | null>(null);
+  const [docLlmPrompt, setDocLlmPrompt] = useState('In one sentence, describe the purpose of a heat exchanger in an HVAC system.');
+  const [docLlmLoading, setDocLlmLoading] = useState(false);
+  const [docLlmResult, setDocLlmResult] = useState<any | null>(null);
 
 
 
@@ -278,6 +333,19 @@ export default function DebuggingPage() {
       setLlmResult({ success: false, error: err?.message || 'Unknown error' });
     } finally {
       setLlmLoading(false);
+    }
+  };
+
+  const testDocLlm = async () => {
+    setDocLlmLoading(true);
+    setDocLlmResult(null);
+    try {
+      const r = await api.admin.testDocLlm(docLlmPrompt.trim() || 'In one sentence, describe the purpose of a heat exchanger in an HVAC system.');
+      setDocLlmResult(r.data);
+    } catch (err: any) {
+      setDocLlmResult({ success: false, error: err?.message || 'Unknown error' });
+    } finally {
+      setDocLlmLoading(false);
     }
   };
 
@@ -1027,12 +1095,12 @@ export default function DebuggingPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <span>🤖</span> Test LLM (DeepInfra)
+            <span>🤖</span> Test Firm Ranking LLM (Pass 1 &amp; Pass 2)
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Send a test prompt to the configured LLM model to verify DeepInfra API connectivity.
+            Send a test prompt to the Firm Ranking LLM (used in Pass 1 &amp; Pass 2) to verify API connectivity.
           </p>
           <div className="flex gap-2">
             <input

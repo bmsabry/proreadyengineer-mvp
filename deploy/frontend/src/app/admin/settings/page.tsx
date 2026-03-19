@@ -23,6 +23,11 @@ interface ServerConfig {
   openai_llm_model_set: boolean
   openai_embedding_model: string
   openai_embedding_model_set: boolean
+  doc_llm_api_key_set: boolean
+  doc_llm_api_base: string
+  doc_llm_api_base_set: boolean
+  doc_llm_model: string
+  doc_llm_model_set: boolean
   stripe_secret_key_set: boolean
   stripe_webhook_secret_set: boolean
   stripe_publishable_key: string
@@ -86,6 +91,7 @@ const SECRET_FIELDS: (keyof FormFields)[] = [
   'paypal_plan_provider_profile', 'paypal_plan_advertisement',
   'aws_access_key_id', 'aws_secret_access_key',
   'resend_api_key', 'signwell_api_key',
+  'doc_llm_api_key',
 ]
 
 const EMPTY_FORM: FormFields = {
@@ -93,6 +99,9 @@ const EMPTY_FORM: FormFields = {
   openai_api_base: '',
   openai_llm_model: '',
   openai_embedding_model: '',
+  doc_llm_api_key: '',
+  doc_llm_api_base: '',
+  doc_llm_model: '',
   stripe_secret_key: '',
   stripe_publishable_key: '',
   stripe_webhook_secret: '',
@@ -122,6 +131,8 @@ function populateFormFromConfig(cfg: ServerConfig): Partial<FormFields> {
     openai_api_base: cfg.openai_api_base || '',
     openai_llm_model: cfg.openai_llm_model || '',
     openai_embedding_model: cfg.openai_embedding_model || '',
+    doc_llm_api_base: cfg.doc_llm_api_base || '',
+    doc_llm_model: cfg.doc_llm_model || '',
     stripe_publishable_key: cfg.stripe_publishable_key || '',
     paypal_mode: cfg.paypal_mode || '',
     aws_region: cfg.aws_region || '',
@@ -238,6 +249,9 @@ export default function AdminSettingsPage() {
       openai_api_base: 'openai_api_base_set',
       openai_llm_model: 'openai_llm_model_set',
       openai_embedding_model: 'openai_embedding_model_set',
+      doc_llm_api_key: 'doc_llm_api_key_set',
+      doc_llm_api_base: 'doc_llm_api_base_set',
+      doc_llm_model: 'doc_llm_model_set',
       stripe_secret_key: 'stripe_secret_key_set',
       stripe_webhook_secret: 'stripe_webhook_secret_set',
       stripe_publishable_key: 'stripe_publishable_key_set',
@@ -369,55 +383,103 @@ export default function AdminSettingsPage() {
 
         {/* ── AI / Search ── */}
         <TabsContent value='ai'>
-          <Card>
-            <CardHeader>
-              <CardTitle className='flex items-center gap-2'>
-                <Brain className='w-5 h-5' />
-                AI / Search Configuration
-              </CardTitle>
-              <CardDescription>
-                OpenAI API credentials for search embedding and LLM extraction.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className='space-y-4'>
-              <FieldRow
-                label='OpenAI API Key'
-                fieldName='openai_api_key'
-                value={form.openai_api_key}
-                onChange={handleChange}
-                isSet={isFieldSet('openai_api_key')}
-                isSecret
-                hint='Used for embeddings and LLM extraction.'
-              />
-              <FieldRow
-                label='OpenAI API Base URL'
-                fieldName='openai_api_base'
-                value={form.openai_api_base}
-                onChange={handleChange}
-                isSet={isFieldSet('openai_api_base')}
-                placeholder='https://api.openai.com/v1'
-                hint='Leave blank to use the default OpenAI endpoint.'
-              />
-              <FieldRow
-                label='LLM Model'
-                fieldName='openai_llm_model'
-                value={form.openai_llm_model}
-                onChange={handleChange}
-                isSet={isFieldSet('openai_llm_model')}
-                placeholder='gpt-4o'
-                hint='Model used for structured extraction from customer queries.'
-              />
-              <FieldRow
-                label='Embedding Model'
-                fieldName='openai_embedding_model'
-                value={form.openai_embedding_model}
-                onChange={handleChange}
-                isSet={isFieldSet('openai_embedding_model')}
-                placeholder='text-embedding-3-small'
-                hint='Model used for provider and query embeddings.'
-              />
-            </CardContent>
-          </Card>
+          <div className='space-y-6'>
+            {/* ── LLM 2: Firm Ranking ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <Brain className='w-5 h-5' />
+                  Firm Ranking LLM — Pass 1 &amp; Pass 2
+                </CardTitle>
+                <CardDescription>
+                  Used to analyze the customer&apos;s search query and rank/arrange matching engineering firms. Configure the API endpoint and model for this pipeline.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                <FieldRow
+                  label='API Key'
+                  fieldName='openai_api_key'
+                  value={form.openai_api_key}
+                  onChange={handleChange}
+                  isSet={isFieldSet('openai_api_key')}
+                  isSecret
+                  hint='API key for the firm ranking LLM (Pass 1 & Pass 2 pipeline).'
+                />
+                <FieldRow
+                  label='API Base URL'
+                  fieldName='openai_api_base'
+                  value={form.openai_api_base}
+                  onChange={handleChange}
+                  isSet={isFieldSet('openai_api_base')}
+                  placeholder='https://api.deepinfra.com/v1/openai'
+                  hint='Base URL of the firm ranking LLM provider endpoint.'
+                />
+                <FieldRow
+                  label='Model Name'
+                  fieldName='openai_llm_model'
+                  value={form.openai_llm_model}
+                  onChange={handleChange}
+                  isSet={isFieldSet('openai_llm_model')}
+                  placeholder='moonshotai/Kimi-K2.5'
+                  hint='Model used for Pass 1 & Pass 2 firm ranking and arrangement.'
+                />
+                <div className='border-t pt-4'>
+                  <p className='text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3'>Embeddings (LLM 1 — managed via Render, no changes needed here)</p>
+                  <FieldRow
+                    label='Embedding Model'
+                    fieldName='openai_embedding_model'
+                    value={form.openai_embedding_model}
+                    onChange={handleChange}
+                    isSet={isFieldSet('openai_embedding_model')}
+                    placeholder='BAAI/bge-large-en-v1.5'
+                    hint='Model used for provider and query vector embeddings. Managed via Render.'
+                  />
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ── LLM 3: Document Collapse ── */}
+            <Card>
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <Brain className='w-5 h-5' />
+                  Document Collapse LLM
+                </CardTitle>
+                <CardDescription>
+                  Used to collapse attached RFQ/scope-of-work documents into a single summary sentence. This is a separate model from the firm ranking LLM above.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className='space-y-4'>
+                <FieldRow
+                  label='API Key'
+                  fieldName='doc_llm_api_key'
+                  value={form.doc_llm_api_key}
+                  onChange={handleChange}
+                  isSet={isFieldSet('doc_llm_api_key')}
+                  isSecret
+                  hint='API key for the document collapse LLM.'
+                />
+                <FieldRow
+                  label='API Base URL'
+                  fieldName='doc_llm_api_base'
+                  value={form.doc_llm_api_base}
+                  onChange={handleChange}
+                  isSet={isFieldSet('doc_llm_api_base')}
+                  placeholder='https://api.openai.com/v1'
+                  hint='Base URL of the document collapse LLM provider endpoint.'
+                />
+                <FieldRow
+                  label='Model Name'
+                  fieldName='doc_llm_model'
+                  value={form.doc_llm_model}
+                  onChange={handleChange}
+                  isSet={isFieldSet('doc_llm_model')}
+                  placeholder='gpt-4o-mini'
+                  hint='Model used for document collapse (RFQ/scope-of-work summarization).'
+                />
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* ── Payments ── */}
