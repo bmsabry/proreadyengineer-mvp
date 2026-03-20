@@ -2,27 +2,15 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { AdminRFQDispatchTracking, AdminDispatchProvider } from '@/types';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import {
-  Table, TableBody, TableCell, TableHead,
-  TableHeader, TableRow,
-} from '@/components/ui/table';
-import { formatDate, getRFQStatusBadgeColor } from '@/lib/utils';
-import {
-  AlertTriangle, ArrowLeft, CheckCircle2, Clock,
-  RefreshCw, XCircle, Users, Mail, FileText, BarChart3,
-} from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ArrowLeft } from 'lucide-react';
 
 export default function AdminRFQDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { isLoading: authLoading } = useRequireAuth(['admin']);
+  const { user, isLoading: authLoading } = useRequireAuth(['admin']);
   const rfqId = params.id as string;
 
   const [data, setData] = useState<AdminRFQDispatchTracking | null>(null);
@@ -35,29 +23,38 @@ export default function AdminRFQDetailPage() {
 
   const fetchTracking = useCallback(async () => {
     if (!rfqId) return;
+    setError(null);
     try {
       const res = await api.admin.getRFQDispatchTracking(rfqId);
       setData(res.data);
       setLastUpdated(new Date());
-      setError(null);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Failed to load RFQ tracking data.');
+      setError(err?.response?.data?.detail || 'Failed to load RFQ tracking data');
     } finally {
       setLoading(false);
     }
   }, [rfqId]);
 
   useEffect(() => {
-    if (!authLoading && rfqId) fetchTracking();
-  }, [authLoading, rfqId, fetchTracking]);
+    if (!authLoading && user) {
+      fetchTracking();
+    }
+  }, [authLoading, user, fetchTracking]);
+
+  // Auto-refresh every 10 seconds while RFQ is not closed
+  useEffect(() => {
+    if (!data || data.is_closed) return;
+    const interval = setInterval(fetchTracking, 10000);
+    return () => clearInterval(interval);
+  }, [data, fetchTracking]);
 
   const handleTerminate = async () => {
-    if (!confirm('Stop all future dispatch for this RFQ? No more provider emails will be sent.')) return;
+    if (!confirm('Stop dispatch for this RFQ? No further provider emails will be sent.')) return;
     setTerminating(true);
     setActionMessage(null);
     try {
       await api.admin.terminateRFQDispatch(rfqId);
-      setActionMessage({ text: 'Dispatch terminated successfully.', ok: true });
+      setActionMessage({ text: 'Dispatch terminated. No further emails will be sent.', ok: true });
       await fetchTracking();
     } catch (err: any) {
       setActionMessage({ text: err?.response?.data?.detail || 'Failed to terminate dispatch.', ok: false });
@@ -67,11 +64,11 @@ export default function AdminRFQDetailPage() {
   };
 
   const handleForceClose = async () => {
-    if (!confirm('Force close this RFQ? This will stop all activity and mark it as closed.')) return;
+    if (!confirm('Force close this RFQ? This will stop all activity and mark it as cancelled.')) return;
     setForceClosing(true);
     setActionMessage(null);
     try {
-      await api.admin.forceCloseRFQ(rfqId);
+      await api.admin.overrideRFQStatus(rfqId, 'cancelled');
       setActionMessage({ text: 'RFQ force closed successfully.', ok: true });
       await fetchTracking();
     } catch (err: any) {
@@ -100,23 +97,34 @@ export default function AdminRFQDetailPage() {
     }
   };
 
-  const getUnlockStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800 border-green-200';
-      case 'pending': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'failed': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-gray-100 text-gray-600 border-gray-200';
+  const getTierColor = (tier: string | null) => {
+    switch (tier) {
+      case 'A': return 'bg-emerald-100 text-emerald-800 font-bold';
+      case 'B': return 'bg-blue-100 text-blue-800 font-bold';
+      case 'C': return 'bg-yellow-100 text-yellow-800 font-bold';
+      case 'D': return 'bg-orange-100 text-orange-800 font-bold';
+      case 'E': return 'bg-red-100 text-red-800 font-bold';
+      default: return 'bg-gray-100 text-gray-600';
     }
   };
 
-  const getQuoteStatusColor = (status: string) => {
+  const getRFQStatusColor = (status: string) => {
     switch (status) {
-      case 'submitted': return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'accepted': return 'bg-green-100 text-green-800 border-green-200';
-      case 'withdrawn': return 'bg-red-100 text-red-800 border-red-200';
-      case 'draft': return 'bg-gray-100 text-gray-600 border-gray-200';
-      default: return 'bg-gray-100 text-gray-600 border-gray-200';
+      case 'open_for_dispatch':
+      case 'dispatching':
+      case 'open_for_unlock': return 'bg-blue-100 text-blue-800';
+      case 'quote_limit_reached':
+      case 'customer_selected_provider': return 'bg-green-100 text-green-800';
+      case 'cancelled':
+      case 'closed_no_selection': return 'bg-red-100 text-red-800';
+      case 'submitted': return 'bg-yellow-100 text-yellow-800';
+      default: return 'bg-gray-100 text-gray-600';
     }
+  };
+
+  const formatDate = (iso: string | null) => {
+    if (!iso) return '--';
+    return new Date(iso).toLocaleString();
   };
 
   if (authLoading || loading) {
@@ -127,180 +135,207 @@ export default function AdminRFQDetailPage() {
     );
   }
 
-  const rfq = data?.rfq;
   const providers: AdminDispatchProvider[] = data?.providers ?? [];
-
   return (
     <div className="p-6 space-y-6">
       {/* Back + Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <Button variant="ghost" size="sm" onClick={() => router.push('/admin/rfqs')} className="flex items-center gap-2 -ml-2 mb-1 text-gray-500 hover:text-gray-700">
+          <button
+            onClick={() => router.push('/admin/rfqs')}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-2"
+          >
             <ArrowLeft className="h-4 w-4" />
             Back to RFQs
-          </Button>
+          </button>
           <h1 className="text-2xl font-bold text-gray-900">RFQ Dispatch Tracking</h1>
-          <p className="text-sm text-gray-500">Real-time view of dispatch batches, provider engagement, unlocks, and quotes</p>
+          {data && (
+            <div className="flex items-center gap-2 mt-1">
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${getRFQStatusColor(data.rfq_status)}`}>
+                {data.rfq_status.replace(/_/g, ' ').toUpperCase()}
+              </span>
+              {lastUpdated && (
+                <span className="text-xs text-gray-400">Updated {lastUpdated.toLocaleTimeString()}</span>
+              )}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {lastUpdated && <span className="text-xs text-gray-400">Updated {lastUpdated.toLocaleTimeString()}</span>}
-          <Button variant="outline" size="sm" onClick={fetchTracking} className="flex items-center gap-2">
-            <RefreshCw className="h-4 w-4" />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchTracking}
+            disabled={loading}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+          >
             Refresh
-          </Button>
-          {rfq && !rfq.is_closed && (
+          </button>
+          {data && !data.is_closed && (
             <>
-              <Button variant="outline" size="sm" onClick={handleTerminate} disabled={terminating} className="flex items-center gap-2 border-orange-300 text-orange-700 hover:bg-orange-50">
-                {terminating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                Stop Dispatch
-              </Button>
-              <Button variant="destructive" size="sm" onClick={handleForceClose} disabled={forceClosing} className="flex items-center gap-2">
-                {forceClosing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-                Force Close
-              </Button>
+              <button
+                onClick={handleTerminate}
+                disabled={terminating}
+                className="px-3 py-1.5 text-sm bg-orange-600 text-white rounded-md hover:bg-orange-700 disabled:opacity-50"
+              >
+                {terminating ? 'Stopping...' : 'Stop Dispatch'}
+              </button>
+              <button
+                onClick={handleForceClose}
+                disabled={forceClosing}
+                className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
+              >
+                {forceClosing ? 'Closing...' : 'Force Close RFQ'}
+              </button>
             </>
           )}
         </div>
       </div>
 
-      {/* Action Message */}
+      {/* Action messages */}
       {actionMessage && (
-        <div className={`flex items-center gap-3 p-4 rounded-lg border ${actionMessage.ok ? 'bg-green-50 border-green-200 text-green-700' : 'bg-red-50 border-red-200 text-red-700'}`}>
-          <AlertTriangle className="h-5 w-5 flex-shrink-0" />
-          <span>{actionMessage.text}</span>
-          <button className="ml-auto text-xs underline" onClick={() => setActionMessage(null)}>Dismiss</button>
+        <div className={`p-3 rounded-md text-sm ${actionMessage.ok ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+          {actionMessage.text}
         </div>
       )}
-
-      {/* Error */}
       {error && (
-        <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          <AlertTriangle className="h-5 w-5 flex-shrink-0" />
-          <span>{error}</span>
+        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-800 text-sm">
+          {error}
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card><CardContent className="pt-5 pb-4"><div className="flex items-center gap-3"><div className="p-2 bg-blue-100 rounded-lg"><Users className="h-5 w-5 text-blue-600" /></div><div><p className="text-xs text-gray-500">Providers Dispatched</p><p className="text-2xl font-bold text-gray-900">{providers.length}</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-5 pb-4"><div className="flex items-center gap-3"><div className="p-2 bg-green-100 rounded-lg"><Mail className="h-5 w-5 text-green-600" /></div><div><p className="text-xs text-gray-500">Emails Sent</p><p className="text-2xl font-bold text-gray-900">{providers.filter((p) => p.dispatch_status === 'sent').length}</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-5 pb-4"><div className="flex items-center gap-3"><div className="p-2 bg-indigo-100 rounded-lg"><FileText className="h-5 w-5 text-indigo-600" /></div><div><p className="text-xs text-gray-500">Quotes Received</p><p className="text-2xl font-bold text-gray-900">{rfq?.quote_count ?? 0}</p></div></div></CardContent></Card>
-        <Card><CardContent className="pt-5 pb-4"><div className="flex items-center gap-3"><div className="p-2 bg-purple-100 rounded-lg"><BarChart3 className="h-5 w-5 text-purple-600" /></div><div><p className="text-xs text-gray-500">Unlocks</p><p className="text-2xl font-bold text-gray-900">{providers.filter((p) => p.unlock_status === 'completed').length}</p></div></div></CardContent></Card>
-      </div>
+      {data && (
+        <>
+          {/* RFQ Details Card */}
+          <div className="bg-white rounded-lg border border-gray-200 p-5">
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">RFQ Details</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2">
+              <div className="flex gap-2">
+                <span className="text-xs text-gray-500 w-32 shrink-0">RFQ ID:</span>
+                <span className="text-sm font-mono text-gray-700 break-all">{data.rfq_id}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-xs text-gray-500 w-32 shrink-0">Customer Email:</span>
+                <span className="text-sm text-gray-900">{data.customer_email}</span>
+              </div>
+              {data.business_name && (
+                <div className="flex gap-2">
+                  <span className="text-xs text-gray-500 w-32 shrink-0">Business:</span>
+                  <span className="text-sm text-gray-900">{data.business_name}</span>
+                </div>
+              )}
+              <div className="flex gap-2">
+                <span className="text-xs text-gray-500 w-32 shrink-0">Urgency:</span>
+                <span className="text-sm text-gray-900">{data.urgency || '--'}</span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-xs text-gray-500 w-32 shrink-0">NDA Required:</span>
+                <span className={`text-sm font-medium ${data.nda_required ? 'text-orange-600' : 'text-gray-600'}`}>
+                  {data.nda_required ? 'Yes' : 'No'}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-xs text-gray-500 w-32 shrink-0">Submitted:</span>
+                <span className="text-sm text-gray-700">{formatDate(data.submitted_at)}</span>
+              </div>
+              <div className="flex gap-2 md:col-span-2">
+                <span className="text-xs text-gray-500 w-32 shrink-0">Description:</span>
+                <span className="text-sm text-gray-700">{data.project_description}</span>
+              </div>
+            </div>
+          </div>
 
-      {/* RFQ Details Card */}
-      {rfq && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              RFQ Details
-              <Badge className={`ml-2 text-xs ${getRFQStatusBadgeColor(rfq.rfq_status)}`}>{rfq.rfq_status?.replace(/_/g, ' ')}</Badge>
-              {rfq.is_closed && <Badge variant="outline" className="text-xs text-gray-500">Closed</Badge>}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid grid-cols-1 md:grid-cols-3 gap-x-6 gap-y-4 text-sm">
-              <div><dt className="text-xs font-medium text-gray-500 uppercase tracking-wide">Customer Email</dt>
-              <dd className='text-gray-900 mt-0.5'>{rfq.customer_email || '—'}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500 uppercase tracking-wide">Business</dt>
-              <dd className='text-gray-900 mt-0.5'>{rfq.business_name || '—'}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500 uppercase tracking-wide">Urgency</dt>
-              <dd className='text-gray-900 mt-0.5'>{rfq.urgency || '—'}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500 uppercase tracking-wide">NDA Required</dt>
-              <dd className='text-gray-900 mt-0.5'>{rfq.nda_required ? 'Yes' : 'No'}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500 uppercase tracking-wide">Created</dt>
-              <dd className='text-gray-900 mt-0.5'>{rfq.created_at ? formatDate(rfq.created_at) : '—'}</dd></div>
-              <div><dt className="text-xs font-medium text-gray-500 uppercase tracking-wide">Submitted</dt>
-              <dd className='text-gray-900 mt-0.5'>{rfq.submitted_at ? formatDate(rfq.submitted_at) : '—'}</dd></div>
-              <div className="md:col-span-3"><dt className="text-xs font-medium text-gray-500 uppercase tracking-wide">Project Description</dt>
-              <dd className='text-gray-900 mt-1 whitespace-pre-wrap line-clamp-4'>{rfq.project_description || '(none)'}</dd></div>
-            </dl>
-          </CardContent>
-        </Card>
-      )}
+          {/* Stats Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Total Matches', value: data.total_matches, color: 'text-gray-900' },
+              { label: 'Dispatched', value: data.total_contacted, color: 'text-blue-700' },
+              { label: 'Quotes Received', value: data.total_quoted, color: 'text-green-700' },
+              { label: 'Quote Limit', value: `${data.quote_count}/5`, color: 'text-purple-700' },
+            ].map(stat => (
+              <div key={stat.label} className="bg-white rounded-lg border border-gray-200 p-4 text-center">
+                <div className={`text-3xl font-bold ${stat.color}`}>{stat.value}</div>
+                <div className="text-xs text-gray-500 mt-1">{stat.label}</div>
+              </div>
+            ))}
+          </div>
 
-      {/* Dispatch Providers Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            Provider Dispatch Log
-            {providers.length > 0 && (
-              <span className="ml-1 text-sm font-normal text-gray-500">({providers.length} providers)</span>
+          {/* Providers Table */}
+          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-700">Provider Dispatch Details</h2>
+              <span className="text-xs text-gray-500">
+                {providers.length} provider{providers.length !== 1 ? 's' : ''} matched
+              </span>
+            </div>
+            {providers.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-400">
+                No providers matched for this RFQ.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+                      <th className="px-4 py-2 text-left w-12">#</th>
+                      <th className="px-4 py-2 text-left">Provider</th>
+                      <th className="px-4 py-2 text-center w-14">Tier</th>
+                      <th className="px-4 py-2 text-right w-16">Score</th>
+                      <th className="px-4 py-2 text-left">Email</th>
+                      <th className="px-4 py-2 text-center w-24">Status</th>
+                      <th className="px-4 py-2 text-center w-16">Quoted</th>
+                      <th className="px-4 py-2 text-left w-44">Emailed At</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {providers.map((p) => (
+                      <tr key={p.provider_id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 text-gray-400 text-xs font-mono">{p.rank_position}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-gray-900">{p.provider_name || 'Unknown Provider'}</div>
+                          {(p.city || p.state) && (
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              {[p.city, p.state].filter(Boolean).join(', ')}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {p.tier ? (
+                            <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs ${getTierColor(p.tier)}`}>
+                              {p.tier}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300 text-xs">--</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-xs text-gray-700">
+                          {p.composite_score != null ? p.composite_score.toFixed(1) : '--'}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-600 max-w-[180px] truncate">{p.email_target || '--'}</td>
+                        <td className="px-4 py-3 text-center">
+                          {p.dispatch_status ? (
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${getDispatchStatusColor(p.dispatch_status)}`}>
+                              {getDispatchStatusIcon(p.dispatch_status)}
+                              {p.dispatch_status}
+                            </span>
+                          ) : (
+                            <span className="text-gray-300 text-xs">not sent</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {p.submitted_quote ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500 mx-auto" />
+                          ) : (
+                            <span className="text-gray-200 text-xs">--</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-500">{formatDate(p.teaser_email_sent_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {providers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-32 text-gray-400 gap-2">
-              <Users className="h-8 w-8" />
-              <p className="text-sm">No providers dispatched yet.</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Provider</TableHead>
-                    <TableHead>Batch</TableHead>
-                    <TableHead>Dispatch Status</TableHead>
-                    <TableHead>Email Sent At</TableHead>
-                    <TableHead>Unlock</TableHead>
-                    <TableHead>Quote</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {providers.map((p) => (
-                    <TableRow key={p.provider_id}>
-                      <TableCell>
-                        <div className="font-medium text-sm text-gray-900">
-                          {p.provider_name || p.provider_id}
-                        </div>
-                        {p.email_target && (
-                          <div className="text-xs text-gray-500 truncate max-w-xs">{p.email_target}</div>
-                        )}
-                      </TableCell>
-                      <TableCell className='text-sm text-gray-600'>
-                        {p.batch_number != null ? p.batch_number : '—'}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          {getDispatchStatusIcon(p.dispatch_status)}
-                          <Badge variant="outline" className={`text-xs ${getDispatchStatusColor(p.dispatch_status)}`}>
-                            {p.dispatch_status || '—'}
-                          </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs text-gray-600 whitespace-nowrap">
-                        {p.teaser_email_sent_at ? formatDate(p.teaser_email_sent_at) : '—'}
-                      </TableCell>
-                      <TableCell>
-                        {p.unlock_status ? (
-                          <Badge variant="outline" className={`text-xs ${getUnlockStatusColor(p.unlock_status)}`}>
-                            {p.unlock_status}
-                          </Badge>
-                        ) : (
-                          <span className='text-gray-400 text-xs'>—</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {p.quote_status ? (
-                          <Badge variant="outline" className={`text-xs ${getQuoteStatusColor(p.quote_status)}`}>
-                            {p.quote_status}
-                          </Badge>
-                        ) : (
-                          <span className='text-gray-400 text-xs'>—</span>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 }
