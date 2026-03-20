@@ -9,7 +9,7 @@ import { AdminRFQDispatchTracking, AdminDispatchProvider } from '@/types';
 export default function AdminRFQDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { user, loading: authLoading } = useRequireAuth(['admin']);
+  const { user, isLoading: authLoading } = useRequireAuth(['admin']);
   const rfqId = params.id as string;
 
   const [data, setData] = useState<AdminRFQDispatchTracking | null>(null);
@@ -247,9 +247,6 @@ export default function AdminRFQDetailPage() {
                           <td className="px-4 py-3 text-gray-500 font-mono">{p.rank_position}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium text-gray-900">{p.provider_name}</div>
-                            {p.primary_specialty && (
-                              <div className="text-xs text-gray-500">{p.primary_specialty}</div>
-                            )}
                           </td>
                           <td className="px-4 py-3">
                             {p.tier ? (
@@ -263,23 +260,14 @@ export default function AdminRFQDetailPage() {
                           <td className="px-4 py-3 text-gray-700 font-mono">
                             {p.composite_score !== null ? p.composite_score.toFixed(1) : '—'}
                           </td>
-                          <td className="px-4 py-3 text-gray-600">
-                            {p.batch_number !== null ? `Batch ${p.batch_number}` : '—'}
-                          </td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(p.dispatch_status)}`}>
                               {p.dispatch_status}
                             </span>
                           </td>
+
                           <td className="px-4 py-3 text-center">
-                            {p.has_unlocked ? (
-                              <span className="text-green-600 text-base">&#10003;</span>
-                            ) : (
-                              <span className="text-gray-300 text-base">&#10007;</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-center">
-                            {p.has_quoted ? (
+                            {p.submitted_quote ? (
                               <span className="text-green-600 text-base">&#10003;</span>
                             ) : (
                               <span className="text-gray-300 text-base">&#10007;</span>
