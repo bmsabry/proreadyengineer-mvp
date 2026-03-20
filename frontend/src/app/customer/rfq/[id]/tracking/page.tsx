@@ -192,9 +192,13 @@ export default function RFQTrackingPage() {
     if (isManual) setRefreshing(true);
     try {
       const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000") + "/api/v1";
-      const res = await fetch(`${apiBase}/rfqs/customer/rfqs/${rfqId}/tracking`, {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      const res = await fetch(`${apiBase}/customer/rfqs/${rfqId}/tracking`, {
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        },
       });
       if (res.status === 401) { router.push("/login"); return; }
       if (res.status === 403) { setError("Not authorized to view this RFQ."); return; }
