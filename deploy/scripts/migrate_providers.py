@@ -117,6 +117,15 @@ async def migrate_data():
         # This ensures idempotent re-runs without duplicate key errors
         if existing > 0:
             print(f"Clearing {existing} existing providers for fresh migration...")
+            # Delete dependent tables first (FK constraints)
+            print("Clearing dependent tables...")
+            await session.execute(text("DELETE FROM rfq_matches"))
+            await session.execute(text("DELETE FROM rfq_unlocks"))
+            await session.execute(text("DELETE FROM rfq_provider_dispatches"))
+            await session.execute(text("DELETE FROM quotes"))
+            await session.execute(text("DELETE FROM tier_evaluation_requests"))
+            await session.execute(text("DELETE FROM provider_memberships"))
+            await session.execute(text("DELETE FROM provider_claim_requests"))
             await session.execute(text("DELETE FROM providers"))
             await session.commit()
             print("Cleared. Starting fresh migration...")
