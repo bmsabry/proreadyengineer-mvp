@@ -18,7 +18,7 @@ from app.models.advertising import Advertisement
 from app.models.payment import PaymentAttempt, WebhookEvent
 from app.models.provider import Provider, ProviderMembership, ProviderClaimRequest
 from app.models.admin import TierEvaluationRequest, AuditLog
-from app.models.rfq import RFQ, RFQProviderDispatch
+from app.models.rfq import RFQ, RFQDispatch
 from app.models.search import SearchRequest
 from app.models.user import User
 from app.schemas.advertising import AdvertisementResponse
@@ -2205,26 +2205,26 @@ async def admin_extract_rfq_dispatches(
     try:
         stmt = (
             select(
-                RFQProviderDispatch.id,
-                RFQProviderDispatch.rfq_id,
-                RFQProviderDispatch.provider_id,
-                RFQProviderDispatch.email_target,
-                RFQProviderDispatch.dispatch_status,
-                RFQProviderDispatch.teaser_email_sent_at,
+                RFQDispatch.id,
+                RFQDispatch.rfq_id,
+                RFQDispatch.provider_id,
+                RFQDispatch.email_target,
+                RFQDispatch.dispatch_status,
+                RFQDispatch.teaser_email_sent_at,
                 RFQ.project_description,
                 RFQ.urgency,
                 RFQ.rfq_status,
                 RFQ.created_at.label("rfq_created_at"),
                 Provider.firm_name,
             )
-            .join(RFQ, RFQProviderDispatch.rfq_id == RFQ.id)
-            .join(Provider, RFQProviderDispatch.provider_id == Provider.id)
-            .order_by(RFQProviderDispatch.teaser_email_sent_at.desc().nullslast())
+            .join(RFQ, RFQDispatch.rfq_id == RFQ.id)
+            .join(Provider, RFQDispatch.provider_id == Provider.id)
+            .order_by(RFQDispatch.teaser_email_sent_at.desc().nullslast())
             .limit(limit)
         )
         if rfq_id:
             import uuid as _uuid
-            stmt = stmt.where(RFQProviderDispatch.rfq_id == _uuid.UUID(rfq_id))
+            stmt = stmt.where(RFQDispatch.rfq_id == _uuid.UUID(rfq_id))
 
         result = await db.execute(stmt)
         rows = result.mappings().all()
