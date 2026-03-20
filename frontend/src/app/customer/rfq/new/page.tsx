@@ -70,7 +70,9 @@ function CreateRFQForm() {
     setIsSubmitting(true);
     try {
       const response = await api.rfqs.create(formData);
-      toast.success('RFQ created! Suppliers are being contacted...');
+      // Submit triggers AI search + dispatch (or NDA payment flow)
+      await api.rfqs.submit(response.data.id);
+      toast.success('RFQ submitted! Matching providers are being contacted...');
       if (formData.nda_required) {
         router.push(`/customer/rfq/${response.data.id}/nda`);
       } else {
