@@ -129,6 +129,7 @@ async def submit_rfq(
             query=rfq.project_description,
             filters={},
             limit=9999,
+            top_n=None,  # Get ALL ranked providers for dispatch
         )
         logger.info("submit_rfq: search returned %d results rfq_id=%s", len(match_results), rfq_id)
 

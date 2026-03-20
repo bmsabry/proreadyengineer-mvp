@@ -1553,6 +1553,7 @@ async def search_providers(
     query: str,
     filters: dict = None,
     limit: int = 50,
+    top_n: int = 5,
 ) -> tuple:
     """Full two-pass LLM search pipeline.
     Returns (results: List[SearchResultItem], pipeline_info: dict)
@@ -1803,8 +1804,8 @@ async def search_providers(
     # Sort by final score descending
     scored.sort(key=lambda t: t[0], reverse=True)
 
-    # Return top 5
-    results = [item for _, item in scored[:5]]
+    # Return top_n results (None = all)
+    results = [item for _, item in (scored[:top_n] if top_n is not None else scored)]
 
     logger.info(
         '[SEARCH] top-%d results: %s (pipeline=%s pass1=%d pass2=%d)',

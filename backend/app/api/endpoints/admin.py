@@ -173,7 +173,8 @@ async def admin_list_rfqs(
         items=[RFQResponse.from_orm(r) for r in rfqs],
         total=total,
         page=page,
-        size=size
+        page_size=size,
+        pages=max(1, (total + size - 1) // size) if total else 1
     )
 
 
@@ -244,11 +245,17 @@ async def admin_rfq_dispatch_tracking(
     current_user: User = Depends(require_role(["admin"])),
 ):
     """Admin: Get full dispatch tracking for an RFQ - all matched providers with status."""
+    import uuid as _uuid
     from app.models.rfq import RFQMatch
     from app.models.quote import Quote
 
+    try:
+        rfq_uuid = _uuid.UUID(rfq_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid RFQ ID format")
+
     # Get RFQ
-    rfq_result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq_result = await db.execute(select(RFQ).where(RFQ.id == rfq_uuid))
     rfq = rfq_result.scalar_one_or_none()
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
@@ -257,20 +264,20 @@ async def admin_rfq_dispatch_tracking(
     matches_result = await db.execute(
         select(RFQMatch, Provider)
         .join(Provider, RFQMatch.provider_id == Provider.id)
-        .where(RFQMatch.rfq_id == rfq_id)
+        .where(RFQMatch.rfq_id == rfq_uuid)
         .order_by(RFQMatch.rank_position)
     )
     matches = matches_result.all()
 
     # Get all dispatches for this RFQ (keyed by provider_id)
     dispatches_result = await db.execute(
-        select(RFQDispatch).where(RFQDispatch.rfq_id == rfq_id)
+        select(RFQDispatch).where(RFQDispatch.rfq_id == rfq_uuid)
     )
     dispatches = {d.provider_id: d for d in dispatches_result.scalars().all()}
 
     # Get providers who submitted quotes (keyed by provider_id)
     quotes_result = await db.execute(
-        select(Quote).where(Quote.rfq_id == rfq_id)
+        select(Quote).where(Quote.rfq_id == rfq_uuid)
     )
     quoted_providers = {q.provider_id for q in quotes_result.scalars().all()}
 
@@ -340,7 +347,12 @@ async def admin_terminate_rfq_dispatch(
     from app.models.rfq import RfqStatus
     from datetime import timezone
 
-    rfq_result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    import uuid as _uuid
+    try:
+        rfq_uuid = _uuid.UUID(rfq_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid RFQ ID format")
+    rfq_result = await db.execute(select(RFQ).where(RFQ.id == rfq_uuid))
     rfq = rfq_result.scalar_one_or_none()
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
@@ -403,7 +415,8 @@ async def admin_list_payments(
         items=[PaymentAttemptResponse.from_orm(p) for p in payments],
         total=total,
         page=page,
-        size=size
+        page_size=size,
+        pages=max(1, (total + size - 1) // size) if total else 1
     )
 
 
@@ -436,7 +449,8 @@ async def admin_list_webhooks(
         items=[WebhookEventResponse.from_orm(e) for e in events],
         total=total,
         page=page,
-        size=size
+        page_size=size,
+        pages=max(1, (total + size - 1) // size) if total else 1
     )
 
 
@@ -495,7 +509,8 @@ async def admin_list_tier_requests(
         items=[TierEvaluationResponse.from_orm(r) for r in requests],
         total=total,
         page=page,
-        size=size
+        page_size=size,
+        pages=max(1, (total + size - 1) // size) if total else 1
     )
 
 
@@ -591,7 +606,8 @@ async def admin_list_ads(
         items=[AdvertisementResponse.from_orm(a) for a in ads],
         total=total,
         page=page,
-        size=size
+        page_size=size,
+        pages=max(1, (total + size - 1) // size) if total else 1
     )
 
 

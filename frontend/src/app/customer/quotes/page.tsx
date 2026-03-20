@@ -56,7 +56,7 @@ export default function CustomerQuotesPage() {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`${apiBase}/rfqs/customer/my-rfqs`, {
+        const res = await fetch(`${apiBase}/customer/my-rfqs`, {
           credentials: 'include',
           headers: getAuthHeaders(),
         });

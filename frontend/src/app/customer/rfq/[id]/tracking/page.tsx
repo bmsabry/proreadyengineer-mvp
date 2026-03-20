@@ -319,10 +319,10 @@ export default function RFQTrackingPage() {
                 style={{ width: `${Math.min(100, (quotes_received / 5) * 100)}%` }}
               />
             </div>
-            <span className="text-xs font-medium text-gray-600">{quotes_received} / 5 quotes</span>
+            <span className="text-xs font-medium text-gray-600">{quotes_received} / 5 quotes received</span>
           </div>
           <p className="mt-2 text-xs text-gray-400">
-            Only the first 5 quotes will be shown. Providers are competing for your project.
+            The first 5 quotes received will be shown. All matched providers are contacted in batches until 5 quotes are collected.
           </p>
         </CardContent>
       </Card>
