@@ -1,14 +1,15 @@
 'use client';
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect , Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 
 const ic = 'mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm';
 const lc = 'block text-sm font-medium text-gray-700';
 
-export default function RegisterPage() {
+function RegisterPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [fd, setFd] = useState({
     email: '',
     password: '',
@@ -20,6 +21,16 @@ export default function RegisterPage() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Save invite token from URL to localStorage on mount
+  useEffect(() => {
+    const invite = searchParams.get('invite');
+    if (invite) {
+      localStorage.setItem('pendingInviteToken', invite);
+    }
+    const rfqId = searchParams.get('rfq_id');
+    if (rfqId) localStorage.setItem('pendingInviteRfqId', rfqId);
+  }, [searchParams]);
 
   const hc = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setFd(p => ({ ...p, [e.target.name]: e.target.value }));
@@ -116,5 +127,13 @@ export default function RegisterPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
+      <RegisterPageContent />
+    </Suspense>
   );
 }

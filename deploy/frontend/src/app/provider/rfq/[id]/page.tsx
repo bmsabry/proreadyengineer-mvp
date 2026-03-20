@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState, useCallback , Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   Loader2, AlertCircle, CheckCircle, Download, FileText, Clock, Tag,
 } from 'lucide-react';
@@ -63,10 +63,11 @@ function formatBytes(bytes?: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-export default function ProviderRFQDetailPage() {
+function ProviderRFQDetailPageContent() {
   const { isLoading: authLoading } = useRequireAuth(['provider']);
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const rfqId = params.id as string;
 
   const [rfqData, setRfqData] = useState<UnlockStatus | null>(null);
@@ -124,7 +125,16 @@ export default function ProviderRFQDetailPage() {
     }
   }, [rfqId, router]);
 
+  // Store invite token from URL on mount
   useEffect(() => {
+    const invite = searchParams.get('invite');
+    if (invite) {
+      localStorage.setItem('pendingInviteToken', invite);
+      localStorage.setItem('pendingInviteRfqId', searchParams.get('rfq_id') || rfqId);
+    }
+  }, [rfqId, searchParams]);
+
+    useEffect(() => {
     if (!authLoading) fetchRFQ();
   }, [authLoading, fetchRFQ]);
 
@@ -412,5 +422,13 @@ export default function ProviderRFQDetailPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function ProviderRFQDetailPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
+      <ProviderRFQDetailPageContent />
+    </Suspense>
   );
 }

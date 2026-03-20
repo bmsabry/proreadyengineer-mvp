@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect , Suspense } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRedirectIfAuthenticated } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
@@ -10,9 +11,12 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 
-export default function LoginPage() {
+function LoginPageContent() {
   const { login } = useAuth();
   useRedirectIfAuthenticated();
+
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,12 +34,49 @@ export default function LoginPage() {
     return () => clearTimeout(timer);
   }, [isSubmitting]);
 
+  // Store invite token from URL params on mount
+  useEffect(() => {
+    const invite = searchParams.get('invite');
+    if (invite) {
+      localStorage.setItem('pendingInviteToken', invite);
+    }
+    const redirect = searchParams.get('redirect') || '';
+    const rfqMatch = redirect.match(/\/provider\/rfq\/([^/?]+)/);
+    if (rfqMatch) localStorage.setItem('pendingInviteRfqId', rfqMatch[1]);
+  }, [searchParams]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
       await login(email, password, rememberMe);
+      // Redeem invite token if present
+      const pendingToken = localStorage.getItem('pendingInviteToken');
+      if (pendingToken) {
+        try {
+          const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://proreadyengineer-api.onrender.com/api/v1';
+          const redeemRes = await fetch(`${apiBase}/auth/redeem-invite`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ token: pendingToken }),
+          });
+          if (redeemRes.ok) {
+            const redeemData = await redeemRes.json();
+            const rfqId = localStorage.getItem('pendingInviteRfqId') || redeemData.rfq_id;
+            localStorage.removeItem('pendingInviteToken');
+            localStorage.removeItem('pendingInviteRfqId');
+            toast.success('Logged in successfully');
+            router.push(`/provider/rfq/${rfqId}`);
+            return;
+          }
+        } catch {
+          // ignore redemption errors, proceed with normal login
+        }
+        localStorage.removeItem('pendingInviteToken');
+        localStorage.removeItem('pendingInviteRfqId');
+      }
       toast.success('Logged in successfully');
     } catch (error: any) {
       const msg = error?.response?.data?.detail || error?.message || 'Invalid email or password';
@@ -114,5 +155,13 @@ export default function LoginPage() {
         </form>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>}>
+      <LoginPageContent />
+    </Suspense>
   );
 }

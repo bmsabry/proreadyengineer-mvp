@@ -267,7 +267,14 @@ async def dispatch_next_batch(
                     "nda_required": rfq.nda_required,
                     "batch_number": batch_number,
                 }
-                await send_teaser_email(email_target, rfq_data, db=db)
+                from app.services.auth_service import create_invite_token as _cit
+                _invite_token = _cit(
+                    rfq_id=str(rfq_id),
+                    provider_id=match.provider_id,
+                    dispatch_id=str(uuid.uuid4()),
+                    sent_to_email=email_target or "",
+                )
+                await send_teaser_email(email_target, rfq_data, db=db, invite_token=_invite_token)
             except Exception as exc:
                 logger.error(
                     "dispatch_next_batch: failed email to %s: %s",

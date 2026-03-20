@@ -334,6 +334,7 @@ async def send_teaser_email(
     provider_email: str,
     rfq_teaser: dict[str, Any],
     db: Optional[AsyncSession] = None,
+    invite_token: Optional[str] = None,
 ) -> uuid.UUID:
     """Send RFQ teaser email to provider.
 
@@ -352,7 +353,11 @@ async def send_teaser_email(
         "urgency": rfq_teaser.get("urgency", "Medium"),
         "tollgate_phases": rfq_teaser.get("tollgate_phases", []),
         "project_description_preview": rfq_teaser.get("project_description", "")[:200] + "...",
-        "rfq_url": f"{settings.FRONTEND_URL}/provider/rfq/{rfq_teaser.get('rfq_id')}",
+        "rfq_url": (
+            f"{settings.FRONTEND_URL}/provider/rfq/{rfq_teaser.get('rfq_id')}?invite={invite_token}"
+            if invite_token
+            else f"{settings.FRONTEND_URL}/provider/rfq/{rfq_teaser.get('rfq_id')}"
+        ),
         "disclaimer": rfq_teaser.get(
             "disclaimer",
             "This is a rough estimate opportunity. Only the first 5 quotes will be shown to the customer.",

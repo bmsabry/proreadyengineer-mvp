@@ -422,3 +422,26 @@ async def reset_password(
     await db.commit()
     return True
 
+def create_invite_token(rfq_id: str, provider_id: int, dispatch_id: str, sent_to_email: str) -> str:
+    """Create a signed JWT invite token for provider teaser email links. Expires in 7 days."""
+    expire = datetime.now(timezone.utc) + timedelta(days=7)
+    payload = {
+        "sub": "invite",
+        "rfq_id": str(rfq_id),
+        "provider_id": provider_id,
+        "dispatch_id": str(dispatch_id),
+        "sent_to_email": sent_to_email,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+
+def verify_invite_token(token: str) -> Optional[dict]:
+    """Verify and decode an invite token. Returns payload dict or None if invalid."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        if payload.get("sub") != "invite":
+            return None
+        return payload
+    except Exception:
+        return None
