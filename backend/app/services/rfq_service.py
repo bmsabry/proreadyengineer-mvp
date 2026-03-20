@@ -1,5 +1,6 @@
 """RFQ lifecycle service with concurrency-safe unlock logic."""
 
+import logging
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -29,6 +30,9 @@ from app.models import (
 )
 from app.schemas.quote import QuoteCreateRequest
 from app.schemas.rfq import RFQCreateRequest
+
+
+logger = logging.getLogger(__name__)
 
 
 async def create_rfq(
@@ -91,68 +95,82 @@ async def submit_rfq(
     db: AsyncSession,
     rfq_id: uuid.UUID,
 ) -> None:
-    """Submit RFQ: run full search, store ALL matches, schedule dispatch."""
-    rfq = await get_rfq(db, rfq_id)
-    if not rfq:
-        raise ValueError("RFQ not found")
-    if rfq.rfq_status != RfqStatus.DRAFT:
-        raise ValueError("RFQ is not in draft status")
+    """Background task: AI search -> store matches -> dispatch batch 1."""
+    # FIX 1: coerce string rfq_id to UUID
+    if isinstance(rfq_id, str):
+        rfq_id = uuid.UUID(rfq_id)
 
-    # Check NDA flow
-    if rfq.nda_required:
-        rfq.rfq_status = RfqStatus.AWAITING_NDA_PAYMENT
-        await db.commit()
-        return
+    logger.info("submit_rfq starting for rfq_id=%s", rfq_id)
 
-    rfq.rfq_status = RfqStatus.OPEN_FOR_DISPATCH
-    rfq.submitted_at = datetime.utcnow()
+    try:
+        rfq = await get_rfq(db, rfq_id)
+        if not rfq:
+            logger.error("submit_rfq: RFQ not found rfq_id=%s", rfq_id)
+            raise ValueError("RFQ not found")
+        logger.info("submit_rfq: found rfq status=%s nda=%s", rfq.rfq_status, rfq.nda_required)
 
-    # Run full AI search - NO LIMIT, get ALL relevant providers
-    from app.services.search_service import search_providers
-    match_results = await search_providers(
-        db,
-        query=rfq.project_description,
-        filters={},
-        limit=9999,
-    )
+        if rfq.rfq_status != RfqStatus.DRAFT:
+            raise ValueError("RFQ is not in draft status")
 
-    # Store ALL ranked matches
-    for idx, result in enumerate(match_results, 1):
-        provider = result["provider"]
-        rfq_match = RFQMatch(
-            rfq_id=rfq.id,
-            provider_id=provider.id,
-            rank_position=idx,
-            composite_score=result["composite_score"],
-            specialty_score=result.get("specialty_score", 0),
-            capabilities_score=result.get("capabilities_score", 0),
-            tier_score=result.get("tier_score", 0),
-            scoring_inputs=result.get("scoring_inputs", {}),
+        if rfq.nda_required:
+            rfq.rfq_status = RfqStatus.AWAITING_NDA_PAYMENT
+            await db.commit()
+            return
+
+        rfq.rfq_status = RfqStatus.OPEN_FOR_DISPATCH
+        rfq.submitted_at = datetime.utcnow()
+
+        from app.services.search_service import search_providers
+        logger.info("submit_rfq: running AI search rfq_id=%s", rfq_id)
+        match_results = await search_providers(
+            db,
+            query=rfq.project_description,
+            filters={},
+            limit=9999,
         )
-        db.add(rfq_match)
+        logger.info("submit_rfq: search returned %d results rfq_id=%s", len(match_results), rfq_id)
 
-    await db.commit()
+        for rank_idx, result in enumerate(match_results, 1):
+            provider = result["provider"]
+            rfq_match = RFQMatch(
+                rfq_id=rfq.id,
+                provider_id=provider.id,
+                rank_position=rank_idx,
+                composite_score=result["composite_score"],
+                specialty_score=result.get("specialty_score", 0),
+                capabilities_score=result.get("capabilities_score", 0),
+                tier_score=result.get("tier_score", 0),
+                scoring_inputs=result.get("scoring_inputs", {}),
+            )
+            db.add(rfq_match)
 
-    # Dispatch Batch 1 immediately
-    await dispatch_next_batch(db, rfq_id)
+        await db.commit()
+        logger.info("submit_rfq: stored %d matches rfq_id=%s", len(match_results), rfq_id)
+
+        logger.info("submit_rfq: calling dispatch_next_batch rfq_id=%s", rfq_id)
+        await dispatch_next_batch(db, rfq_id)
+        logger.info("submit_rfq: completed rfq_id=%s", rfq_id)
+
+    except Exception:
+        logger.error("submit_rfq: exception rfq_id=%s", rfq_id, exc_info=True)
+        raise
 
 
 async def dispatch_next_batch(
     db: AsyncSession,
     rfq_id: uuid.UUID,
 ) -> list:
-    """Dispatch the next 5 un-dispatched providers for an RFQ.
-
-    Called at submit time for Batch 1, then every 24h if quote_count < 5.
-    """
+    """Dispatch next 5 un-dispatched ranked providers for an RFQ."""
     from app.models import DispatchStatus
 
-    # Check RFQ is still open
+    # FIX 1: coerce string rfq_id to UUID
+    if isinstance(rfq_id, str):
+        rfq_id = uuid.UUID(rfq_id)
+
     rfq = await db.get(RFQ, rfq_id)
     if not rfq or rfq.is_closed or rfq.quote_count >= settings.RFQ_MAX_QUOTES:
         return []
 
-    # Get next 5 un-dispatched matches ordered by rank
     result = await db.execute(
         select(RFQMatch)
         .where(
@@ -165,21 +183,18 @@ async def dispatch_next_batch(
     matches = result.scalars().all()
 
     if not matches:
-        # All providers contacted and still < 5 quotes - close as no-selection
         rfq.rfq_status = RfqStatus.CLOSED_NO_SELECTION
         rfq.is_closed = True
         rfq.closed_at = datetime.utcnow()
         await db.commit()
         return []
 
-    # Determine current batch number
     batch_result = await db.execute(
         select(func.count()).where(RFQDispatchBatch.rfq_id == rfq_id)
     )
     batch_count = batch_result.scalar() or 0
     batch_number = batch_count + 1
 
-    # Create batch record
     batch = RFQDispatchBatch(
         rfq_id=rfq_id,
         batch_number=batch_number,
@@ -189,6 +204,9 @@ async def dispatch_next_batch(
     )
     db.add(batch)
     await db.flush()
+    # FIX 4: ensure batch.id is populated after async flush
+    if batch.id is None:
+        await db.refresh(batch)
 
     dispatched = []
     for match in matches:
@@ -196,12 +214,20 @@ async def dispatch_next_batch(
         if not provider:
             continue
 
+        # FIX 3: handle email_addresses stored as JSON string
         email_target = None
         if provider.email_addresses:
-            if isinstance(provider.email_addresses, list) and provider.email_addresses:
-                email_target = provider.email_addresses[0]
-            elif isinstance(provider.email_addresses, str) and provider.email_addresses:
-                email_target = provider.email_addresses
+            emails = provider.email_addresses
+            if isinstance(emails, str):
+                import json as _json
+                try:
+                    emails = _json.loads(emails)
+                except Exception:
+                    emails = [emails]
+            if isinstance(emails, list) and emails:
+                email_target = emails[0]
+            elif isinstance(emails, str) and emails:
+                email_target = emails
 
         dispatch = RFQDispatch(
             rfq_id=rfq_id,
@@ -224,7 +250,7 @@ async def dispatch_next_batch(
                     "urgency": rfq.urgency,
                     "tollgate_phases": rfq.tollgate_phases or [],
                     "project_description": (
-                        rfq.project_description[:200] + "..."
+                        rfq.project_description[:200] + '...'
                         if len(rfq.project_description) > 200
                         else rfq.project_description
                     ),
@@ -233,14 +259,13 @@ async def dispatch_next_batch(
                 }
                 await send_teaser_email(email_target, rfq_data, db=db)
             except Exception as exc:
-                import logging
-                logging.getLogger(__name__).error(
-                    "Failed to send teaser email to %s: %s", email_target, exc
+                logger.error(
+                    "dispatch_next_batch: failed email to %s: %s",
+                    email_target, exc,
                 )
 
         dispatched.append(dispatch)
 
-    # Advance RFQ status to accepting unlocks
     rfq.rfq_status = RfqStatus.OPEN_FOR_UNLOCK
     await db.commit()
     return dispatched
