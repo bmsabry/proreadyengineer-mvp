@@ -26,7 +26,7 @@ const tollgateOptions = [
 ];
 
 function CreateRFQForm() {
-  const { user, isLoading: authLoading } = useRequireAuth(['customer']);
+  const { user, isLoading: authLoading } = useRequireAuth(['customer', 'admin']);
   const router = useRouter();
   const searchParams = useSearchParams();
   const prefilledQuery = searchParams.get('q') || '';
@@ -68,21 +68,41 @@ function CreateRFQForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+    let rfqId: string | null = null;
+
+    // Step 1: Create the RFQ draft
     try {
       const response = await api.rfqs.create(formData);
-      // Submit triggers AI search + dispatch (or NDA payment flow)
-      await api.rfqs.submit(response.data.id);
-      toast.success('RFQ submitted! Matching providers are being contacted...');
-      if (formData.nda_required) {
-        router.push(`/customer/rfq/${response.data.id}/nda`);
-      } else {
-        router.push(`/customer/rfq/${response.data.id}/tracking`);
-      }
+      rfqId = response.data.id;
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to create RFQ');
-    } finally {
+      const msg = error.response?.data?.detail || 'Failed to create RFQ. Please check your details and try again.';
+      toast.error(msg);
       setIsSubmitting(false);
+      return;
     }
+
+    // Step 2: Submit for AI matching + dispatch
+    // Backend returns 202 immediately — AI search runs in the background
+    try {
+      await api.rfqs.submit(rfqId!);
+      toast.success('RFQ submitted! AI is matching providers and dispatch is in progress...');
+    } catch (error: any) {
+      const detail = error.response?.data?.detail || '';
+      if (detail.includes('already submitted')) {
+        toast.success('RFQ already submitted! Redirecting to tracking...');
+      } else {
+        // RFQ was created — dispatch may still happen, redirect to tracking
+        toast.warning('RFQ saved. Redirecting to tracking page...');
+      }
+    }
+
+    // Always redirect — RFQ is created regardless of submit status
+    if (formData.nda_required) {
+      router.push(`/customer/rfq/${rfqId}/nda`);
+    } else {
+      router.push(`/customer/rfq/${rfqId}/tracking`);
+    }
+    setIsSubmitting(false);
   };
 
   if (authLoading) {

@@ -260,13 +260,18 @@ async def get_rfq_status(
     )
 
 
-@router.post("/rfqs/{rfq_id}/submit")
+@router.post("/rfqs/{rfq_id}/submit", status_code=status.HTTP_202_ACCEPTED)
 async def submit_rfq_endpoint(
     rfq_id: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Submit RFQ for dispatch to providers."""
+    """Submit RFQ for dispatch to providers.
+
+    Returns 202 immediately - AI search and dispatch run in the background
+    to avoid request timeout on long-running LLM pipeline.
+    """
     from sqlalchemy import select
     from app.models.rfq import RFQ
 
@@ -276,12 +281,39 @@ async def submit_rfq_endpoint(
     if not rfq:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
 
-    if rfq.customer_user_id != current_user.id:
+    # Allow owner OR admin to submit
+    is_admin = "admin" in (current_user.roles or [])
+    if rfq.customer_user_id != current_user.id and not is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
-    await submit_rfq(db, rfq_id)
+    if rfq.rfq_status not in ("draft", None):
+        from app.models.enums import RfqStatus
+        if hasattr(rfq.rfq_status, "value"):
+            status_val = rfq.rfq_status.value
+        else:
+            status_val = str(rfq.rfq_status)
+        if status_val != "draft":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"RFQ already submitted (status: {status_val})"
+            )
 
-    return {"message": "RFQ submitted and dispatch initiated"}
+    # Run the full AI search + dispatch in the background
+    # This avoids 30-60 second request timeout on Render
+    async def _run_submit():
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as bg_db:
+            try:
+                await submit_rfq(bg_db, rfq_id)
+            except Exception as exc:
+                import logging
+                logging.getLogger(__name__).error(
+                    "Background submit_rfq failed for %s: %s", rfq_id, exc
+                )
+
+    background_tasks.add_task(_run_submit)
+
+    return {"message": "RFQ submitted — provider matching and dispatch in progress", "rfq_id": rfq_id}
 
 
 # Provider RFQ endpoints
