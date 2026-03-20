@@ -77,6 +77,7 @@ export default function ProviderRFQDetailPage() {
   const [submitting, setSubmitting] = useState(false);
   const [quoteSuccess, setQuoteSuccess] = useState(false);
   const [quoteError, setQuoteError] = useState('');
+  const [subscriptionRequired, setSubscriptionRequired] = useState(false);
 
   const fetchRFQ = useCallback(async () => {
     setLoading(true);
@@ -99,9 +100,17 @@ export default function ProviderRFQDetailPage() {
       setRfqData(status);
       try {
         const filesRes = await api.providerRFQ.getFiles(rfqId);
+        setSubscriptionRequired(false);
         setFiles((filesRes.data as unknown as RFQFile[]) || []);
-      } catch {
-        setFiles((status.files as RFQFile[]) || []);
+      } catch (fileErr: unknown) {
+        const fe = fileErr as { response?: { status?: number; data?: { detail?: string } } };
+        const detail = fe?.response?.data?.detail || '';
+        if (fe?.response?.status === 403 && detail.includes('SUBSCRIPTION_REQUIRED')) {
+          setSubscriptionRequired(true);
+          setFiles([]);
+        } else {
+          setFiles((status.files as RFQFile[]) || []);
+        }
       }
     } catch (err: unknown) {
       const e = err as { response?: { status?: number; data?: { detail?: string } } };
@@ -239,7 +248,26 @@ export default function ProviderRFQDetailPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {files.length === 0 ? (
+            {subscriptionRequired ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-center space-y-3">
+                <div className="flex justify-center">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                </div>
+                <p className="font-semibold text-amber-800">Subscription Required to Access Documents</p>
+                <p className="text-sm text-amber-700">
+                  Project files and documentation are available to providers with an active subscription ($10/month).
+                  Your subscription also allows you to edit your profile and request tier upgrades.
+                </p>
+                <a
+                  href="/provider/dashboard"
+                  className="inline-block mt-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700"
+                >
+                  Subscribe Now — $10/month
+                </a>
+              </div>
+            ) : files.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-4">
                 No files uploaded for this RFQ.
               </p>

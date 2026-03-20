@@ -441,10 +441,11 @@ async def get_rfq_files(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get download URLs for RFQ files (if unlocked)."""
+    """Get download URLs for RFQ files (subscription + unlock required)."""
     from sqlalchemy import select
     from app.models.rfq import RFQUnlock, RFQFile
-    from app.models.provider import ProviderMembership
+    from app.models.provider import ProviderMembership, ProviderSubscription
+    from app.models.payment import SubscriptionStatusEnum
     from app.services.file_service import generate_download_url
 
     result = await db.execute(
@@ -454,6 +455,19 @@ async def get_rfq_files(
 
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
+
+    # Check active subscription (required to access documents)
+    result = await db.execute(
+        select(ProviderSubscription).where(
+            ProviderSubscription.provider_id == membership.provider_id,
+            ProviderSubscription.status == SubscriptionStatusEnum.active,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="SUBSCRIPTION_REQUIRED: An active provider subscription ($10/month) is required to access project documents."
+        )
 
     # Check unlock
     result = await db.execute(

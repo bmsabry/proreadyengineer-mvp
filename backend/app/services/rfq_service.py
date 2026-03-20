@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.services.config_service import get_runtime_config as _get_runtime_config
 from app.models import (
     NdaStatus,
     Provider,
@@ -173,6 +174,13 @@ async def dispatch_next_batch(
     if not rfq or rfq.is_closed or rfq.quote_count >= settings.RFQ_MAX_QUOTES:
         return []
 
+    # Read batch size from admin config (default 5)
+    try:
+        cfg = await _get_runtime_config(db)
+        batch_size = int(cfg.get('RFQ_BATCH_SIZE', settings.RFQ_DISPATCH_BATCH_SIZE))
+    except Exception:
+        batch_size = settings.RFQ_DISPATCH_BATCH_SIZE
+
     result = await db.execute(
         select(RFQMatch)
         .where(
@@ -180,7 +188,7 @@ async def dispatch_next_batch(
             RFQMatch.is_dispatched == False,
         )
         .order_by(RFQMatch.rank_position)
-        .limit(5)
+        .limit(batch_size)
     )
     matches = result.scalars().all()
 

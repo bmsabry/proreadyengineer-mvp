@@ -4,15 +4,20 @@
 
 {% block content %}
 <h2>New RFQ Available</h2>
-<p>Hello,</p>
+<p>Hello {{ provider_name }},</p>
 <p>A new RFQ matching your capabilities has been posted:</p>
 <div style="background: white; padding: 15px; border-left: 4px solid #2563eb; margin: 20px 0;">
     <p><strong>Urgency:</strong> {{ urgency }}</p>
     <p><strong>Project Phase:</strong> {{ tollgate_phases }}</p>
+    {% if project_description_preview %}
+    <p><strong>Project Summary:</strong></p>
+    <p style="color: #374151; font-style: italic;">{{ project_description_preview }}</p>
+    {% endif %}
 </div>
-<p><strong>Important:</strong> Multiple firms have been contacted. Only the first five quotes will be shown to the customer.</p>
+<p><strong>Important:</strong> Multiple firms have been contacted. Only the first five quotes will be provided to the customer.</p>
+<p>To view the full RFQ details and submit a quote, click the button below. You will need to create a free account and pay a one-time $10 unlock fee to access the complete project documentation.</p>
 <p style="text-align: center; margin-top: 30px;">
     <a href="{{ rfq_url }}" class="button">View RFQ Details</a>
 </p>
-<p style="font-size: 12px; color: #6b7280;">This is a rough estimate request. Final estimates will follow direct engagement.</p>
+<p style="font-size: 12px; color: #6b7280;">This is a rough estimate request. Please state your technical assumptions clearly in your quote. Final estimates will follow direct engagement.</p>
 {% endblock %}
