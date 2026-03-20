@@ -234,11 +234,10 @@ export default function AdminRFQDetailPage() {
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Provider</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tier</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Score</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Batch</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email Status</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unlocked</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                         <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quoted</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dispatched At</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Emailed At</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
@@ -247,6 +246,11 @@ export default function AdminRFQDetailPage() {
                           <td className="px-4 py-3 text-gray-500 font-mono">{p.rank_position}</td>
                           <td className="px-4 py-3">
                             <div className="font-medium text-gray-900">{p.provider_name}</div>
+                            {(p.city || p.state) && (
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {[p.city, p.state].filter(Boolean).join(', ')}
+                              </div>
+                            )}
                           </td>
                           <td className="px-4 py-3">
                             {p.tier ? (
@@ -260,12 +264,14 @@ export default function AdminRFQDetailPage() {
                           <td className="px-4 py-3 text-gray-700 font-mono">
                             {p.composite_score !== null ? p.composite_score.toFixed(1) : '—'}
                           </td>
+                          <td className="px-4 py-3 text-gray-600 text-xs max-w-[160px] truncate">
+                            {p.provider_email || p.email_target || '—'}
+                          </td>
                           <td className="px-4 py-3">
                             <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(p.dispatch_status)}`}>
                               {p.dispatch_status}
                             </span>
                           </td>
-
                           <td className="px-4 py-3 text-center">
                             {p.submitted_quote ? (
                               <span className="text-green-600 text-base">&#10003;</span>

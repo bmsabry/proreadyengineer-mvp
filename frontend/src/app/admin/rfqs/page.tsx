@@ -98,8 +98,9 @@ export default function AdminRFQsPage() {
                   <TableCell>{formatDate(rfq.created_at)}</TableCell>
                   <TableCell>
                     <Link href={`/admin/rfqs/${rfq.id}`}>
-                      <Button variant="ghost" size="sm">
-                        <Eye className="h-4 w-4" />
+                      <Button variant="outline" size="sm" className="flex items-center gap-1.5 text-xs">
+                        <Eye className="h-3.5 w-3.5" />
+                        Dispatch Tracking
                       </Button>
                     </Link>
                   </TableCell>
