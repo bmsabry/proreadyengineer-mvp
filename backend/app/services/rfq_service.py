@@ -122,7 +122,8 @@ async def submit_rfq(
 
         from app.services.search_service import search_providers
         logger.info("submit_rfq: running AI search rfq_id=%s", rfq_id)
-        match_results = await search_providers(
+        # FIX: search_providers returns a tuple (results_list, pipeline_info)
+        match_results, _pipeline_info = await search_providers(
             db,
             query=rfq.project_description,
             filters={},
@@ -130,17 +131,18 @@ async def submit_rfq(
         )
         logger.info("submit_rfq: search returned %d results rfq_id=%s", len(match_results), rfq_id)
 
+        # FIX: match_results is a list of SearchResultItem dataclasses, not dicts
         for rank_idx, result in enumerate(match_results, 1):
-            provider = result["provider"]
+            provider = result.provider  # dataclass attribute, not dict key
             rfq_match = RFQMatch(
                 rfq_id=rfq.id,
                 provider_id=provider.id,
                 rank_position=rank_idx,
-                composite_score=result["composite_score"],
-                specialty_score=result.get("specialty_score", 0),
-                capabilities_score=result.get("capabilities_score", 0),
-                tier_score=result.get("tier_score", 0),
-                scoring_inputs=result.get("scoring_inputs", {}),
+                composite_score=int(result.score),  # .score is the float total
+                specialty_score=int(result.specialty_score),
+                capabilities_score=int(result.capabilities_score),
+                tier_score=int(result.tier_score),
+                scoring_inputs={},  # SearchResultItem has no scoring_inputs field
             )
             db.add(rfq_match)
 
