@@ -237,6 +237,146 @@ async def admin_override_rfq_status(
     return {"message": f"RFQ status changed to {data.new_status}", "rfq_id": rfq_id}
 
 
+@router.get("/admin/rfqs/{rfq_id}/dispatch-tracking")
+async def admin_rfq_dispatch_tracking(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin: Get full dispatch tracking for an RFQ - all matched providers with status."""
+    from app.models.rfq import RFQMatch
+    from app.models.quote import Quote
+
+    # Get RFQ
+    rfq_result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = rfq_result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    # Get ALL matches ordered by rank, joined with provider info
+    matches_result = await db.execute(
+        select(RFQMatch, Provider)
+        .join(Provider, RFQMatch.provider_id == Provider.id)
+        .where(RFQMatch.rfq_id == rfq_id)
+        .order_by(RFQMatch.rank_position)
+    )
+    matches = matches_result.all()
+
+    # Get all dispatches for this RFQ (keyed by provider_id)
+    dispatches_result = await db.execute(
+        select(RFQDispatch).where(RFQDispatch.rfq_id == rfq_id)
+    )
+    dispatches = {d.provider_id: d for d in dispatches_result.scalars().all()}
+
+    # Get providers who submitted quotes (keyed by provider_id)
+    quotes_result = await db.execute(
+        select(Quote).where(Quote.rfq_id == rfq_id)
+    )
+    quoted_providers = {q.provider_id for q in quotes_result.scalars().all()}
+
+    # Build provider list
+    providers = []
+    for match, provider in matches:
+        dispatch = dispatches.get(match.provider_id)
+
+        # Get provider email
+        email = None
+        if provider.email_addresses:
+            if isinstance(provider.email_addresses, list) and provider.email_addresses:
+                email = provider.email_addresses[0]
+            elif isinstance(provider.email_addresses, str):
+                email = provider.email_addresses
+
+        # Determine display status
+        if match.provider_id in quoted_providers:
+            display_status = "quoted"
+        elif dispatch:
+            display_status = dispatch.dispatch_status.value if hasattr(dispatch.dispatch_status, 'value') else str(dispatch.dispatch_status)
+        else:
+            display_status = "pending"
+
+        providers.append({
+            "rank_position": match.rank_position,
+            "provider_id": match.provider_id,
+            "provider_name": provider.firm_name or provider.name,
+            "city": provider.city,
+            "state": provider.state,
+            "tier": provider.tier,
+            "composite_score": match.composite_score,
+            "provider_email": email,
+            "is_dispatched": match.is_dispatched,
+            "dispatched_at": match.dispatched_at.isoformat() if match.dispatched_at else None,
+            "dispatch_status": display_status,
+            "email_target": dispatch.email_target if dispatch else None,
+            "teaser_email_sent_at": dispatch.teaser_email_sent_at.isoformat() if dispatch and dispatch.teaser_email_sent_at else None,
+            "submitted_quote": match.provider_id in quoted_providers,
+        })
+
+    return {
+        "rfq_id": str(rfq.id),
+        "rfq_status": rfq.rfq_status.value if hasattr(rfq.rfq_status, 'value') else str(rfq.rfq_status),
+        "customer_email": rfq.customer_email,
+        "business_name": rfq.business_name,
+        "project_description": rfq.project_description,
+        "urgency": rfq.urgency,
+        "nda_required": rfq.nda_required,
+        "quote_count": rfq.quote_count,
+        "is_closed": rfq.is_closed,
+        "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
+        "total_matches": len(providers),
+        "total_contacted": sum(1 for p in providers if p["is_dispatched"]),
+        "total_quoted": sum(1 for p in providers if p["submitted_quote"]),
+        "providers": providers,
+    }
+
+
+@router.post("/admin/rfqs/{rfq_id}/terminate-dispatch")
+async def admin_terminate_rfq_dispatch(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin: Terminate future dispatch for an RFQ (stop contacting new providers)."""
+    from app.models.rfq import RfqStatus
+    from datetime import timezone
+
+    rfq_result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = rfq_result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    if rfq.is_closed:
+        raise HTTPException(status_code=400, detail="RFQ is already closed")
+
+    old_status = rfq.rfq_status.value if hasattr(rfq.rfq_status, 'value') else str(rfq.rfq_status)
+
+    rfq.is_closed = True
+    rfq.rfq_status = RfqStatus.CANCELLED
+    rfq.closed_at = datetime.utcnow()
+
+    # Audit log
+    try:
+        import uuid as _uuid
+        audit = AuditLog(
+            id=_uuid.uuid4(),
+            actor_user_id=current_user.id,
+            entity_type="rfq",
+            entity_id=rfq_id,
+            action="terminate_dispatch",
+            before_state={"rfq_status": old_status, "is_closed": False},
+            after_state={"rfq_status": "cancelled", "is_closed": True},
+            metadata={"admin_id": str(current_user.id)},
+            created_at=datetime.utcnow(),
+        )
+        db.add(audit)
+    except Exception:
+        pass
+
+    await db.commit()
+    return {"message": "RFQ dispatch terminated", "rfq_id": rfq_id}
+
+
+
 @router.get("/admin/payments", response_model=PagedResponse[PaymentAttemptResponse])
 async def admin_list_payments(
     status: Optional[str] = None,

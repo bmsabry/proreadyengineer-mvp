@@ -7,7 +7,7 @@ import {
   Quote, QuoteFile, CreateQuoteRequest,
   PaymentAttempt, Subscription,
   Advertisement, AdSlot,
-  AuditLog, PaginatedResponse
+  AdminRFQDispatchTracking, AdminDispatchProvider, AuditLog, PaginatedResponse
 } from '@/types';
 
 // API Configuration
@@ -400,6 +400,13 @@ const admin = {
   
   getRFQ: (id: string) => 
     apiClient.get<RFQ>(`/admin/rfqs/${id}`),
+  
+  getRFQDispatchTracking: (rfqId: string) =>
+    apiClient.get<AdminRFQDispatchTracking>(`/admin/rfqs/${rfqId}/dispatch-tracking`),
+  
+  terminateRFQDispatch: (rfqId: string) =>
+    apiClient.post<{ message: string; rfq_id: string }>(`/admin/rfqs/${rfqId}/terminate-dispatch`),
+  
   
   overrideRFQStatus: (id: string, status: string) => 
     apiClient.post<RFQ>(`/admin/rfqs/${id}/override-status`, { status }),

@@ -455,3 +455,37 @@ export interface DispatchedProvider { provider_id: number; provider_name: string
 export interface RFQDispatchBatchDetail { id: string; batch_number: number; status: string; scheduled_for: string|null; dispatched_at: string|null; providers_contacted: DispatchedProvider[]; }
 export interface TrackingQuote { id: string; provider_id: number; quote_status: string; rough_price_min: number|null; rough_price_max: number|null; currency: string|null; turnaround_estimate_text: string|null; submitted_at: string|null; }
 export interface RFQTrackingData { rfq: CustomerRFQSummary; total_matches: number; total_dispatched: number; quotes_received: number; batches: RFQDispatchBatchDetail[]; quotes: TrackingQuote[]; }
+
+export interface AdminDispatchProvider {
+  rank_position: number;
+  provider_id: number;
+  provider_name: string | null;
+  city: string | null;
+  state: string | null;
+  tier: string | null;
+  composite_score: number;
+  provider_email: string | null;
+  is_dispatched: boolean;
+  dispatched_at: string | null;
+  dispatch_status: string;
+  email_target: string | null;
+  teaser_email_sent_at: string | null;
+  submitted_quote: boolean;
+}
+
+export interface AdminRFQDispatchTracking {
+  rfq_id: string;
+  rfq_status: string;
+  customer_email: string;
+  business_name: string | null;
+  project_description: string;
+  urgency: string | null;
+  nda_required: boolean;
+  quote_count: number;
+  is_closed: boolean;
+  submitted_at: string | null;
+  total_matches: number;
+  total_contacted: number;
+  total_quoted: number;
+  providers: AdminDispatchProvider[];
+}
