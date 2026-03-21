@@ -274,6 +274,25 @@ function ProviderRFQPageInner() {
     try {
       const res = await api.providerRFQ.unlockCheckout(rfqId);
       const data = res.data as any;
+      if (data?.already_paid) {
+        // Payment already completed - verify and unlock
+        toast.info('Payment already on file. Verifying access...');
+        try {
+          const vRes = await api.providerRFQ.verifyPayment(rfqId);
+          const vData = vRes.data as any;
+          if (vData?.unlocked) {
+            toast.success('Access granted! Loading project files...');
+            loadStatus();
+          } else {
+            toast.info('Payment confirmed. Refreshing status...');
+            loadStatus();
+          }
+        } catch {
+          loadStatus(); // fallback - just reload status
+        }
+        setCheckingOut(false);
+        return;
+      }
       if (data?.checkout_url) {
         window.location.href = data.checkout_url;
       } else if (data?.url) {

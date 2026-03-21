@@ -5,6 +5,7 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
+import logging
 
 import stripe
 from sqlalchemy import select
@@ -158,7 +159,10 @@ async def create_stripe_checkout_session(
     """Create a Stripe Checkout Session that redirects to Stripe-hosted payment page.
 
     Returns dict with 'checkout_url' and 'payment_attempt_id'.
+    Handles duplicate idempotency keys gracefully for payment retries.
     """
+    _log = logging.getLogger(__name__)
+
     from app.services.config_service import get_runtime_config as _grc
     _cfg = await _grc(db)
     stripe.api_key = _cfg.get('STRIPE_SECRET_KEY', '') or ''
@@ -168,8 +172,138 @@ async def create_stripe_checkout_session(
             "Stripe is not configured. Please add your Stripe secret key in admin settings."
         )
 
+    # Step 1: Compute idempotency key first
     idempotency_key = _create_idempotency_key(purpose, user.id, related_id)
 
+    # Step 2: Check for existing PaymentAttempt with this key
+    existing_result = await db.execute(
+        select(PaymentAttempt).where(
+            PaymentAttempt.idempotency_key == idempotency_key,
+        )
+    )
+    existing_payment = existing_result.scalar_one_or_none()
+
+    if existing_payment:
+        _log.info(
+            "Found existing PaymentAttempt %s with status %s for idempotency_key %s",
+            existing_payment.id, existing_payment.payment_status, idempotency_key,
+        )
+
+        # Step 4: If COMPLETED, return already_paid immediately
+        if existing_payment.payment_status == PaymentStatus.COMPLETED:
+            _log.info("Payment %s already COMPLETED - returning already_paid", existing_payment.id)
+            return {
+                "checkout_url": "",
+                "already_paid": True,
+                "payment_attempt_id": str(existing_payment.id),
+            }
+
+        # Step 3: If INITIATED or PROCESSING, check Stripe session status
+        if existing_payment.payment_status in (PaymentStatus.INITIATED, PaymentStatus.PROCESSING):
+            stripe_session_id = existing_payment.external_payment_id
+            if stripe_session_id:
+                try:
+                    existing_session = stripe.checkout.Session.retrieve(stripe_session_id)
+
+                    # 3a: If Stripe session is paid, fulfill the unlock
+                    if existing_session.payment_status == "paid":
+                        _log.info(
+                            "Stripe session %s is paid but PaymentAttempt %s not COMPLETED - fulfilling now",
+                            stripe_session_id, existing_payment.id,
+                        )
+                        existing_payment.payment_status = PaymentStatus.COMPLETED
+                        existing_payment.confirmed_at = datetime.now(timezone.utc)
+                        await db.commit()
+
+                        # Fulfill the unlock
+                        if purpose == "rfq_unlock":
+                            provider_id_str = (metadata or {}).get("provider_id", "")
+                            await _fulfill_checkout_rfq_unlock(
+                                db=db,
+                                rfq_id_str=str(related_id),
+                                user_id_str=str(user.id),
+                                provider_id_str=provider_id_str,
+                                payment_attempt_id=existing_payment.id,
+                            )
+
+                        return {
+                            "checkout_url": "",
+                            "already_paid": True,
+                            "payment_attempt_id": str(existing_payment.id),
+                        }
+
+                    # 3b: If Stripe session is still active (not expired), return existing URL
+                    if existing_session.status != "expired":
+                        _log.info(
+                            "Stripe session %s still active (status=%s) - returning existing checkout URL",
+                            stripe_session_id, existing_session.status,
+                        )
+                        checkout_url = existing_payment.external_checkout_id or existing_session.url
+                        return {
+                            "checkout_url": checkout_url,
+                            "payment_attempt_id": str(existing_payment.id),
+                            "session_id": stripe_session_id,
+                        }
+
+                    # 3c: Stripe session is expired - create NEW session, UPDATE existing record
+                    _log.info(
+                        "Stripe session %s expired - creating new session and updating PaymentAttempt %s",
+                        stripe_session_id, existing_payment.id,
+                    )
+                    try:
+                        new_session = stripe.checkout.Session.create(
+                            payment_method_types=["card"],
+                            line_items=[{
+                                "price_data": {
+                                    "currency": currency.lower(),
+                                    "product_data": {
+                                        "name": _get_payment_product_name(purpose),
+                                        "description": _get_payment_description(
+                                            purpose, related_entity_type, str(related_id)
+                                        ),
+                                    },
+                                    "unit_amount": amount,
+                                },
+                                "quantity": 1,
+                            }],
+                            mode="payment",
+                            success_url=success_url,
+                            cancel_url=cancel_url,
+                            customer_email=user.email,
+                            metadata={
+                                "purpose": purpose,
+                                "user_id": str(user.id),
+                                "related_entity_type": related_entity_type,
+                                "related_id": str(related_id),
+                                **(metadata or {}),
+                            },
+                        )
+                    except stripe.error.StripeError as e:
+                        raise RuntimeError(f"Stripe error creating replacement session: {e}")
+
+                    # Update existing PaymentAttempt row instead of inserting new one
+                    existing_payment.external_payment_id = new_session.id
+                    existing_payment.external_checkout_id = new_session.url
+                    existing_payment.payment_status = PaymentStatus.INITIATED
+                    existing_payment.metadata = metadata
+                    await db.commit()
+                    await db.refresh(existing_payment)
+
+                    return {
+                        "checkout_url": new_session.url,
+                        "payment_attempt_id": str(existing_payment.id),
+                        "session_id": new_session.id,
+                    }
+
+                except stripe.error.StripeError as e:
+                    _log.warning(
+                        "Could not retrieve Stripe session %s: %s - will create new session",
+                        stripe_session_id, e,
+                    )
+                    # Fall through to create new session below, updating the existing record
+
+    # Step 5: No existing payment attempt, OR existing one is FAILED/REFUNDED/DISPUTED
+    # For FAILED payments, update existing record; otherwise create new
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
@@ -201,7 +335,6 @@ async def create_stripe_checkout_session(
     except stripe.error.StripeError as e:
         raise RuntimeError(f"Stripe error: {e}")
 
-    # Record payment attempt
     # Convert related_id to UUID if it's a string
     import uuid as _uuid_mod
     try:
@@ -209,6 +342,22 @@ async def create_stripe_checkout_session(
     except (ValueError, AttributeError):
         related_entity_uuid = None
 
+    # If existing payment was FAILED, update it instead of creating new row
+    if existing_payment and existing_payment.payment_status == PaymentStatus.FAILED:
+        _log.info("Updating FAILED PaymentAttempt %s with new session", existing_payment.id)
+        existing_payment.external_payment_id = session.id
+        existing_payment.external_checkout_id = session.url
+        existing_payment.payment_status = PaymentStatus.INITIATED
+        existing_payment.metadata = metadata
+        await db.commit()
+        await db.refresh(existing_payment)
+        return {
+            "checkout_url": session.url,
+            "payment_attempt_id": str(existing_payment.id),
+            "session_id": session.id,
+        }
+
+    # Create brand new payment attempt record
     payment_attempt = PaymentAttempt(
         provider_name="stripe",
         external_payment_id=session.id,
