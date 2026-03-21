@@ -19,6 +19,7 @@ export default function ProviderDashboard() {
   const [unlockedRFQs, setUnlockedRFQs] = useState<any[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasMembership, setHasMembership] = useState<boolean | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -27,7 +28,15 @@ export default function ProviderDashboard() {
           api.providerRFQ.getTeasers(),
           api.quotes.getForProvider(),
         ]);
-        setTeasers(teasersResponse.data);
+        const teasersData = teasersResponse.data as any; // backend returns {teasers, has_membership}
+        const teasersList = teasersData?.teasers || teasersData || [];
+        const membershipStatus = teasersData?.has_membership;
+        if (membershipStatus !== undefined) {
+          setHasMembership(membershipStatus);
+        } else {
+          setHasMembership(Array.isArray(teasersList) && teasersList.length > 0 ? true : null);
+        }
+        setTeasers(Array.isArray(teasersList) ? teasersList : []);
         setQuotes(quotesResponse.data);
       } catch (error) {
         console.error('Failed to fetch provider data:', error);
@@ -109,9 +118,24 @@ export default function ProviderDashboard() {
           </CardHeader>
           <CardContent>
             {teasers.length === 0 ? (
-              <p className="text-center text-muted-foreground py-4">
-                No new RFQ teasers at this time
-              </p>
+              <div className="space-y-4">
+                <div className="text-center py-4">
+                  <p className="text-muted-foreground text-sm">No new RFQ teasers at this time</p>
+                </div>
+                {hasMembership === false && (
+                  <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <h3 className="text-sm font-semibold text-blue-900 mb-1">Link Your Engineering Firm</h3>
+                    <p className="text-xs text-blue-700 mb-3">
+                      Link your account to your firm in our directory to receive RFQ opportunities matching your specialties.
+                    </p>
+                    <Link href="/provider/claim">
+                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+                        Search &amp; Link My Firm
+                      </Button>
+                    </Link>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="space-y-4">
                 {teasers.slice(0, 5).map((teaser) => (

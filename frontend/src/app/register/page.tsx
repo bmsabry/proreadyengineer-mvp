@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 const ic = 'mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm';
 const lc = 'block text-sm font-medium text-gray-700';
@@ -24,19 +25,28 @@ function RegisterPageContent() {
   const [inviteToken, setInviteToken] = useState('');
   const [inviteRfqId, setInviteRfqId] = useState('');
   const [hasInvite, setHasInvite] = useState(false);
+  const { refreshUser } = useAuth();
 
   useEffect(() => {
     const invite = searchParams.get('invite') || '';
     const rfqId = searchParams.get('rfq_id') || '';
-    if (invite) {
-      setInviteToken(invite);
-      setInviteRfqId(rfqId);
+
+    // Also check localStorage as fallback (set by provider/rfq page or login page)
+    const storedInvite = typeof window !== 'undefined' ? (localStorage.getItem('pendingInviteToken') || '') : '';
+    const storedRfqId = typeof window !== 'undefined' ? (localStorage.getItem('pendingInviteRfqId') || '') : '';
+
+    const finalInvite = invite || storedInvite;
+    const finalRfqId = rfqId || storedRfqId;
+
+    if (finalInvite) {
+      setInviteToken(finalInvite);
+      setInviteRfqId(finalRfqId);
       setHasInvite(true);
       // Force role to provider and lock it
       setFd(prev => ({ ...prev, role: 'provider' }));
-      // Store in localStorage as fallback
-      localStorage.setItem('pendingInviteToken', invite);
-      if (rfqId) localStorage.setItem('pendingInviteRfqId', rfqId);
+      // Ensure localStorage is set
+      localStorage.setItem('pendingInviteToken', finalInvite);
+      if (finalRfqId) localStorage.setItem('pendingInviteRfqId', finalRfqId);
     }
   }, [searchParams]);
 
@@ -96,8 +106,10 @@ function RegisterPageContent() {
             const redeemData = await redeemRes.json() as { rfq_id?: string; provider_id?: string; already_member?: boolean };
             const targetRfqId = redeemData?.rfq_id || inviteRfqId;
             if (targetRfqId) {
+              await refreshUser();
               router.push(`/provider/rfq/${targetRfqId}`);
             } else {
+              await refreshUser();
               router.push('/provider/dashboard');
             }
           } else {

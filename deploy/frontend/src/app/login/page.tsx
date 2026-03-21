@@ -36,13 +36,35 @@ function LoginPageContent() {
 
   // Store invite token from URL params on mount
   useEffect(() => {
-    const invite = searchParams.get('invite');
-    if (invite) {
-      localStorage.setItem('pendingInviteToken', invite);
-    }
+    const invite = searchParams.get('invite') || '';
     const redirect = searchParams.get('redirect') || '';
-    const rfqMatch = redirect.match(/\/provider\/rfq\/([^/?]+)/);
-    if (rfqMatch) localStorage.setItem('pendingInviteRfqId', rfqMatch[1]);
+
+    // Extract invite token from redirect URL if present
+    let extractedInvite = invite;
+    let extractedRfqId = searchParams.get('rfq_id') || '';
+
+    if (!extractedInvite && redirect) {
+      try {
+        const redirectUrl = new URL(redirect, 'http://x');
+        extractedInvite = redirectUrl.searchParams.get('invite') || '';
+        // Extract rfq_id from path like /provider/rfq/{id}
+        const rfqMatch = redirect.match(/\/provider\/rfq\/([^/?]+)/);
+        if (rfqMatch) extractedRfqId = rfqMatch[1];
+      } catch {}
+    }
+
+    // Also extract rfq_id from redirect path for non-invite case
+    if (!extractedRfqId && redirect) {
+      const rfqMatch = redirect.match(/\/provider\/rfq\/([^/?]+)/);
+      if (rfqMatch) localStorage.setItem('pendingInviteRfqId', rfqMatch[1]);
+    }
+
+    if (extractedInvite) {
+      localStorage.setItem('pendingInviteToken', extractedInvite);
+    }
+    if (extractedRfqId) {
+      localStorage.setItem('pendingInviteRfqId', extractedRfqId);
+    }
   }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {

@@ -334,7 +334,7 @@ async def get_provider_teasers(
     membership = result.scalar_one_or_none()
 
     if not membership:
-        return {"teasers": []}
+        return {"teasers": [], "has_membership": False}
 
     # Get dispatches
     result = await db.execute(
@@ -344,7 +344,7 @@ async def get_provider_teasers(
     )
     dispatches = result.scalars().all()
 
-    return {"teasers": [{"rfq_id": str(d.rfq_id), "status": d.dispatch_status.value} for d in dispatches]}
+    return {"teasers": [{"rfq_id": str(d.rfq_id), "status": d.dispatch_status.value} for d in dispatches], "has_membership": True}
 
 
 @router.get("/provider/rfqs/{rfq_id}/teaser")

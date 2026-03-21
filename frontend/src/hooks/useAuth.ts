@@ -12,7 +12,10 @@ export function useRequireAuth(requiredRoles?: Role[]) {
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
-      router.push('/login');
+      const currentPath = typeof window !== 'undefined'
+        ? window.location.pathname + window.location.search
+        : '';
+      router.push('/login?redirect=' + encodeURIComponent(currentPath));
       return;
     }
 
