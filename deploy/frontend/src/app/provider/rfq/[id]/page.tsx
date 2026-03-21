@@ -79,6 +79,8 @@ function ProviderRFQDetailPageContent() {
   const [quoteSuccess, setQuoteSuccess] = useState(false);
   const [quoteError, setQuoteError] = useState('');
   const [subscriptionRequired, setSubscriptionRequired] = useState(false);
+  // FIX 2: Track locked state inline instead of redirecting to /rfqs/{id}/unlock
+  const [isLocked, setIsLocked] = useState(false);
 
   const fetchRFQ = useCallback(async () => {
     setLoading(true);
@@ -95,7 +97,8 @@ function ProviderRFQDetailPageContent() {
           router.replace('/provider/nda/' + rfqId + '/sign');
           return;
         }
-        router.replace('/rfqs/' + rfqId + '/unlock');
+        // FIX 2: Show inline locked view instead of redirecting to /rfqs/{id}/unlock
+        setIsLocked(true);
         return;
       }
       setRfqData(status);
@@ -116,7 +119,8 @@ function ProviderRFQDetailPageContent() {
     } catch (err: unknown) {
       const e = err as { response?: { status?: number; data?: { detail?: string } } };
       if (e?.response?.status === 401 || e?.response?.status === 403) {
-        router.replace('/rfqs/' + rfqId + '/unlock');
+        // FIX 2: Show inline locked view instead of redirecting to /rfqs/{id}/unlock
+        setIsLocked(true);
         return;
       }
       setError(e?.response?.data?.detail || 'Failed to load RFQ details.');
@@ -169,6 +173,58 @@ function ProviderRFQDetailPageContent() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  // FIX 2: Show contextual locked view instead of immediate redirect to bare payment form.
+  // Brand-new users arriving from email invites had no context for the $10 payment.
+  if (isLocked) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+        <Card className="w-full max-w-lg">
+          <CardHeader className="text-center">
+            <div className="flex justify-center mb-4">
+              <div className="h-16 w-16 rounded-full bg-amber-100 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              </div>
+            </div>
+            <CardTitle className="text-xl">Unlock RFQ to View Details</CardTitle>
+            <CardDescription className="mt-2 text-base">
+              You have been invited to bid on an engineering project.
+              Pay a one-time $10 fee to access the full project description,
+              uploaded files, and submit your rough quote.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-4 text-sm text-amber-800 space-y-2">
+              <p className="font-semibold">What you get after unlocking:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Full project description and scope</li>
+                <li>All uploaded project files and drawings</li>
+                <li>Ability to submit a rough quote to the customer</li>
+              </ul>
+            </div>
+            <p className="text-xs text-gray-500 text-center">
+              Only the first 5 quotes per RFQ are accepted &mdash; unlock now to secure your spot.
+            </p>
+            <Button
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+              onClick={() => router.push(`/rfqs/${rfqId}/unlock`)}
+            >
+              Unlock This RFQ &mdash; $10
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => router.push("/provider/dashboard")}
+            >
+              Back to Dashboard
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }

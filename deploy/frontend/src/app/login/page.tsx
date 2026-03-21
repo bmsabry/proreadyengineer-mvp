@@ -23,6 +23,8 @@ function LoginPageContent() {
   const [rememberMe, setRememberMe] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [slowWarning, setSlowWarning] = useState(false);
+  const [extractedInvite, setExtractedInvite] = useState('');
+  const [extractedRfqId, setExtractedRfqId] = useState('');
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -61,9 +63,11 @@ function LoginPageContent() {
 
     if (extractedInvite) {
       localStorage.setItem('pendingInviteToken', extractedInvite);
+      setExtractedInvite(extractedInvite);
     }
     if (extractedRfqId) {
       localStorage.setItem('pendingInviteRfqId', extractedRfqId);
+      setExtractedRfqId(extractedRfqId);
     }
   }, [searchParams]);
 
@@ -85,12 +89,12 @@ function LoginPageContent() {
             body: JSON.stringify({ token: pendingToken }),
           });
           if (redeemRes.ok) {
-            const redeemData = await redeemRes.json();
-            const rfqId = localStorage.getItem('pendingInviteRfqId') || redeemData.rfq_id;
             localStorage.removeItem('pendingInviteToken');
             localStorage.removeItem('pendingInviteRfqId');
             toast.success('Logged in successfully');
-            router.push(`/provider/rfq/${rfqId}`);
+            // FIX 3: Redirect to provider dashboard after invite redemption.
+            // Dashboard shows the amber Action Required section for the pending RFQ.
+            router.push('/provider/dashboard');
             return;
           }
         } catch {
@@ -171,9 +175,20 @@ function LoginPageContent() {
               </Link>
               <Link
                 href={(() => {
-                  const invite = searchParams.get('invite') || '';
-                  const rfqId = searchParams.get('rfq_id') || '';
-                  if (invite) return `/register?invite=${encodeURIComponent(invite)}&rfq_id=${encodeURIComponent(rfqId)}`;
+                  // Use state-stored extracted values (works even when invite is embedded inside redirect param)
+                  const inv = extractedInvite || searchParams.get('invite') || '';
+                  const rId = extractedRfqId || searchParams.get('rfq_id') || '';
+                  if (inv) return `/register?invite=${encodeURIComponent(inv)}&rfq_id=${encodeURIComponent(rId)}`;
+                  // Also try to extract from redirect path as last resort
+                  const redirect = searchParams.get('redirect') || '';
+                  const rfqMatch = redirect.match(/\/provider\/rfq\/([^/?]+)/);
+                  if (rfqMatch) {
+                    try {
+                      const redirectUrl = new URL(redirect, 'http://x');
+                      const invFromRedirect = redirectUrl.searchParams.get('invite') || '';
+                      if (invFromRedirect) return `/register?invite=${encodeURIComponent(invFromRedirect)}&rfq_id=${encodeURIComponent(rfqMatch[1])}`;
+                    } catch {}
+                  }
                   return '/register';
                 })()}
                 className="text-primary hover:underline"

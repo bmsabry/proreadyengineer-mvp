@@ -35,8 +35,22 @@ function RegisterPageContent() {
     const storedInvite = typeof window !== 'undefined' ? (localStorage.getItem('pendingInviteToken') || '') : '';
     const storedRfqId = typeof window !== 'undefined' ? (localStorage.getItem('pendingInviteRfqId') || '') : '';
 
-    const finalInvite = invite || storedInvite;
-    const finalRfqId = rfqId || storedRfqId;
+    // FIX 4: Triple fallback - also extract invite from 'redirect' URL param
+    // This handles the case where login page sends user to /register with invite embedded in redirect param
+    let redirectInvite = '';
+    let redirectRfqId = '';
+    const redirect = searchParams.get('redirect') || '';
+    if (redirect) {
+      try {
+        const redirectUrl = new URL(redirect, 'http://x');
+        redirectInvite = redirectUrl.searchParams.get('invite') || '';
+        const rfqMatch = redirect.match(/\/provider\/rfq\/([^/?]+)/);
+        if (rfqMatch) redirectRfqId = rfqMatch[1];
+      } catch {}
+    }
+
+    const finalInvite = invite || storedInvite || redirectInvite;
+    const finalRfqId = rfqId || storedRfqId || redirectRfqId;
 
     if (finalInvite) {
       setInviteToken(finalInvite);
@@ -103,15 +117,12 @@ function RegisterPageContent() {
           localStorage.removeItem('pendingInviteRfqId');
 
           if (redeemRes.ok) {
-            const redeemData = await redeemRes.json() as { rfq_id?: string; provider_id?: string; already_member?: boolean };
-            const targetRfqId = redeemData?.rfq_id || inviteRfqId;
-            if (targetRfqId) {
-              await refreshUser();
-              router.push(`/provider/rfq/${targetRfqId}`);
-            } else {
-              await refreshUser();
-              router.push('/provider/dashboard');
-            }
+            // FIX 3: Always redirect to /provider/dashboard after successful registration+invite.
+            // The dashboard shows the amber 'Action Required' section listing pending RFQs to unlock.
+            // Previously redirected to /provider/rfq/{id} which immediately bounced to /rfqs/{id}/unlock
+            // (a $10 payment form with no context), confusing new users.
+            await refreshUser();
+            router.push('/provider/dashboard');
           } else {
             // Redemption failed — still navigate to dashboard as provider
             console.error('Invite redemption failed:', redeemRes.status);
