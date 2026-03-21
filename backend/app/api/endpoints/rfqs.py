@@ -417,25 +417,40 @@ async def unlock_checkout(
     current_user: User = Depends(get_current_active_user),
 ):
     """Create Stripe Checkout Session to unlock RFQ access for $10."""
-    from app.services.payment_service import create_stripe_checkout_session
-    from app.core.config import settings as _settings
-
-    # Verify RFQ exists and is open
-    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
-    rfq = result.scalar_one_or_none()
-    if not rfq:
-        raise HTTPException(status_code=404, detail="RFQ not found")
-
-    rfq_status_str = str(rfq.rfq_status)
-    if rfq_status_str in ("closed_no_selection", "cancelled", "quote_limit_reached"):
-        raise HTTPException(status_code=400, detail="This RFQ is no longer accepting new providers.")
-
-    # Build redirect URLs
-    frontend_url = getattr(_settings, 'FRONTEND_URL', 'https://promechdirectory.onrender.com')
-    success_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=success"
-    cancel_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=cancelled"
+    import logging
+    import uuid as _uuid
+    logger = logging.getLogger(__name__)
 
     try:
+        from app.services.payment_service import create_stripe_checkout_session
+        from app.core.config import settings as _settings
+
+        # Verify RFQ exists and is open
+        result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+        rfq = result.scalar_one_or_none()
+        if not rfq:
+            raise HTTPException(status_code=404, detail="RFQ not found")
+
+        rfq_status_str = str(rfq.rfq_status)
+        if rfq_status_str in ("closed_no_selection", "cancelled", "quote_limit_reached"):
+            raise HTTPException(
+                status_code=400,
+                detail="This RFQ is no longer accepting new providers.",
+            )
+
+        # Build redirect URLs
+        frontend_url = getattr(_settings, 'FRONTEND_URL', 'https://promechdirectory.onrender.com')
+        success_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=success"
+        cancel_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=cancelled"
+
+        # Ensure rfq_id is UUID for DB storage
+        try:
+            rfq_uuid = _uuid.UUID(rfq_id)
+        except (ValueError, AttributeError):
+            rfq_uuid = rfq_id  # fallback to string
+
+        logger.info(f"Creating Stripe checkout for rfq={rfq_id} user={current_user.id}")
+
         session_data = await create_stripe_checkout_session(
             db=db,
             purpose="rfq_unlock",
@@ -443,19 +458,32 @@ async def unlock_checkout(
             currency="usd",
             user=current_user,
             related_entity_type="rfq",
-            related_id=rfq_id,
+            related_id=rfq_uuid,
             success_url=success_url,
             cancel_url=cancel_url,
         )
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"unlock_checkout error: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=502, detail=f"Payment error: {str(e)}")
 
-    return {
-        "checkout_url": session_data["checkout_url"],
-        "payment_attempt_id": session_data["payment_attempt_id"],
-    }
+        logger.info(f"Stripe checkout created: {session_data.get('session_id')} for rfq={rfq_id}")
+
+        return {
+            "checkout_url": session_data["checkout_url"],
+            "payment_attempt_id": session_data["payment_attempt_id"],
+        }
+
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions unchanged
+    except RuntimeError as e:
+        logger.error(f"unlock_checkout RuntimeError for rfq={rfq_id}: {e}")
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.error(
+            f"unlock_checkout unexpected error for rfq={rfq_id}: {type(e).__name__}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Checkout failed: {type(e).__name__}: {str(e)}",
+        )
 
 
 @router.get("/provider/rfqs/{rfq_id}/unlock/status")

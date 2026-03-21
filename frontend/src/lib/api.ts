@@ -501,6 +501,8 @@ const admin = {
     apiClient.get<any>('/admin/debug/test-signwell'),
   testStripeConnection: () =>
     apiClient.get<any>('/admin/debug/test-stripe'),
+  testRfqUnlockConfig: () =>
+    apiClient.get<any>('/admin/debug/test-rfq-unlock'),
   testPaypalConnection: () =>
     apiClient.get<any>('/admin/debug/test-paypal'),
   testLlm: (prompt: string) =>

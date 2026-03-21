@@ -98,6 +98,18 @@ interface StripeTestResult {
   error?: string;
 }
 
+interface RfqUnlockTestStep {
+  step: string;
+  status: string;
+  message: string;
+}
+
+interface RfqUnlockTestResult {
+  steps: RfqUnlockTestStep[];
+  status: string;
+  ready: boolean;
+}
+
 interface PaypalTestResult {
   success?: boolean;
   mode?: string;
@@ -208,6 +220,8 @@ export default function DebuggingPage() {
   // Stripe test state
   const [stripeLoading, setStripeLoading] = useState(false);
   const [stripeResult, setStripeResult] = useState<StripeTestResult | null>(null);
+  const [rfqUnlockLoading, setRfqUnlockLoading] = useState(false);
+  const [rfqUnlockResult, setRfqUnlockResult] = useState<RfqUnlockTestResult | null>(null);
   const [paypalLoading, setPaypalLoading] = useState(false);
   const [paypalResult, setPaypalResult] = useState<PaypalTestResult | null>(null);
   const [llmPrompt, setLlmPrompt] = useState('In one sentence, what is gas turbine combustion?');
@@ -307,6 +321,23 @@ export default function DebuggingPage() {
       setStripeResult({ status: 'error', error: e.response?.data?.detail ?? e.message ?? 'Request failed' });
     } finally {
       setStripeLoading(false);
+    }
+  };
+
+  const testRfqUnlockConfig = async () => {
+    setRfqUnlockLoading(true);
+    setRfqUnlockResult(null);
+    try {
+      const r = await api.admin.testRfqUnlockConfig();
+      setRfqUnlockResult(r.data as RfqUnlockTestResult);
+    } catch (e: any) {
+      setRfqUnlockResult({
+        steps: [],
+        status: 'error',
+        ready: false,
+      });
+    } finally {
+      setRfqUnlockLoading(false);
     }
   };
 
@@ -984,6 +1015,51 @@ export default function DebuggingPage() {
               <div className="flex items-center gap-2 text-red-700 font-medium">
                 <AlertCircle className="h-4 w-4" />
                 ❌ Error: {stripeResult.error}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+
+      {/* ---- RFQ Unlock Checkout Config ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>&#x1F512;</span> RFQ Unlock Checkout Config
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Verifies the $10 RFQ unlock checkout is properly configured: Stripe key, API
+            connectivity, frontend URL, and database access.
+          </p>
+          <Button onClick={testRfqUnlockConfig} disabled={rfqUnlockLoading}>
+            {rfqUnlockLoading ? 'Testing...' : '🔓 Test RFQ Unlock Config'}
+          </Button>
+          {rfqUnlockResult && (
+            <div className="space-y-2">
+              <div className={`flex items-center gap-2 text-sm font-semibold ${
+                rfqUnlockResult.ready ? 'text-green-700' : 'text-red-700'
+              }`}>
+                {rfqUnlockResult.ready
+                  ? <><CheckCircle className="h-4 w-4" /> All checks passed — checkout is ready</>
+                  : <><AlertCircle className="h-4 w-4" /> Config issue: {rfqUnlockResult.status}</>}
+              </div>
+              <div className="space-y-1">
+                {rfqUnlockResult.steps.map((step, idx) => (
+                  <div key={idx} className={`text-xs rounded px-2 py-1 ${
+                    step.status === 'OK'
+                      ? 'bg-green-50 text-green-800 border border-green-200'
+                      : step.status === 'WARN'
+                      ? 'bg-yellow-50 text-yellow-800 border border-yellow-200'
+                      : 'bg-red-50 text-red-800 border border-red-200'
+                  }`}>
+                    <span className="font-mono font-medium">[{step.status}]</span>{'  '}{' '}
+                    <span className="font-medium">{step.step}:</span>{'  '}{' '}
+                    {step.message}
+                  </div>
+                ))}
               </div>
             </div>
           )}

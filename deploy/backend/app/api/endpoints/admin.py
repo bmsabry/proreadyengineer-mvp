@@ -1919,6 +1919,93 @@ async def admin_debug_test_stripe(
         return {"status": "error", "error": str(exc)}
 
 
+
+@router.get("/admin/debug/test-rfq-unlock")
+async def test_rfq_unlock_config(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Test RFQ unlock checkout configuration without creating real payment."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    results = {"steps": [], "status": "unknown", "ready": False}
+
+    # Step 1: Check Stripe key
+    try:
+        cfg = await _get_runtime_config(db)
+        stripe_key = cfg.get("STRIPE_SECRET_KEY", "") or ""
+        if not stripe_key:
+            results["steps"].append({
+                "step": "stripe_key",
+                "status": "FAIL",
+                "message": "Stripe secret key is NOT configured in admin settings",
+            })
+            results["status"] = "missing_stripe_key"
+            return results
+        key_type = (
+            "live" if stripe_key.startswith("sk_live")
+            else "test" if stripe_key.startswith("sk_test")
+            else "unknown_format"
+        )
+        results["steps"].append({
+            "step": "stripe_key",
+            "status": "OK",
+            "message": f"Stripe key found, type: {key_type}, length: {len(stripe_key)}",
+        })
+    except Exception as e:
+        results["steps"].append({"step": "stripe_key", "status": "ERROR", "message": str(e)})
+        results["status"] = "config_error"
+        return results
+
+    # Step 2: Test Stripe connectivity
+    try:
+        import stripe as _stripe
+        _stripe.api_key = stripe_key
+        # List one customer to verify key works (read-only, no cost)
+        _stripe.Customer.list(limit=1)
+        results["steps"].append({
+            "step": "stripe_connectivity",
+            "status": "OK",
+            "message": "Stripe API connection successful",
+        })
+    except Exception as e:
+        results["steps"].append({
+            "step": "stripe_connectivity",
+            "status": "FAIL",
+            "message": f"Stripe API error: {str(e)}",
+        })
+        results["status"] = "stripe_api_error"
+        return results
+
+    # Step 3: Check frontend URL setting
+    frontend_url = getattr(settings, "FRONTEND_URL", "")
+    results["steps"].append({
+        "step": "frontend_url",
+        "status": "OK" if frontend_url else "WARN",
+        "message": f"FRONTEND_URL: {frontend_url or 'not set, will use default'}",
+    })
+
+    # Step 4: Check database access (count existing payment attempts)
+    try:
+        test_result = await db.execute(select(func.count()).select_from(PaymentAttempt))
+        count = test_result.scalar()
+        results["steps"].append({
+            "step": "database_access",
+            "status": "OK",
+            "message": f"Database accessible, {count} existing payment attempts",
+        })
+    except Exception as e:
+        results["steps"].append({
+            "step": "database_access",
+            "status": "FAIL",
+            "message": f"Database error: {str(e)}",
+        })
+
+    results["status"] = "ready"
+    results["ready"] = True
+    return results
+
 # ─── Data Export Endpoint ────────────────────────────────────────────────────
 
 @router.get("/admin/data-export")
