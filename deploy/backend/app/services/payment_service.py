@@ -89,7 +89,7 @@ async def create_payment_intent(
     )
     existing = existing_result.scalar_one_or_none()
 
-    if existing and existing.payment_status == PaymentStatus.CONFIRMED:
+    if existing and existing.payment_status == PaymentStatus.COMPLETED:
         return {
             "client_secret": existing.external_checkout_id,
             "payment_attempt_id": existing.id,
@@ -124,7 +124,7 @@ async def create_payment_intent(
         related_entity_id=related_id,
         amount=amount,
         currency=currency.lower(),
-        payment_status=PaymentStatus.PENDING,
+        payment_status=PaymentStatus.INITIATED,
         idempotency_key=idempotency_key,
         initiated_by_user_id=user.id,
         metadata=metadata,
@@ -218,7 +218,7 @@ async def create_stripe_checkout_session(
         related_entity_id=related_entity_uuid,
         amount=amount,
         currency=currency.lower(),
-        payment_status=PaymentStatus.PENDING,
+        payment_status=PaymentStatus.INITIATED,
         idempotency_key=idempotency_key,
         initiated_by_user_id=user.id,
         metadata=metadata,
@@ -357,12 +357,12 @@ async def _handle_payment_intent_succeeded(
         # Payment attempt not found - log for manual review
         return
 
-    if payment.payment_status == PaymentStatus.CONFIRMED:
+    if payment.payment_status == PaymentStatus.COMPLETED:
         # Already confirmed - idempotent
         return
 
     # Update payment status
-    payment.payment_status = PaymentStatus.CONFIRMED
+    payment.payment_status = PaymentStatus.COMPLETED
     payment.confirmed_at = datetime.utcnow()
 
     await db.commit()
@@ -501,7 +501,7 @@ async def create_paypal_order(
     res = await db.execute(select(PaymentAttempt).where(
         PaymentAttempt.idempotency_key == idempotency_key,
         PaymentAttempt.provider_name == "paypal",
-        PaymentAttempt.payment_status == PaymentStatus.PENDING,
+        PaymentAttempt.payment_status == PaymentStatus.INITIATED,
     ))
     existing = res.scalar_one_or_none()
     if existing and existing.external_payment_id:
@@ -529,7 +529,7 @@ async def create_paypal_order(
     attempt = PaymentAttempt(provider_name="paypal", external_payment_id=order_id,
         purpose=purpose, related_entity_type=related_entity_type,
         related_entity_id=related_entity_id, amount=amount_usd, currency="USD",
-        payment_status=PaymentStatus.PENDING, idempotency_key=idempotency_key,
+        payment_status=PaymentStatus.INITIATED, idempotency_key=idempotency_key,
         initiated_by_user_id=user.id, initiated_at=datetime.utcnow(), metadata=metadata or {})
     db.add(attempt)
     await db.commit()
@@ -584,13 +584,13 @@ async def capture_paypal_order(db: AsyncSession, order_id: str) -> dict:
     attempt = result.scalar_one_or_none()
     if attempt:
         if capture_status == "COMPLETED":
-            attempt.payment_status = PaymentStatus.confirmed
+            attempt.payment_status = PaymentStatus.COMPLETED
             from datetime import datetime, timezone
             attempt.confirmed_at = datetime.now(timezone.utc)
             if capture_id:
                 attempt.external_payment_id = capture_id
         else:
-            attempt.payment_status = PaymentStatus.failed
+            attempt.payment_status = PaymentStatus.FAILED
             from datetime import datetime, timezone
             attempt.failed_at = datetime.now(timezone.utc)
         await db.commit()
@@ -726,8 +726,8 @@ async def handle_paypal_webhook(db: AsyncSession, payload: dict) -> None:
                     PaymentAttempt.external_payment_id == order_id,
                     PaymentAttempt.provider_name == "paypal"))
                 attempt = res.scalar_one_or_none()
-                if attempt and attempt.payment_status != PaymentStatus.SUCCEEDED:
-                    attempt.payment_status = PaymentStatus.SUCCEEDED
+                if attempt and attempt.payment_status != PaymentStatus.COMPLETED:
+                    attempt.payment_status = PaymentStatus.COMPLETED
                     attempt.confirmed_at = datetime.utcnow()
                     await db.commit()
                     await db.refresh(attempt)
@@ -741,7 +741,7 @@ async def handle_paypal_webhook(db: AsyncSession, payload: dict) -> None:
                     PaymentAttempt.external_payment_id == order_id,
                     PaymentAttempt.provider_name == "paypal"))
                 attempt = res.scalar_one_or_none()
-                if attempt and attempt.payment_status == PaymentStatus.PENDING:
+                if attempt and attempt.payment_status == PaymentStatus.INITIATED:
                     attempt.payment_status = PaymentStatus.FAILED
                     attempt.failed_at = datetime.utcnow()
                     await db.commit()
