@@ -260,8 +260,11 @@ function ProviderRFQPageInner() {
             loadStatus();
           }
         })
-        .catch(() => {
-          toast.error('Could not verify payment. Please refresh the page.');
+        .catch((err: any) => {
+          const serverMsg = err?.response?.data?.reason || err?.response?.data?.detail || err?.message || 'Unknown error';
+          const statusCode = err?.response?.status || 'network';
+          toast.error(`Payment verification failed (${statusCode}): ${serverMsg}`);
+          console.error('verify-payment error:', { status: statusCode, data: err?.response?.data, message: err?.message });
           loadStatus(); // Fallback: try loading status in case webhook handled it
         });
     }

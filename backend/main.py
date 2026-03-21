@@ -180,6 +180,15 @@ def create_application() -> FastAPI:
             "api_version": "v1",
         }
 
+    @app.get("/api/v1/build-info")
+    async def build_info():
+        """Return build timestamp to verify deployed version."""
+        return {
+            "build_ts": "2026-03-21T21:18:03Z",
+            "version": settings.VERSION,
+            "note": "If you see this, the latest code is deployed."
+        }
+
     return app
 
 

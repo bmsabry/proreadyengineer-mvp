@@ -633,8 +633,11 @@ async def verify_payment(
         raise
     except Exception as e:
         _log.exception("verify-payment: Unexpected error: %s", e)
-        await db.rollback()
-        return {"unlocked": False, "reason": "Verification error. Please refresh the page."}
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return {"unlocked": False, "reason": f"Verification error: {type(e).__name__}: {e}"}
 
 
 @router.get("/provider/rfqs/{rfq_id}/unlock/status")
