@@ -111,6 +111,15 @@ function LoginPageContent() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/50">
+      {extractedInvite && (
+        <div className="w-full max-w-md mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+          <span className="text-amber-500 text-lg mt-0.5">&#128274;</span>
+          <div>
+            <p className="text-sm font-semibold text-amber-900">You have a provider invite</p>
+            <p className="text-xs text-amber-700">Sign in or create an account to access this RFQ opportunity.</p>
+          </div>
+        </div>
+      )}
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl">Sign in</CardTitle>

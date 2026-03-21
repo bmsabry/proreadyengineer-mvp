@@ -650,3 +650,36 @@ async def send_tier_evaluation_result_email(
         context=context,
         db=db,
     )
+
+
+async def send_listing_inquiry_email(
+    db: AsyncSession,
+    user_email: str,
+    user_name: str,
+    firm_name: str,
+    firm_description: str,
+) -> bool:
+    """Send AI-assisted listing inquiry email to ops team."""
+    subject = f"AI-Assisted Listing Inquiry: {firm_name}"
+    html_content = f"""
+    <h2>New AI-Assisted Listing Inquiry ($750)</h2>
+    <p><strong>Contact:</strong> {user_name} ({user_email})</p>
+    <p><strong>Firm Name:</strong> {firm_name}</p>
+    <p><strong>Description:</strong></p>
+    <p>{firm_description}</p>
+    <hr/>
+    <p>Please follow up with the customer within 1 business day to proceed with the
+    AI-assisted listing service.</p>
+    """
+    import re
+    text_content = re.sub(r"<[^>]+>", " ", html_content).strip()
+    delivered = await _send_email_now(
+        to=["info@promechdirectory.com"],
+        subject=subject,
+        html_content=html_content,
+        text_content=text_content,
+        from_email=None,
+        reply_to=user_email,
+        db=db,
+    )
+    return delivered
