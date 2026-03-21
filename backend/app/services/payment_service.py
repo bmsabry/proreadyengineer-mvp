@@ -3,7 +3,7 @@
 import hashlib
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import stripe
@@ -256,6 +256,171 @@ def _get_payment_description(purpose: str, entity_type: str, entity_id: str) -> 
     elif purpose == "nda_fee":
         return "One-time NDA document handling and signing fee for your project request."
     return f"ProReadyEngineer {purpose} payment"
+
+
+async def _handle_checkout_session_completed(
+    db: AsyncSession,
+    session: dict,
+) -> None:
+    """Handle Stripe checkout.session.completed webhook event.
+
+    Primary fulfillment event for Stripe Checkout flow.
+    Creates RFQUnlock records and marks PaymentAttempts COMPLETED.
+    """
+    _log = logging.getLogger(__name__)
+
+    metadata = session.get("metadata") or {}
+    purpose = metadata.get("purpose", "")
+    user_id_str = metadata.get("user_id", "")
+    related_id_str = metadata.get("related_id", "")
+    provider_id_str = metadata.get("provider_id", "")
+    session_id = session.get("id", "")
+
+    _log.info(
+        "checkout.session.completed: purpose=%s user=%s related=%s session=%s",
+        purpose, user_id_str, related_id_str, session_id,
+    )
+
+    # Update PaymentAttempt to COMPLETED
+    pa_result = await db.execute(
+        select(PaymentAttempt).where(
+            PaymentAttempt.external_payment_id == session_id
+        )
+    )
+    payment = pa_result.scalar_one_or_none()
+    if payment and payment.payment_status != PaymentStatus.COMPLETED:
+        payment.payment_status = PaymentStatus.COMPLETED
+        payment.confirmed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    if purpose == "rfq_unlock":
+        await _fulfill_checkout_rfq_unlock(
+            db=db,
+            rfq_id_str=related_id_str,
+            user_id_str=user_id_str,
+            provider_id_str=provider_id_str,
+            payment_attempt_id=payment.id if payment else None,
+        )
+
+
+async def _fulfill_checkout_rfq_unlock(
+    db: AsyncSession,
+    rfq_id_str: str,
+    user_id_str: str,
+    provider_id_str: str,
+    payment_attempt_id,
+) -> None:
+    """Create RFQUnlock record after confirmed Stripe checkout payment.
+
+    Idempotent — safe to call multiple times for the same rfq+provider.
+    Concurrency-safe via SELECT FOR UPDATE on the RFQ row.
+    """
+    import uuid as _uuid
+    _log = logging.getLogger(__name__)
+
+    # ── parse rfq_id ────────────────────────────────────────────
+    try:
+        rfq_uuid = _uuid.UUID(rfq_id_str)
+    except (ValueError, AttributeError):
+        _log.error("Invalid rfq_id in checkout metadata: %s", rfq_id_str)
+        return
+
+    # ── parse user_id ───────────────────────────────────────────
+    try:
+        user_uuid = _uuid.UUID(user_id_str)
+    except (ValueError, AttributeError):
+        _log.error("Invalid user_id in checkout metadata: %s", user_id_str)
+        return
+
+    # ── resolve provider_id (metadata first, then membership) ───
+    provider_id = None
+    if provider_id_str:
+        try:
+            provider_id = int(provider_id_str)
+        except (ValueError, TypeError):
+            pass
+
+    if not provider_id:
+        from app.models.provider import ProviderMembership
+        mem_result = await db.execute(
+            select(ProviderMembership).where(
+                ProviderMembership.user_id == user_uuid
+            )
+        )
+        membership = mem_result.scalar_one_or_none()
+        if membership:
+            provider_id = membership.provider_id
+        else:
+            _log.error("No provider membership found for user %s", user_id_str)
+            return
+
+    # ── idempotency check ────────────────────────────────────────
+    existing_result = await db.execute(
+        select(RFQUnlock).where(
+            RFQUnlock.rfq_id == rfq_uuid,
+            RFQUnlock.provider_id == provider_id,
+            RFQUnlock.unlock_status == UnlockStatus.UNLOCKED,
+        )
+    )
+    if existing_result.scalar_one_or_none():
+        _log.info(
+            "RFQ %s already unlocked for provider %s — idempotent skip",
+            rfq_uuid, provider_id,
+        )
+        return
+
+    # ── lock RFQ row for concurrency safety ──────────────────────
+    rfq_result = await db.execute(
+        select(RFQ).where(RFQ.id == rfq_uuid).with_for_update()
+    )
+    rfq = rfq_result.scalar_one_or_none()
+    if not rfq:
+        _log.error("RFQ %s not found during unlock fulfillment", rfq_uuid)
+        return
+
+    rfq_status_str = str(rfq.rfq_status) if rfq.rfq_status else ""
+
+    # quota guard — re-check under lock
+    current_count = rfq.quote_count or 0
+    if current_count >= 5:
+        _log.warning(
+            "RFQ %s quote_count=%d >= 5 under lock — quota full, refund needed",
+            rfq_uuid, current_count,
+        )
+        return
+
+    if rfq_status_str in ("quote_limit_reached", "cancelled", "closed_no_selection"):
+        _log.warning(
+            "RFQ %s status=%s is closed — refund may be needed",
+            rfq_uuid, rfq_status_str,
+        )
+        # Still create record so payment is traceable; ops team handles refund
+
+    # ── create RFQUnlock record ──────────────────────────────────
+    unlock = RFQUnlock(
+        rfq_id=rfq_uuid,
+        provider_id=provider_id,
+        unlocked_by_user_id=user_uuid,
+        payment_attempt_id=payment_attempt_id,
+        unlock_status=UnlockStatus.UNLOCKED,
+        unlocked_at=datetime.now(timezone.utc),
+    )
+    db.add(unlock)
+
+    # ── increment quote_count ────────────────────────────────────
+    rfq.quote_count = current_count + 1
+
+    # close RFQ if limit reached
+    if rfq.quote_count >= 5:
+        rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED
+        rfq.is_closed = True
+
+    await db.commit()
+    _log.info(
+        "RFQ %s unlocked for provider %s — quote_count now %d",
+        rfq_uuid, provider_id, rfq.quote_count,
+    )
+
 
 async def handle_stripe_webhook(
     db: AsyncSession,

@@ -454,6 +454,16 @@ async def unlock_checkout(
 
         logger.info(f"Creating Stripe checkout for rfq={rfq_id} user={current_user.id}")
 
+        # Resolve provider_id for webhook metadata
+        from app.models import ProviderMembership
+        _mem_result = await db.execute(
+            select(ProviderMembership).where(
+                ProviderMembership.user_id == current_user.id
+            )
+        )
+        _membership = _mem_result.scalar_one_or_none()
+        provider_id_for_meta = str(_membership.provider_id) if _membership else ""
+
         session_data = await create_stripe_checkout_session(
             db=db,
             purpose="rfq_unlock",
@@ -464,6 +474,7 @@ async def unlock_checkout(
             related_id=rfq_uuid,
             success_url=success_url,
             cancel_url=cancel_url,
+            metadata={"provider_id": provider_id_for_meta},
         )
 
         logger.info(f"Stripe checkout created: {session_data.get('session_id')} for rfq={rfq_id}")
@@ -543,7 +554,7 @@ async def get_unlock_status(
         select(RFQUnlock).where(
             RFQUnlock.rfq_id == rfq_id,
             RFQUnlock.provider_id == membership.provider_id,
-            RFQUnlock.unlock_status == "completed"
+            RFQUnlock.unlock_status == "unlocked"
         )
     )
     unlock = result.scalar_one_or_none()
@@ -592,7 +603,7 @@ async def get_rfq_files(
         select(RFQUnlock).where(
             RFQUnlock.rfq_id == rfq_id,
             RFQUnlock.provider_id == membership.provider_id,
-            RFQUnlock.unlock_status == "completed"
+            RFQUnlock.unlock_status == "unlocked"
         )
     )
     if not result.scalar_one_or_none():
@@ -783,7 +794,7 @@ async def get_provider_nda_signing_url(
         select(RFQUnlock).where(
             RFQUnlock.rfq_id == rfq_id,
             RFQUnlock.provider_id == membership.provider_id,
-            RFQUnlock.unlock_status == "completed",
+            RFQUnlock.unlock_status == "unlocked",
         )
     )
     if not unlock_result.scalar_one_or_none():
