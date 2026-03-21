@@ -426,6 +426,7 @@ async def unlock_checkout(
         from app.services.payment_service import create_stripe_checkout_session
         from app.core.config import settings as _settings
         from sqlalchemy import select
+        from app.models.rfq import RFQ
 
         # Verify RFQ exists and is open
         result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
