@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   Loader2, AlertCircle, CheckCircle, Download, FileText, Clock,
-  Lock, Building2, ShieldAlert, ArrowLeft, CalendarDays, Layers, CreditCard, Send,
+  Lock, LockOpen, Building2, ShieldAlert, ArrowLeft, CalendarDays, Layers, CreditCard, Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -241,7 +241,7 @@ function ProviderRFQPageInner() {
     try {
       const res = await api.providerRFQ.getFiles(rfqId);
       const data = res.data;
-      setFiles(Array.isArray(data) ? data : (data?.files || []));
+      setFiles(Array.isArray(data) ? data : []);
     } catch {
       // files may be temporarily unavailable
     } finally { setFilesLoading(false); }
@@ -253,7 +253,7 @@ function ProviderRFQPageInner() {
   const handleUnlock = async () => {
     setCheckingOut(true);
     try {
-      const res = await api.providerRFQ.initiateUnlockCheckout(rfqId);
+      const res = await api.providerRFQ.unlockCheckout(rfqId);
       const url = res.data?.checkout_url || res.data?.url;
       if (url) { window.location.href = url; }
       else toast.error('Could not initiate payment. Please try again.');
@@ -305,7 +305,7 @@ function ProviderRFQPageInner() {
           <div className="h-4 w-px bg-gray-300" />
           <h1 className="text-xl font-semibold text-gray-900">Project Invitation</h1>
           {status.unlocked
-            ? <Badge className="bg-green-100 text-green-800 border-green-200 ml-auto"><Unlock className="h-3 w-3 mr-1" />Unlocked</Badge>
+            ? <Badge className="bg-green-100 text-green-800 border-green-200 ml-auto"><LockOpen className="h-3 w-3 mr-1" />Unlocked</Badge>
             : <Badge variant="outline" className="text-gray-500 ml-auto"><Lock className="h-3 w-3 mr-1" />Locked</Badge>
           }
         </div>
