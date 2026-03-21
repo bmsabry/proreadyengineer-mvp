@@ -202,13 +202,20 @@ async def create_stripe_checkout_session(
         raise RuntimeError(f"Stripe error: {e}")
 
     # Record payment attempt
+    # Convert related_id to UUID if it's a string
+    import uuid as _uuid_mod
+    try:
+        related_entity_uuid = _uuid_mod.UUID(str(related_id)) if related_id else None
+    except (ValueError, AttributeError):
+        related_entity_uuid = None
+
     payment_attempt = PaymentAttempt(
         provider_name="stripe",
         external_payment_id=session.id,
         external_checkout_id=session.url,
         purpose=purpose,
         related_entity_type=related_entity_type,
-        related_entity_id=related_id,
+        related_entity_id=related_entity_uuid,
         amount=amount,
         currency=currency.lower(),
         payment_status=PaymentStatus.PENDING,

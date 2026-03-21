@@ -447,8 +447,10 @@ async def unlock_checkout(
             success_url=success_url,
             cancel_url=cancel_url,
         )
-    except RuntimeError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"unlock_checkout error: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=502, detail=f"Payment error: {str(e)}")
 
     return {
         "checkout_url": session_data["checkout_url"],
