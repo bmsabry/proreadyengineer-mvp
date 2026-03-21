@@ -71,7 +71,11 @@ async def create_payment_intent(
     Raises:
         RuntimeError: If Stripe API call fails.
     """
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    from app.services.config_service import get_runtime_config as _grc
+    _cfg = await _grc(db)
+    stripe.api_key = _cfg.get('STRIPE_SECRET_KEY', '') or ''
+    if not stripe.api_key:
+        raise RuntimeError("Stripe is not configured. Please add your Stripe secret key in admin settings.")
 
     # Create idempotency key
     idempotency_key = _create_idempotency_key(purpose, user.id, related_id)
@@ -155,7 +159,9 @@ async def create_stripe_checkout_session(
 
     Returns dict with 'checkout_url' and 'payment_attempt_id'.
     """
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    from app.services.config_service import get_runtime_config as _grc
+    _cfg = await _grc(db)
+    stripe.api_key = _cfg.get('STRIPE_SECRET_KEY', '') or ''
 
     if not stripe.api_key:
         raise RuntimeError(
@@ -259,12 +265,15 @@ async def handle_stripe_webhook(
     Raises:
         ValueError: If signature verification fails.
     """
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    from app.services.config_service import get_runtime_config as _grc
+    _wcfg = await _grc(db)
+    stripe.api_key = _wcfg.get('STRIPE_SECRET_KEY', '') or ''
+    _webhook_secret = _wcfg.get('STRIPE_WEBHOOK_SECRET', '') or ''
 
     # Verify signature
     try:
         event = stripe.Webhook.construct_event(
-            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+            payload, sig_header, _webhook_secret
         )
     except ValueError:
         raise ValueError("Invalid payload")
@@ -967,7 +976,9 @@ async def cancel_subscription(
         db: Database session.
         subscription_id: Subscription UUID.
     """
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    from app.services.config_service import get_runtime_config as _grc
+    _ccfg = await _grc(db)
+    stripe.api_key = _ccfg.get('STRIPE_SECRET_KEY', '') or ''
 
     subscription = await db.get(Subscription, subscription_id)
     if not subscription:
