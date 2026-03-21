@@ -147,7 +147,15 @@ function LoginPageContent() {
               <Link href="/forgot-password" className="text-primary hover:underline">
                 Forgot password?
               </Link>
-              <Link href="/register" className="text-primary hover:underline">
+              <Link
+                href={(() => {
+                  const invite = searchParams.get('invite') || '';
+                  const rfqId = searchParams.get('rfq_id') || '';
+                  if (invite) return `/register?invite=${encodeURIComponent(invite)}&rfq_id=${encodeURIComponent(rfqId)}`;
+                  return '/register';
+                })()}
+                className="text-primary hover:underline"
+              >
                 Create account
               </Link>
             </div>

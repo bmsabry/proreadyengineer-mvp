@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { RFQTeaser, Quote } from '@/types';
@@ -9,10 +10,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/utils';
-import { Mail, FileText, DollarSign, PlusCircle } from 'lucide-react';
+import { Mail, FileText, DollarSign, PlusCircle, AlertCircle } from 'lucide-react';
 
 export default function ProviderDashboard() {
   const { user, isLoading: authLoading } = useRequireAuth(['provider']);
+  const router = useRouter();
   const [teasers, setTeasers] = useState<RFQTeaser[]>([]);
   const [unlockedRFQs, setUnlockedRFQs] = useState<any[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -51,7 +53,39 @@ export default function ProviderDashboard() {
 
   return (
     <div className="container py-8">
+      {/* PENDING ACTION SECTION - at top */}
+      {(() => {
+        const pendingTeasers = teasers.filter(t => t.status !== 'unlocked' && t.status !== 'accepted');
+        if (pendingTeasers.length === 0) return null;
+        return (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <AlertCircle className="h-5 w-5 text-amber-600" />
+              <h2 className="text-lg font-semibold text-amber-900">Action Required: Pending RFQ Opportunities</h2>
+            </div>
+            <p className="text-sm text-amber-700 mb-4">
+              You have {pendingTeasers.length} RFQ{pendingTeasers.length > 1 ? 's' : ''} waiting. Unlock to submit a quote — only the first 5 quotes per RFQ are accepted.
+            </p>
+            <div className="space-y-2">
+              {pendingTeasers.map(teaser => (
+                <div key={teaser.rfq_id} className="flex items-center justify-between bg-white border border-amber-100 rounded-md px-4 py-3">
+                  <span className="text-sm font-medium text-gray-800">RFQ #{teaser.rfq_id}</span>
+                  <Button
+                    size="sm"
+                    className="bg-amber-600 hover:bg-amber-700 text-white"
+                    onClick={() => router.push(`/provider/rfq/${teaser.rfq_id}`)}
+                  >
+                    View &amp; Unlock ($10)
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="flex justify-between items-center mb-8">
+
         <div>
           <h1 className="text-3xl font-bold">Provider Dashboard</h1>
           <p className="text-muted-foreground">Manage your profile and respond to RFQs</p>
