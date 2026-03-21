@@ -186,7 +186,7 @@ async def register_user(
         last_name=data.last_name,
         full_name=data.full_name,
         business_name=data.business_name,
-        roles=["customer"],  # Default role
+        roles=list(data.roles) if data.roles else ["customer"],  # Use requested role or default to customer
     )
 
     db.add(user)

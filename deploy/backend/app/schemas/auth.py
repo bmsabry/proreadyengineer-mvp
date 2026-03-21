@@ -1,7 +1,7 @@
 """Authentication request and response schemas."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 
 from pydantic import EmailStr, Field
@@ -18,6 +18,7 @@ class UserRegisterRequest(BaseSchema):
     last_name: Optional[str] = Field(None, max_length=100)
     full_name: Optional[str] = None
     business_name: Optional[str] = None
+    roles: Optional[List[str]] = None
 
 
 class UserLoginRequest(BaseSchema):
