@@ -254,8 +254,10 @@ function ProviderRFQPageInner() {
     setCheckingOut(true);
     try {
       const res = await api.providerRFQ.unlockCheckout(rfqId);
-      const url = res.data?.checkout_url || res.data?.url;
-      if (url) { window.location.href = url; }
+      const data = res.data as any;
+      const url = data?.checkout_url || data?.url || data?.client_secret;
+      if (data?.checkout_url || data?.url) { window.location.href = url || ''; }
+      else if (data?.client_secret) { router.push(`/rfqs/${rfqId}/unlock?client_secret=${data.client_secret}`); }
       else toast.error('Could not initiate payment. Please try again.');
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
