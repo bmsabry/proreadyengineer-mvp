@@ -407,6 +407,24 @@ class SystemConfigRequest(BaseSchema):
     openai_api_base: Optional[str] = None
     openai_llm_model: Optional[str] = None
     openai_embedding_model: Optional[str] = None
+    # Embeddings (LLM 1)
+    embedding_api_key: Optional[str] = None
+    embedding_api_base: Optional[str] = None
+    # Document Collapse LLM (LLM 3)
+    doc_llm_api_key: Optional[str] = None
+    doc_llm_api_base: Optional[str] = None
+    doc_llm_model: Optional[str] = None
+    # SMTP
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_tls: Optional[str] = None
+    smtp_ssl: Optional[str] = None
+    # RFQ
+    rfq_batch_size: Optional[str] = None
+    rfq_batch_interval_hours: Optional[str] = None
+    rfq_closed_message: Optional[str] = None
     # Payments
     stripe_secret_key: Optional[str] = None
     stripe_publishable_key: Optional[str] = None

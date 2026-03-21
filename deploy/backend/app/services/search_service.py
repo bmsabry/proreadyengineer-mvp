@@ -80,11 +80,25 @@ def _get_client(cfg: Dict[str, Any] = None) -> AsyncOpenAI:
     return AsyncOpenAI(**kwargs)
 
 
+def _get_embedding_client(cfg: Dict[str, Any] = None) -> AsyncOpenAI:
+    """Build AsyncOpenAI client for embeddings. Uses EMBEDDING keys if set, else falls back to LLM2 keys."""
+    if cfg:
+        api_key = cfg.get('EMBEDDING_API_KEY') or cfg.get('OPENAI_API_KEY') or 'dummy-key'
+        base_url = cfg.get('EMBEDDING_API_BASE') or cfg.get('OPENAI_API_BASE') or ''
+    else:
+        api_key = getattr(settings, 'OPENAI_API_KEY', 'dummy-key') or 'dummy-key'
+        base_url = getattr(settings, 'OPENAI_API_BASE', '') or ''
+    kwargs: Dict[str, Any] = {'api_key': api_key}
+    if base_url:
+        kwargs['base_url'] = base_url
+    return AsyncOpenAI(**kwargs)
+
+
 def _embedding_model(cfg: Dict[str, Any] = None) -> str:
     """Return embedding model name, adapting for deepinfra when needed."""
     if cfg:
         model = cfg.get('OPENAI_EMBEDDING_MODEL') or 'BAAI/bge-large-en-v1.5'
-        base = cfg.get('OPENAI_API_BASE') or ''
+        base = cfg.get('EMBEDDING_API_BASE') or cfg.get('OPENAI_API_BASE') or ''
     else:
         model = getattr(settings, 'OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small') or 'text-embedding-3-small'
         base = getattr(settings, 'OPENAI_API_BASE', '') or ''
@@ -336,9 +350,11 @@ async def generate_embedding(
     runtime_config: Optional[Dict[str, Any]] = None,
 ) -> List[float]:
     """Step 4: Generate vector embedding. Raises ValueError if no API key."""
-    if not _has_api_key(runtime_config):
+    # Check for dedicated embedding key OR general LLM key
+    has_embed_key = bool((runtime_config or {}).get('EMBEDDING_API_KEY', '').strip()) if runtime_config else False
+    if not has_embed_key and not _has_api_key(runtime_config):
         raise ValueError('No AI API key configured - embeddings unavailable')
-    client = _get_client(runtime_config)
+    client = _get_embedding_client(runtime_config)
     model  = _embedding_model(runtime_config)
     logger.info(f'[EMBED] model={model}, input_len={len(text_input)}')
     try:
