@@ -66,9 +66,12 @@ async def register(
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=604800)
 
     # ATOMIC INVITE TOKEN PROCESSING
-    # If an invite_token was provided, process it now in the same request
-    # This guarantees ProviderMembership is created at registration time
+    # Store linked_provider_id on User record AND create ProviderMembership
+    # This is bulletproof because linked_provider_id is stored in the SAME transaction
     if getattr(data, 'invite_token', None):
+        import logging as _log
+        _logger = _log.getLogger(__name__)
+        _logger.info(f"Processing invite token during registration for user {user.email}")
         try:
             from app.services.auth_service import verify_invite_token
             from app.models.provider import ProviderMembership, MembershipRole, MembershipStatus
@@ -76,7 +79,12 @@ async def register(
             invite_payload = verify_invite_token(data.invite_token)
             if invite_payload:
                 provider_id = int(invite_payload["provider_id"])
-                # Check membership doesn't already exist
+                _logger.info(f"Invite token verified: provider_id={provider_id}")
+
+                # ALWAYS store linked_provider_id on user (the bulletproof link)
+                user.linked_provider_id = provider_id
+
+                # Create ProviderMembership if not exists
                 _existing = await db.execute(
                     _sel(ProviderMembership).where(
                         ProviderMembership.user_id == user.id,
@@ -93,15 +101,35 @@ async def register(
                         invite_email=invite_payload.get("sent_to_email"),
                     )
                     db.add(_membership)
-                    # Ensure provider role is set
-                    if "provider" not in (user.roles or []):
-                        user.roles = list(user.roles or []) + ["provider"]
-                    await db.commit()
-                    await db.refresh(user)
+                    _logger.info(f"Created ProviderMembership: user={user.id}, provider={provider_id}")
+
+                # Ensure provider role is set
+                if "provider" not in (user.roles or []):
+                    user.roles = list(user.roles or []) + ["provider"]
+
+                await db.commit()
+                await db.refresh(user)
+                _logger.info(f"Invite processing committed successfully for user {user.email}")
+            else:
+                _logger.warning(f"Invite token verification returned None for user {user.email}")
+                # Even if token verification fails, try to extract provider_id from JWT payload
+                # (token may be expired but still readable)
+                try:
+                    import jwt as _jwt
+                    from app.core.config import settings as _settings
+                    _raw = _jwt.decode(data.invite_token, _settings.SECRET_KEY, algorithms=["HS256"], options={"verify_exp": False})
+                    if _raw.get("provider_id"):
+                        user.linked_provider_id = int(_raw["provider_id"])
+                        await db.commit()
+                        await db.refresh(user)
+                        _logger.info(f"Stored linked_provider_id={user.linked_provider_id} from expired token")
+                except Exception as _jwt_err:
+                    _logger.warning(f"Failed to extract provider_id from expired token: {_jwt_err}")
         except Exception as _inv_err:
-            import logging
-            logging.getLogger(__name__).warning(f"Invite token processing failed during registration: {_inv_err}")
-            # Non-fatal: registration still succeeds, user can manually claim
+            import logging as _log2
+            _log2.getLogger(__name__).error(f"INVITE PROCESSING FAILED for user {user.email}: {_inv_err}", exc_info=True)
+            # Non-fatal: registration still succeeds, profile page will use linked_provider_id fallback
+
 
     return RegisterResponse(
         user=user,

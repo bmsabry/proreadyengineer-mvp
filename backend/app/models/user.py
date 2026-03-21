@@ -86,6 +86,11 @@ class User(Base):
     search_count_reset_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # Provider invite: stores provider_id from invite token at registration
+    linked_provider_id: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=None
+    )
     
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True

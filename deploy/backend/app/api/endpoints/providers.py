@@ -53,12 +53,15 @@ async def get_provider_profile(
 ):
     """Get current user's provider profile.
 
-    If no explicit membership exists, auto-discovers the provider via RFQ dispatch
-    email matching (invite flow recovery) and creates the membership automatically.
+    Uses three fallback mechanisms:
+    1. Explicit ProviderMembership (normal case)
+    2. user.linked_provider_id (set during invite registration)
+    3. RFQDispatch email_target matching (legacy fallback)
     """
     from app.models.provider import ProviderMembership, Provider, MembershipRole, MembershipStatus
     from app.models.rfq import RFQDispatch
-    import uuid as _uuid
+    import logging
+    _logger = logging.getLogger(__name__)
 
     # 1. Normal path: explicit membership exists
     result = await db.execute(
@@ -67,44 +70,60 @@ async def get_provider_profile(
     membership = result.scalar_one_or_none()
 
     if not membership:
-        # 2. Auto-discover: check if this user's email was in a dispatch (invite flow recovery)
-        dispatch_result = await db.execute(
-            select(RFQDispatch).where(
-                RFQDispatch.email_target == current_user.email
-            ).limit(1)
-        )
-        dispatch = dispatch_result.scalar_one_or_none()
+        _logger.info(f"No membership for user {current_user.email}, checking linked_provider_id")
 
-        if dispatch:
-            # Check if membership already exists for this provider (race condition guard)
-            existing_result = await db.execute(
-                select(ProviderMembership).where(
-                    ProviderMembership.provider_id == dispatch.provider_id,
-                    ProviderMembership.user_id == current_user.id,
-                )
+        # 2. Check linked_provider_id (set during invite registration)
+        provider_id_to_link = getattr(current_user, 'linked_provider_id', None)
+
+        if not provider_id_to_link:
+            _logger.info(f"No linked_provider_id, checking RFQDispatch email match")
+            # 3. Legacy fallback: RFQDispatch email_target matching
+            dispatch_result = await db.execute(
+                select(RFQDispatch).where(
+                    RFQDispatch.email_target == current_user.email
+                ).limit(1)
             )
-            existing = existing_result.scalar_one_or_none()
+            dispatch = dispatch_result.scalar_one_or_none()
+            if dispatch:
+                provider_id_to_link = dispatch.provider_id
+                _logger.info(f"Found dispatch email match: provider_id={provider_id_to_link}")
 
-            if not existing:
-                # Auto-create the membership (invite email matched)
-                membership = ProviderMembership(
-                    provider_id=dispatch.provider_id,
-                    user_id=current_user.id,
-                    membership_role=MembershipRole.OWNER,
-                    status=MembershipStatus.ACTIVE,
-                    created_by=current_user.id,
-                    invite_email=current_user.email,
+        if provider_id_to_link:
+            # Verify provider exists
+            provider_check = await db.execute(
+                select(Provider).where(Provider.id == provider_id_to_link)
+            )
+            if provider_check.scalar_one_or_none():
+                # Check if membership already exists (race condition guard)
+                existing_result = await db.execute(
+                    select(ProviderMembership).where(
+                        ProviderMembership.provider_id == provider_id_to_link,
+                        ProviderMembership.user_id == current_user.id,
+                    )
                 )
-                db.add(membership)
+                existing = existing_result.scalar_one_or_none()
 
-                # Add provider role if missing
-                if "provider" not in (current_user.roles or []):
-                    current_user.roles = list(current_user.roles or []) + ["provider"]
+                if not existing:
+                    membership = ProviderMembership(
+                        provider_id=provider_id_to_link,
+                        user_id=current_user.id,
+                        membership_role=MembershipRole.OWNER,
+                        status=MembershipStatus.ACTIVE,
+                        created_by=current_user.id,
+                        invite_email=current_user.email,
+                    )
+                    db.add(membership)
 
-                await db.commit()
-                await db.refresh(membership)
+                    if "provider" not in (current_user.roles or []):
+                        current_user.roles = list(current_user.roles or []) + ["provider"]
+
+                    await db.commit()
+                    await db.refresh(membership)
+                    _logger.info(f"Auto-created membership: user={current_user.id}, provider={provider_id_to_link}")
+                else:
+                    membership = existing
             else:
-                membership = existing
+                _logger.warning(f"linked_provider_id {provider_id_to_link} does not exist in providers table")
 
         if not membership:
             raise HTTPException(
@@ -122,6 +141,7 @@ async def get_provider_profile(
             detail="Provider record not found"
         )
     return ProviderResponse.from_orm(provider)
+
 
 
 @router.post("/profile", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
