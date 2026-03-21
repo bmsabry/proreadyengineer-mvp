@@ -289,9 +289,11 @@ export interface RFQDispatch {
 // RFQ Teaser for providers
 export interface RFQTeaser {
   rfq_id: string;
-  urgency: string;
+  status?: string;
+  dispatch_status?: string;
+  urgency?: string;
   tollgate_phases?: string[];
-  nda_required: boolean;
+  nda_required?: boolean;
 }
 
 
