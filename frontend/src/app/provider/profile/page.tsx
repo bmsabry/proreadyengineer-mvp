@@ -35,28 +35,57 @@ export default function ProviderProfilePage() {
 
   useEffect(() => {
     const fetchProvider = async () => {
+      const applyProfileData = (data: any) => {
+        setProvider(data);
+        setFormData({
+          name: data.name || '',
+          website: data.website || '',
+          phone: data.phone || '',
+          address: data.address || '',
+          city: data.city || '',
+          state: data.state || '',
+          postal_code: data.postal_code || '',
+          primary_specialty: data.primary_specialty || '',
+          business_description: data.business_description || '',
+          capabilities: data.capabilities || [],
+          specialties: data.specialties || [],
+          software_tools: data.software_tools || [],
+          certifications: data.certifications || [],
+        });
+      };
+
       try {
+        // First attempt: load profile directly
         const response = await api.providers.getProfile();
         if (response.data) {
-          setProvider(response.data);
-          setFormData({
-            name: response.data.name || '',
-            website: response.data.website || '',
-            phone: response.data.phone || '',
-            address: response.data.address || '',
-            city: response.data.city || '',
-            state: response.data.state || '',
-            postal_code: response.data.postal_code || '',
-            primary_specialty: response.data.primary_specialty || '',
-            business_description: response.data.business_description || '',
-            capabilities: response.data.capabilities || [],
-            specialties: response.data.specialties || [],
-            software_tools: response.data.software_tools || [],
-            certifications: response.data.certifications || [],
-          });
+          applyProfileData(response.data);
+          setIsLoading(false);
+          return;
+        }
+      } catch {
+        // Profile not found - try invite token redemption below
+      }
+
+      // Second attempt: redeem pending invite token if available
+      try {
+        const pendingToken = typeof window !== 'undefined'
+          ? localStorage.getItem('pendingInviteToken')
+          : null;
+
+        if (pendingToken) {
+          console.log('Profile not found, attempting invite token redemption...');
+          await api.auth.redeemInvite(pendingToken);
+          localStorage.removeItem('pendingInviteToken');
+          localStorage.removeItem('pendingInviteRfqId');
+
+          // Retry profile load after redemption
+          const retryResponse = await api.providers.getProfile();
+          if (retryResponse.data) {
+            applyProfileData(retryResponse.data);
+          }
         }
       } catch (error) {
-        console.error('Failed to fetch provider profile:', error);
+        console.error('Invite redemption or profile retry failed:', error);
       } finally {
         setIsLoading(false);
       }
