@@ -222,6 +222,29 @@ const providers = {
 
   getMemberships: () =>
     apiClient.get<ProviderMembership[]>('/provider/memberships'),
+
+  selfRegisterCheckout: () =>
+    apiClient.post('/providers/self-register/checkout', {}),
+
+  selfRegisterSubmit: (data: {
+    name: string;
+    city?: string;
+    state?: string;
+    website?: string;
+    phone?: string;
+    primary_specialty?: string;
+    business_description?: string;
+    proven_experience_notable_projects?: string[];
+    payment_intent_id: string;
+  }) =>
+    apiClient.post('/providers/self-register/submit', data),
+
+  listingInquiry: (data: {
+    firm_name: string;
+    firm_description: string;
+    contact_name: string;
+  }) =>
+    apiClient.post('/providers/listing-inquiry', data),
 };
 
 // Provider Claims API
