@@ -28,7 +28,7 @@ export default function ProviderDashboard() {
           api.providerRFQ.getTeasers(),
           api.quotes.getForProvider(),
         ]);
-        const teasersData = teasersResponse.data as any; // backend returns {teasers, has_membership}
+        const teasersData = teasersResponse.data as any;
         const teasersList = teasersData?.teasers || teasersData || [];
         const membershipStatus = teasersData?.has_membership;
         if (membershipStatus !== undefined) {
@@ -94,7 +94,6 @@ export default function ProviderDashboard() {
       })()}
 
       <div className="flex justify-between items-center mb-8">
-
         <div>
           <h1 className="text-3xl font-bold">Provider Dashboard</h1>
           <p className="text-muted-foreground">Manage your profile and respond to RFQs</p>
@@ -123,16 +122,64 @@ export default function ProviderDashboard() {
                   <p className="text-muted-foreground text-sm">No new RFQ teasers at this time</p>
                 </div>
                 {hasMembership === false && (
-                  <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                    <h3 className="text-sm font-semibold text-blue-900 mb-1">Link Your Engineering Firm</h3>
-                    <p className="text-xs text-blue-700 mb-3">
-                      Link your account to your firm in our directory to receive RFQ opportunities matching your specialties.
-                    </p>
-                    <Link href="/provider/claim">
-                      <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
-                        Search &amp; Link My Firm
-                      </Button>
-                    </Link>
+                  <div className="mt-2 space-y-3">
+                    <p className="text-sm font-medium text-gray-700">Choose how to list your firm:</p>
+
+                    {/* Option 1: Free - Search & Claim */}
+                    <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-bold bg-green-600 text-white px-2 py-0.5 rounded">FREE</span>
+                            <h3 className="text-sm font-semibold text-green-900">Find &amp; Claim Existing Listing</h3>
+                          </div>
+                          <p className="text-xs text-green-700 mb-2">
+                            Search our database of 5,400+ firms. If your firm is listed and your email matches, you can claim it instantly.
+                          </p>
+                        </div>
+                      </div>
+                      <Link href="/provider/claim">
+                        <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs w-full">
+                          Search My Firm
+                        </Button>
+                      </Link>
+                    </div>
+
+                    {/* Option 2: $100 Self-Service */}
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-bold bg-blue-600 text-white px-2 py-0.5 rounded">$100</span>
+                          <h3 className="text-sm font-semibold text-blue-900">Self-Service New Listing</h3>
+                        </div>
+                        <p className="text-xs text-blue-700 mb-2">
+                          Create your own profile with your description, specialties, and notable projects. One-time fee.
+                        </p>
+                      </div>
+                      <Link href="/provider/add-firm">
+                        <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white text-xs w-full">
+                          Create My Listing
+                        </Button>
+                      </Link>
+                    </div>
+
+                    {/* Option 3: $750 AI-Assisted */}
+                    <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-bold bg-purple-600 text-white px-2 py-0.5 rounded">$750</span>
+                          <h3 className="text-sm font-semibold text-purple-900">AI-Assisted Premium Listing</h3>
+                        </div>
+                        <p className="text-xs text-purple-700 mb-2">
+                          Our team uses AI to build a comprehensive, optimized profile from your website and materials. Includes tier evaluation.
+                        </p>
+                      </div>
+                      <Link href="/provider/add-firm?tier=premium">
+                        <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-white text-xs w-full">
+                          Request AI Listing
+                        </Button>
+                      </Link>
+                    </div>
                   </div>
                 )}
               </div>
@@ -187,7 +234,7 @@ export default function ProviderDashboard() {
                         <div>
                           <p className="font-medium">{quote.provider?.name}</p>
                           <p className="text-sm text-muted-foreground">
-                            Submitted {quote.submitted_at ? formatDate(quote.submitted_at) : "Unknown"}
+                            Submitted {quote.submitted_at ? formatDate(quote.submitted_at) : 'Unknown'}
                           </p>
                         </div>
                         <Badge>{quote.quote_status}</Badge>
