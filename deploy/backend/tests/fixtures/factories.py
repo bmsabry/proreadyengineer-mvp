@@ -526,7 +526,7 @@ async def create_test_payment_attempt(
     related_entity_id: uuid.UUID = None,
     amount: int = 1000,
     currency: str = "usd",
-    payment_status: PaymentStatus = PaymentStatus.PENDING,
+    payment_status: PaymentStatus = PaymentStatus.INITIATED,
     idempotency_key: str = None,
     initiated_by_user_id: Optional[uuid.UUID] = None,
     **kwargs

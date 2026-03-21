@@ -117,7 +117,7 @@ class TestCreatePaymentIntent:
         assert payment.purpose == "rfq_unlock"
         assert payment.amount == 1000
         assert payment.currency == "usd"
-        assert payment.payment_status == PaymentStatus.PENDING
+        assert payment.payment_status == PaymentStatus.INITIATED
 
     async def test_create_payment_intent_idempotency(self, db_session, customer_user, mock_stripe):
         """Test that duplicate payment attempt returns existing."""
@@ -228,7 +228,7 @@ class TestStripeWebhookHandling:
         payment = await create_test_payment_attempt(
             db_session,
             purpose="rfq_unlock",
-            payment_status=PaymentStatus.PENDING,
+            payment_status=PaymentStatus.INITIATED,
             external_payment_id="pi_test_123",
             initiated_by_user_id=customer_user.id,
         )
