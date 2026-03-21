@@ -369,6 +369,7 @@ async def redeem_invite(
         membership_role=MembershipRole.OWNER,
         status=MembershipStatus.ACTIVE,
         created_by=current_user.id,
+        invite_email=payload.get('sent_to_email'),  # audit: email invite was sent to
     )
     db.add(membership)
 

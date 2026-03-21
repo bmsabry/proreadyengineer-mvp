@@ -282,6 +282,9 @@ class ProviderMembership(Base):
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
+    invite_email: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True, comment="Email the invite was originally sent to, for audit purposes"
+    )
     
     # Relationships
     provider: Mapped["Provider"] = relationship("Provider", back_populates="memberships")
