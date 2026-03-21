@@ -2,6 +2,7 @@
 
 import csv
 import json
+import secrets
 import io
 from datetime import datetime
 import httpx
@@ -810,6 +811,73 @@ async def admin_suspend_user(
     await revoke_all_user_tokens(db, user_id)
 
     return {"message": "User suspended", "user_id": user_id}
+
+
+@router.post("/admin/users/{user_id}/remove")
+async def admin_remove_user(
+    user_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role(["admin"])),
+):
+    """Admin: Anonymise a user account - scrambles credentials, frees the email.
+
+    Historical data (RFQs, quotes, memberships) is preserved linked to the old
+    user_id, but login credentials are destroyed and the original email is
+    released so the person may re-register fresh.
+    """
+    import secrets as _secrets
+    import uuid as _uuid
+    from app.models.user import RefreshToken
+    from sqlalchemy import select, update
+    from datetime import timezone
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    # Guard: already removed
+    if user.email and user.email.startswith("removed_"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User has already been removed",
+        )
+
+    original_email = user.email
+
+    # Scramble credentials - frees the original email for re-registration
+    user.email = f"removed_{user.id}@deleted.invalid"
+    user.hashed_password = "REMOVED_" + _secrets.token_hex(32)
+    user.is_active = False
+
+    # Revoke all active refresh tokens
+    await db.execute(
+        update(RefreshToken)
+        .where(RefreshToken.user_id == user.id)
+        .values(revoked_at=datetime.now(timezone.utc))
+    )
+
+    # Emit audit log (non-fatal)
+    try:
+        audit = AuditLog(
+            id=_uuid.uuid4(),
+            actor_user_id=current_user.id,
+            entity_type="user",
+            entity_id=user_id,
+            action="remove_user",
+            before_state={"email": original_email, "is_active": True},
+            after_state={"email": user.email, "is_active": False},
+            metadata={"removed_by": str(current_user.id)},
+            created_at=datetime.utcnow(),
+        )
+        db.add(audit)
+    except Exception:
+        pass
+
+    await db.commit()
+
+    return {"success": True, "message": "User removed", "user_id": user_id}
 
 
 # ─── System Configuration Endpoints ──────────────────────────────────────────

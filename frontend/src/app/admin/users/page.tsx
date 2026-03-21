@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Ban, Download, RefreshCw, RotateCcw } from 'lucide-react';
+import { Search, Ban, Download, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdminUser {
@@ -51,6 +51,7 @@ export default function AdminUsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [resetingId, setResetingId] = useState<string | null>(null);
   const [suspendingId, setSuspendingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const searchQueryRef = useRef(searchQuery);
 
@@ -133,6 +134,27 @@ export default function AdminUsersPage() {
       toast.error('Failed to suspend user');
     } finally {
       setSuspendingId(null);
+    }
+  };
+
+  const handleRemove = async (userId: string, email: string) => {
+    const msg = [
+      `This will scramble the credentials for ${email} and free their email address.`,
+      'They can re-register with the same email as a fresh account.',
+      'Historical data (RFQs, quotes, memberships) will be preserved but unlinked from their login.',
+      '',
+      'Continue?'
+    ].join('\n');
+    if (!confirm(msg)) return;
+    setRemovingId(userId);
+    try {
+      await api.admin.removeUser(userId);
+      toast.success(`${email} has been removed. Their email is now free for re-registration.`);
+      fetchUsers(searchQuery || undefined);
+    } catch {
+      toast.error('Failed to remove user');
+    } finally {
+      setRemovingId(null);
     }
   };
 
@@ -307,6 +329,16 @@ export default function AdminUsersPage() {
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             >
                               <Ban className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title="Remove user (scrambles credentials, frees email for re-registration)"
+                              onClick={() => handleRemove(user.id, user.email)}
+                              disabled={removingId === user.id || user.email.startsWith('removed_')}
+                              className="text-red-800 hover:text-red-900 hover:bg-red-100"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         </TableCell>

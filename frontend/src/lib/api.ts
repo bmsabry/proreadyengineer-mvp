@@ -445,6 +445,8 @@ const admin = {
 
   suspendUser: (id: string) =>
     apiClient.post<any>(`/admin/users/${id}/suspend`),
+  removeUser: (id: string) =>
+    apiClient.post<any>(`/admin/users/${id}/remove`),
   getConfig: () =>
     apiClient.get<any>('/admin/config'),
   saveConfig: (data: Record<string, string>) =>
