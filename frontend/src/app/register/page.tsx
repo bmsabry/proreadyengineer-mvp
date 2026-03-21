@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect , Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -21,19 +21,33 @@ function RegisterPageContent() {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [inviteToken, setInviteToken] = useState('');
+  const [inviteRfqId, setInviteRfqId] = useState('');
+  const [hasInvite, setHasInvite] = useState(false);
 
-  // Save invite token from URL to localStorage on mount
   useEffect(() => {
-    const invite = searchParams.get('invite');
+    const invite = searchParams.get('invite') || '';
+    const rfqId = searchParams.get('rfq_id') || '';
     if (invite) {
+      setInviteToken(invite);
+      setInviteRfqId(rfqId);
+      setHasInvite(true);
+      // Force role to provider and lock it
+      setFd(prev => ({ ...prev, role: 'provider' }));
+      // Store in localStorage as fallback
       localStorage.setItem('pendingInviteToken', invite);
+      if (rfqId) localStorage.setItem('pendingInviteRfqId', rfqId);
     }
-    const rfqId = searchParams.get('rfq_id');
-    if (rfqId) localStorage.setItem('pendingInviteRfqId', rfqId);
   }, [searchParams]);
 
-  const hc = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+  const hc = (e: React.ChangeEvent<HTMLInputElement>) =>
     setFd(p => ({ ...p, [e.target.name]: e.target.value }));
+
+  const handleRoleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    if (!hasInvite) {
+      setFd(p => ({ ...p, role: e.target.value as 'customer' | 'provider' | 'advertiser' }));
+    }
+  };
 
   const hs = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,8 +65,53 @@ function RegisterPageContent() {
       if (fd.company_name.trim()) body.company_name = fd.company_name.trim();
       if (fd.phone.trim()) body.phone = fd.phone.trim();
 
-      await api.auth.register(body as any);
-      router.push('/login?registered=1');
+      const regRes = await api.auth.register(body as unknown as Parameters<typeof api.auth.register>[0]);
+      const regData = regRes?.data as { access_token?: string } | undefined;
+      const accessToken = regData?.access_token || '';
+
+      // Always store access token in localStorage
+      if (accessToken) {
+        localStorage.setItem('access_token', accessToken);
+      }
+
+      if (hasInvite && inviteToken) {
+        // Redeem invite token immediately after registration
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+          const redeemRes = await fetch(`${apiUrl}/auth/redeem-invite`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
+            },
+            credentials: 'include',
+            body: JSON.stringify({ token: inviteToken }),
+          });
+
+          // Clean up localStorage regardless of result
+          localStorage.removeItem('pendingInviteToken');
+          localStorage.removeItem('pendingInviteRfqId');
+
+          if (redeemRes.ok) {
+            const redeemData = await redeemRes.json() as { rfq_id?: string; provider_id?: string; already_member?: boolean };
+            const targetRfqId = redeemData?.rfq_id || inviteRfqId;
+            if (targetRfqId) {
+              router.push(`/provider/rfq/${targetRfqId}`);
+            } else {
+              router.push('/provider/dashboard');
+            }
+          } else {
+            // Redemption failed — still navigate to dashboard as provider
+            console.error('Invite redemption failed:', redeemRes.status);
+            router.push('/provider/dashboard');
+          }
+        } catch (redeemErr) {
+          console.error('Invite redemption error:', redeemErr);
+          router.push('/provider/dashboard');
+        }
+      } else {
+        router.push('/login?registered=1');
+      }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
       const detail = axiosErr?.response?.data?.detail;
@@ -62,6 +121,11 @@ function RegisterPageContent() {
     }
   };
 
+  // Build sign-in href — pass invite params through if present
+  const signInHref = hasInvite
+    ? `/login?invite=${encodeURIComponent(inviteToken)}&rfq_id=${encodeURIComponent(inviteRfqId)}`
+    : '/login';
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
@@ -69,24 +133,53 @@ function RegisterPageContent() {
         <h2 className="mt-4 text-center text-3xl font-extrabold text-gray-900">Create your account</h2>
         <p className="mt-2 text-center text-sm text-gray-600">
           Already have an account?{' '}
-          <Link href="/login" className="font-medium text-blue-600 hover:text-blue-500">Sign in</Link>
+          <Link href={signInHref} className="font-medium text-blue-600 hover:text-blue-500">Sign in</Link>
         </p>
       </div>
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+
+          {/* Invite banner */}
+          {hasInvite && (
+            <div className="mb-6 bg-blue-50 border border-blue-300 rounded-md p-4 flex items-start gap-3">
+              <svg className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div>
+                <p className="text-sm font-semibold text-blue-900">You have been invited to bid on an engineering project</p>
+                <p className="text-xs text-blue-700 mt-1">Create your provider account to proceed and view the full RFQ details.</p>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm">
               {error}
             </div>
           )}
+
           <form onSubmit={hs} className="space-y-5">
             <div>
               <label className={lc}>I am a</label>
-              <select name="role" value={fd.role} onChange={hc} className={ic}>
-                <option value="customer">Customer (seeking engineering services)</option>
-                <option value="provider">Provider (engineering firm)</option>
-                <option value="advertiser">Advertiser</option>
-              </select>
+              {hasInvite ? (
+                <>
+                  <select
+                    name="role"
+                    value="provider"
+                    disabled
+                    className={`${ic} bg-gray-100 cursor-not-allowed opacity-75`}
+                  >
+                    <option value="provider">Provider (engineering firm)</option>
+                  </select>
+                  <p className="mt-1 text-xs text-blue-600">Role is locked to Provider for this invitation.</p>
+                </>
+              ) : (
+                <select name="role" value={fd.role} onChange={handleRoleChange} className={ic}>
+                  <option value="customer">Customer (seeking engineering services)</option>
+                  <option value="provider">Provider (engineering firm)</option>
+                  <option value="advertiser">Advertiser</option>
+                </select>
+              )}
             </div>
             <div>
               <label className={lc}>Full Name <span className="text-gray-400">(optional)</span></label>
@@ -94,7 +187,15 @@ function RegisterPageContent() {
             </div>
             <div>
               <label className={lc}>Company Name{fd.role === 'provider' ? '' : ' (optional)'}</label>
-              <input type="text" name="company_name" value={fd.company_name} onChange={hc} placeholder="Acme Engineering LLC" className={ic} required={fd.role === 'provider'} />
+              <input
+                type="text"
+                name="company_name"
+                value={fd.company_name}
+                onChange={hc}
+                placeholder="Acme Engineering LLC"
+                className={ic}
+                required={fd.role === 'provider'}
+              />
             </div>
             <div>
               <label className={lc}>Phone <span className="text-gray-400">(optional)</span></label>
@@ -118,7 +219,7 @@ function RegisterPageContent() {
               disabled={loading}
               className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Creating account...' : 'Create account'}
+              {loading ? 'Creating account...' : (hasInvite ? 'Create Account & Accept Invite' : 'Create account')}
             </button>
           </form>
           <p className="mt-4 text-center text-xs text-gray-500">
