@@ -322,12 +322,11 @@ async def get_provider_teasers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get RFQ teasers for provider."""
+    """Get RFQ teasers for provider - returns rich data including project preview."""
     from sqlalchemy import select
-    from app.models.rfq import RFQProviderDispatch
+    from app.models.rfq import RFQProviderDispatch, RFQ
     from app.models.provider import ProviderMembership
 
-    # Get user's provider
     result = await db.execute(
         select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
     )
@@ -336,16 +335,33 @@ async def get_provider_teasers(
     if not membership:
         return {"teasers": [], "has_membership": False}
 
-    # Get dispatches
+    # Get dispatches with RFQ data joined
     result = await db.execute(
-        select(RFQProviderDispatch).where(
+        select(RFQProviderDispatch, RFQ).join(
+            RFQ, RFQ.id == RFQProviderDispatch.rfq_id
+        ).where(
             RFQProviderDispatch.provider_id == membership.provider_id
-        )
+        ).order_by(RFQProviderDispatch.created_at.desc())
     )
-    dispatches = result.scalars().all()
+    rows = result.all()
 
-    return {"teasers": [{"rfq_id": str(d.rfq_id), "status": d.dispatch_status.value} for d in dispatches], "has_membership": True}
+    teasers = []
+    for dispatch, rfq in rows:
+        desc = rfq.project_description or ""
+        preview = (desc[:300] + "...") if len(desc) > 300 else desc
+        teasers.append({
+            "rfq_id": str(rfq.id),
+            "status": dispatch.dispatch_status.value,
+            "urgency": rfq.urgency,
+            "tollgate_phases": rfq.tollgate_phases or [],
+            "nda_required": rfq.nda_required,
+            "business_name": rfq.business_name,
+            "project_description_preview": preview,
+            "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
+            "created_at": rfq.created_at.isoformat() if rfq.created_at else None,
+        })
 
+    return {"teasers": teasers, "has_membership": True}
 
 @router.get("/provider/rfqs/{rfq_id}/teaser")
 async def get_rfq_teaser(
@@ -353,7 +369,7 @@ async def get_rfq_teaser(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get teaser details for an RFQ."""
+    """Get teaser details for an RFQ - returns full project preview info."""
     from sqlalchemy import select
     from app.models.rfq import RFQ, RFQProviderDispatch
     from app.models.provider import ProviderMembership
@@ -380,12 +396,19 @@ async def get_rfq_teaser(
     result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
     rfq = result.scalar_one()
 
+    desc = rfq.project_description or ""
+    preview = (desc[:300] + "...") if len(desc) > 300 else desc
+
     return {
         "rfq_id": rfq_id,
         "urgency": rfq.urgency,
         "dispatch_status": dispatch.dispatch_status.value,
+        "tollgate_phases": rfq.tollgate_phases or [],
+        "nda_required": rfq.nda_required,
+        "business_name": rfq.business_name,
+        "project_description_preview": preview,
+        "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
     }
-
 
 @router.post("/provider/rfqs/{rfq_id}/unlock/checkout", response_model=PaymentIntentResponse)
 async def unlock_checkout(
@@ -410,9 +433,9 @@ async def get_unlock_status(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Check if RFQ is unlocked for provider."""
+    """Check if RFQ is unlocked for provider. Always returns teaser info."""
     from sqlalchemy import select
-    from app.models.rfq import RFQUnlock
+    from app.models.rfq import RFQUnlock, RFQ, RFQProviderDispatch
     from app.models.provider import ProviderMembership
 
     result = await db.execute(
@@ -421,8 +444,39 @@ async def get_unlock_status(
     membership = result.scalar_one_or_none()
 
     if not membership:
-        return {"unlocked": False}
+        return {"unlocked": False, "has_membership": False}
 
+    # Get RFQ data - always available as teaser info
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    # Check dispatch exists for this provider
+    result = await db.execute(
+        select(RFQProviderDispatch).where(
+            RFQProviderDispatch.rfq_id == rfq_id,
+            RFQProviderDispatch.provider_id == membership.provider_id
+        )
+    )
+    dispatch = result.scalar_one_or_none()
+
+    desc = rfq.project_description or ""
+    preview = (desc[:300] + "...") if len(desc) > 300 else desc
+
+    base_info = {
+        "has_membership": True,
+        "has_dispatch": dispatch is not None,
+        "urgency": rfq.urgency,
+        "tollgate_phases": rfq.tollgate_phases or [],
+        "nda_required": rfq.nda_required,
+        "business_name": rfq.business_name,
+        "project_description_preview": preview,
+        "rfq_status": rfq.rfq_status.value if rfq.rfq_status else None,
+        "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
+    }
+
+    # Check for completed unlock
     result = await db.execute(
         select(RFQUnlock).where(
             RFQUnlock.rfq_id == rfq_id,
@@ -432,8 +486,10 @@ async def get_unlock_status(
     )
     unlock = result.scalar_one_or_none()
 
-    return {"unlocked": unlock is not None}
-
+    if unlock:
+        return {"unlocked": True, "project_description": rfq.project_description, **base_info}
+    else:
+        return {"unlocked": False, **base_info}
 
 @router.get("/provider/rfqs/{rfq_id}/files")
 async def get_rfq_files(
