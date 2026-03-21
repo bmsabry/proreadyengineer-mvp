@@ -82,9 +82,13 @@ function LoginPageContent() {
       if (pendingToken) {
         try {
           const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://proreadyengineer-api.onrender.com/api/v1';
+          const storedToken = localStorage.getItem('access_token') || '';
           const redeemRes = await fetch(`${apiBase}/auth/redeem-invite`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {}),
+            },
             credentials: 'include',
             body: JSON.stringify({ token: pendingToken }),
           });

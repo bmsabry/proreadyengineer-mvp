@@ -226,7 +226,7 @@ async def get_rfq_status(
 ):
     """Get RFQ status and progress."""
     from sqlalchemy import select, func
-    from app.models.rfq import RFQ, RFQProviderDispatch, RFQDispatchBatch
+    from app.models.rfq import RFQ, RFQDispatch, RFQDispatchBatch
     from app.models.quote import Quote
 
     result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
@@ -240,7 +240,7 @@ async def get_rfq_status(
 
     # Count dispatches
     result = await db.execute(
-        select(func.count()).where(RFQProviderDispatch.rfq_id == rfq_id)
+        select(func.count()).where(RFQDispatch.rfq_id == rfq_id)
     )
     firms_contacted = result.scalar()
 
@@ -324,7 +324,7 @@ async def get_provider_teasers(
 ):
     """Get RFQ teasers for provider - returns rich data including project preview."""
     from sqlalchemy import select
-    from app.models.rfq import RFQProviderDispatch, RFQ
+    from app.models.rfq import RFQDispatch, RFQ
     from app.models.provider import ProviderMembership
 
     result = await db.execute(
@@ -337,11 +337,11 @@ async def get_provider_teasers(
 
     # Get dispatches with RFQ data joined
     result = await db.execute(
-        select(RFQProviderDispatch, RFQ).join(
-            RFQ, RFQ.id == RFQProviderDispatch.rfq_id
+        select(RFQDispatch, RFQ).join(
+            RFQ, RFQ.id == RFQDispatch.rfq_id
         ).where(
-            RFQProviderDispatch.provider_id == membership.provider_id
-        ).order_by(RFQProviderDispatch.created_at.desc())
+            RFQDispatch.provider_id == membership.provider_id
+        ).order_by(RFQDispatch.created_at.desc())
     )
     rows = result.all()
 
@@ -371,7 +371,7 @@ async def get_rfq_teaser(
 ):
     """Get teaser details for an RFQ - returns full project preview info."""
     from sqlalchemy import select
-    from app.models.rfq import RFQ, RFQProviderDispatch
+    from app.models.rfq import RFQ, RFQDispatch
     from app.models.provider import ProviderMembership
 
     result = await db.execute(
@@ -383,9 +383,9 @@ async def get_rfq_teaser(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
 
     result = await db.execute(
-        select(RFQProviderDispatch).where(
-            RFQProviderDispatch.rfq_id == rfq_id,
-            RFQProviderDispatch.provider_id == membership.provider_id
+        select(RFQDispatch).where(
+            RFQDispatch.rfq_id == rfq_id,
+            RFQDispatch.provider_id == membership.provider_id
         )
     )
     dispatch = result.scalar_one_or_none()
@@ -435,7 +435,7 @@ async def get_unlock_status(
 ):
     """Check if RFQ is unlocked for provider. Always returns teaser info."""
     from sqlalchemy import select
-    from app.models.rfq import RFQUnlock, RFQ, RFQProviderDispatch
+    from app.models.rfq import RFQUnlock, RFQ, RFQDispatch
     from app.models.provider import ProviderMembership
 
     result = await db.execute(
@@ -454,9 +454,9 @@ async def get_unlock_status(
 
     # Check dispatch exists for this provider
     result = await db.execute(
-        select(RFQProviderDispatch).where(
-            RFQProviderDispatch.rfq_id == rfq_id,
-            RFQProviderDispatch.provider_id == membership.provider_id
+        select(RFQDispatch).where(
+            RFQDispatch.rfq_id == rfq_id,
+            RFQDispatch.provider_id == membership.provider_id
         )
     )
     dispatch = result.scalar_one_or_none()
