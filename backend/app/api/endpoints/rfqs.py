@@ -1,6 +1,7 @@
 """RFQ API endpoints."""
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
