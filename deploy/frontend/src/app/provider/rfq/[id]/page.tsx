@@ -218,12 +218,6 @@ function ProviderRFQPageInner() {
   const [quoteSubmitted, setQuoteSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const result = searchParams.get('payment');
-    if (result === 'success') toast.success('Payment confirmed! Project files are now unlocked.');
-    if (result === 'cancelled') toast.info('Payment cancelled. You can unlock anytime.');
-  }, [searchParams]);
-
   const loadStatus = useCallback(async () => {
     try {
       const res = await api.providerRFQ.getUnlockStatus(rfqId);
@@ -248,6 +242,31 @@ function ProviderRFQPageInner() {
   }, [rfqId]);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
+
+  useEffect(() => {
+    const result = searchParams.get('payment');
+    if (result === 'success') {
+      // Verify payment with Stripe and create RFQUnlock (fulfillment-on-redirect pattern)
+      toast.info('Verifying payment...');
+      api.providerRFQ.verifyPayment(rfqId)
+        .then((res) => {
+          const data = res.data as any;
+          if (data?.unlocked) {
+            toast.success('Payment confirmed! Project files are now unlocked.');
+            loadStatus(); // Re-fetch status which will now show unlocked
+          } else {
+            toast.error(data?.reason || 'Payment verification pending. Please refresh in a moment.');
+            // Try loading status anyway in case webhook already processed it
+            loadStatus();
+          }
+        })
+        .catch(() => {
+          toast.error('Could not verify payment. Please refresh the page.');
+          loadStatus(); // Fallback: try loading status in case webhook handled it
+        });
+    }
+    if (result === 'cancelled') toast.info('Payment cancelled. You can unlock anytime.');
+  }, [searchParams, rfqId, loadStatus]);
   useEffect(() => { if (status?.unlocked) loadFiles(); }, [status?.unlocked, loadFiles]);
 
   const handleUnlock = async () => {

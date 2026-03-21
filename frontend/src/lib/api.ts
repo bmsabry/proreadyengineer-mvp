@@ -304,6 +304,9 @@ const providerRFQ = {
   getUnlockStatus: (rfqId: string) =>
     apiClient.get<{ unlocked: boolean }>(`/provider/rfqs/${rfqId}/unlock/status`),
 
+  verifyPayment: (rfqId: string) =>
+    apiClient.post<{ unlocked: boolean; reason: string }>(`/provider/rfqs/${rfqId}/verify-payment`),
+
   getFiles: (rfqId: string) =>
     apiClient.get<RFQFile[]>(`/provider/rfqs/${rfqId}/files`),
 
@@ -332,6 +335,9 @@ const providerRfqAccess = {
   
   getUnlockStatus: (rfqId: string) => 
     apiClient.get<RFQUnlock>(`/provider/rfqs/${rfqId}/unlock/status`),
+
+  verifyPayment: (rfqId: string) =>
+    apiClient.post<{ unlocked: boolean; reason: string }>(`/provider/rfqs/${rfqId}/verify-payment`),
   
   getFiles: (rfqId: string) => 
     apiClient.get<RFQFile[]>(`/provider/rfqs/${rfqId}/files`),

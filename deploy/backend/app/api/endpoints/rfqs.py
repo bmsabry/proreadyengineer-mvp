@@ -500,6 +500,117 @@ async def unlock_checkout(
         )
 
 
+
+
+@router.post("/provider/rfqs/{rfq_id}/verify-payment")
+async def verify_payment(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Verify Stripe payment and create RFQUnlock if paid.
+
+    Called by frontend after redirect from Stripe Checkout.
+    This is the 'fulfillment on redirect' pattern - does NOT rely on webhooks.
+    Idempotent: safe to call multiple times.
+    """
+    import logging
+    import uuid as _uuid
+    logger = logging.getLogger(__name__)
+
+    try:
+        import stripe
+        from sqlalchemy import select
+        from app.models.payment import PaymentAttempt, PaymentStatus
+        from app.services.config_service import get_runtime_config as _grc
+        from app.services.payment_service import _fulfill_checkout_rfq_unlock
+        from app.models import ProviderMembership
+
+        # Get Stripe key from DB
+        _cfg = await _grc(db)
+        stripe.api_key = _cfg.get('STRIPE_SECRET_KEY', '') or ''
+        if not stripe.api_key:
+            return {"unlocked": False, "reason": "Payment system not configured"}
+
+        # Find the most recent PaymentAttempt for this RFQ + user
+        try:
+            rfq_uuid = _uuid.UUID(rfq_id)
+        except (ValueError, AttributeError):
+            return {"unlocked": False, "reason": "Invalid RFQ ID"}
+
+        result = await db.execute(
+            select(PaymentAttempt)
+            .where(
+                PaymentAttempt.related_entity_id == rfq_uuid,
+                PaymentAttempt.purpose == "rfq_unlock",
+                PaymentAttempt.initiated_by_user_id == current_user.id,
+            )
+            .order_by(PaymentAttempt.initiated_at.desc())
+            .limit(1)
+        )
+        payment = result.scalar_one_or_none()
+
+        if not payment:
+            logger.warning(f"verify-payment: No payment found for rfq={rfq_id} user={current_user.id}")
+            return {"unlocked": False, "reason": "No payment record found"}
+
+        if str(payment.payment_status) == str(PaymentStatus.COMPLETED):
+            # Already fulfilled - just confirm
+            logger.info(f"verify-payment: Payment already completed for rfq={rfq_id}")
+            return {"unlocked": True, "reason": "Payment already verified"}
+
+        # Get Stripe session ID and verify with Stripe API
+        session_id = payment.external_payment_id
+        if not session_id:
+            logger.error(f"verify-payment: No Stripe session ID for payment {payment.id}")
+            return {"unlocked": False, "reason": "No payment session found"}
+
+        logger.info(f"verify-payment: Checking Stripe session {session_id}")
+
+        # Call Stripe API to check payment status
+        try:
+            session = stripe.checkout.Session.retrieve(session_id)
+        except Exception as e:
+            logger.error(f"verify-payment: Stripe API error: {e}")
+            return {"unlocked": False, "reason": "Could not verify with payment provider"}
+
+        if session.payment_status != "paid":
+            logger.info(f"verify-payment: Session {session_id} not paid yet: {session.payment_status}")
+            return {"unlocked": False, "reason": f"Payment status: {session.payment_status}"}
+
+        # Payment confirmed! Update PaymentAttempt and create RFQUnlock
+        logger.info(f"verify-payment: Session {session_id} PAID - fulfilling unlock")
+
+        from datetime import datetime, timezone
+        payment.payment_status = PaymentStatus.COMPLETED
+        payment.confirmed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+        # Resolve provider_id
+        mem_result = await db.execute(
+            select(ProviderMembership).where(
+                ProviderMembership.user_id == current_user.id
+            )
+        )
+        membership = mem_result.scalar_one_or_none()
+        provider_id_str = str(membership.provider_id) if membership else ""
+
+        # Create RFQUnlock record (idempotent function)
+        await _fulfill_checkout_rfq_unlock(
+            db=db,
+            rfq_id_str=rfq_id,
+            user_id_str=str(current_user.id),
+            provider_id_str=provider_id_str,
+            payment_attempt_id=payment.id,
+        )
+
+        return {"unlocked": True, "reason": "Payment verified and access granted"}
+
+    except Exception as e:
+        logger.exception(f"verify-payment: Unexpected error: {e}")
+        return {"unlocked": False, "reason": "Verification error. Please refresh the page."}
+
+
 @router.get("/provider/rfqs/{rfq_id}/unlock/status")
 async def get_unlock_status(
     rfq_id: str,
