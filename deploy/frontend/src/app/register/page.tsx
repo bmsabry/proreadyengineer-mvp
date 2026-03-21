@@ -101,22 +101,14 @@ function RegisterPageContent() {
       if (hasInvite && inviteToken) {
         // Redeem invite token immediately after registration
         try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-          const redeemRes = await fetch(`${apiUrl}/auth/redeem-invite`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}),
-            },
-            credentials: 'include',
-            body: JSON.stringify({ token: inviteToken }),
-          });
+          // Use api client (has correct /api/v1 base URL)
+          const redeemRes = await api.auth.redeemInvite(inviteToken);
 
           // Clean up localStorage regardless of result
           localStorage.removeItem('pendingInviteToken');
           localStorage.removeItem('pendingInviteRfqId');
 
-          if (redeemRes.ok) {
+          if (redeemRes?.data) {
             // FIX 3: Always redirect to /provider/dashboard after successful registration+invite.
             // The dashboard shows the amber 'Action Required' section listing pending RFQs to unlock.
             // Previously redirected to /provider/rfq/{id} which immediately bounced to /rfqs/{id}/unlock

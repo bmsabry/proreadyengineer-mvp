@@ -4,6 +4,7 @@ import { useState, useEffect , Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
 import { useRedirectIfAuthenticated } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,18 +82,9 @@ function LoginPageContent() {
       const pendingToken = localStorage.getItem('pendingInviteToken');
       if (pendingToken) {
         try {
-          const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://proreadyengineer-api.onrender.com/api/v1';
-          const storedToken = localStorage.getItem('access_token') || '';
-          const redeemRes = await fetch(`${apiBase}/auth/redeem-invite`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {}),
-            },
-            credentials: 'include',
-            body: JSON.stringify({ token: pendingToken }),
-          });
-          if (redeemRes.ok) {
+          // Use api client (has correct /api/v1 base URL + auth headers)
+          const redeemRes = await api.auth.redeemInvite(pendingToken);
+          if (redeemRes?.data) {
             localStorage.removeItem('pendingInviteToken');
             localStorage.removeItem('pendingInviteRfqId');
             toast.success('Logged in successfully');

@@ -173,6 +173,9 @@ const auth = {
   resetPassword: (data: PasswordResetConfirm) =>
     apiClient.post('/auth/password/reset', data),
 
+  redeemInvite: (token: string) =>
+    apiClient.post('/auth/redeem-invite', { token }),
+
   me: () =>
     apiClient.get<User>('/auth/me'),
 };
