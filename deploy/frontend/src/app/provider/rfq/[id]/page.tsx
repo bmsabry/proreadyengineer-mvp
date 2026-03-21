@@ -255,13 +255,24 @@ function ProviderRFQPageInner() {
     try {
       const res = await api.providerRFQ.unlockCheckout(rfqId);
       const data = res.data as any;
-      const url = data?.checkout_url || data?.url || data?.client_secret;
-      if (data?.checkout_url || data?.url) { window.location.href = url || ''; }
-      else if (data?.client_secret) { router.push(`/rfqs/${rfqId}/unlock?client_secret=${data.client_secret}`); }
-      else toast.error('Could not initiate payment. Please try again.');
+      if (data?.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error('Payment session created but no redirect URL received. Please contact support.');
+      }
     } catch (e: unknown) {
-      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(detail || 'Failed to start checkout. Please try again.');
+      const err = e as { response?: { status?: number; data?: { detail?: string } }; message?: string };
+      if (!err.response) {
+        // Network error - no response at all (CORS or connection issue)
+        toast.error('Cannot connect to server. Please refresh and try again.');
+        console.error('Network error in unlockCheckout:', err.message);
+      } else {
+        const detail = err.response?.data?.detail;
+        toast.error(detail || `Server error (${err.response?.status}). Please try again.`);
+        console.error('unlockCheckout error:', err.response?.status, detail);
+      }
     } finally { setCheckingOut(false); }
   };
 

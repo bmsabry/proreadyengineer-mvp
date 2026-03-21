@@ -299,7 +299,7 @@ const providerRFQ = {
     apiClient.get<RFQTeaser>(`/provider/rfqs/${rfqId}/teaser`),
 
   unlockCheckout: (rfqId: string) =>
-    apiClient.post<{ client_secret: string }>(`/provider/rfqs/${rfqId}/unlock/checkout`),
+    apiClient.post<{ checkout_url: string; payment_attempt_id: string }>(`/provider/rfqs/${rfqId}/unlock/checkout`),
 
   getUnlockStatus: (rfqId: string) =>
     apiClient.get<{ unlocked: boolean }>(`/provider/rfqs/${rfqId}/unlock/status`),
