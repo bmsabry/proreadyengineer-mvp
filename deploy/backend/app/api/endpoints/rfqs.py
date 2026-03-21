@@ -524,9 +524,12 @@ async def verify_payment(
         from app.services.config_service import get_runtime_config as _grc
         from app.models.rfq import RFQUnlock
         from app.models.provider import ProviderMembership
+        from app.models.payment import PaymentAttempt
+        from app.models.enums import PaymentStatus
         from app.services.payment_service import _fulfill_checkout_rfq_unlock
         from sqlalchemy import select
         from datetime import datetime, timezone
+        import stripe
 
         # Step 1: Parse rfq_id
         try:
