@@ -88,9 +88,10 @@ function LoginPageContent() {
             localStorage.removeItem('pendingInviteToken');
             localStorage.removeItem('pendingInviteRfqId');
             toast.success('Logged in successfully');
-            // FIX 3: Redirect to provider dashboard after invite redemption.
-            // Dashboard shows the amber Action Required section for the pending RFQ.
-            router.push('/provider/dashboard');
+            // Redirect directly to the specific RFQ after invite redemption.
+            // If rfq_id is known, take them straight to the project; otherwise fall back to dashboard.
+            const pendingRfqId = localStorage.getItem('pendingInviteRfqId') || extractedRfqId;
+            router.push(pendingRfqId ? `/provider/rfq/${pendingRfqId}` : '/provider/dashboard');
             return;
           }
         } catch {

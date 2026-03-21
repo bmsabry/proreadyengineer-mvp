@@ -114,11 +114,11 @@ function RegisterPageContent() {
             // Previously redirected to /provider/rfq/{id} which immediately bounced to /rfqs/{id}/unlock
             // (a $10 payment form with no context), confusing new users.
             await refreshUser();
-            router.push('/provider/dashboard');
+            router.push(inviteRfqId ? `/provider/rfq/${inviteRfqId}` : '/provider/dashboard');
           } else {
             // Redemption failed — still navigate to dashboard as provider
             console.error('Invite redemption failed:', redeemRes.status);
-            router.push('/provider/dashboard');
+            router.push(inviteRfqId ? `/provider/rfq/${inviteRfqId}` : '/provider/dashboard');
           }
         } catch (redeemErr) {
           console.error('Invite redemption error:', redeemErr);
