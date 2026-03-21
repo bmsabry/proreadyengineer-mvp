@@ -101,8 +101,25 @@ export default function ProviderProfilePage() {
       {!provider ? (
         <Card>
           <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground mb-4">No profile found</p>
-            <Button>Create New Profile</Button>
+            <div className="max-w-sm mx-auto">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              </div>
+              <h3 className="text-lg font-semibold mb-2">No Firm Linked Yet</h3>
+              <p className="text-muted-foreground text-sm mb-6">
+                Your account is not yet linked to an engineering firm. If you received an invitation email, your firm will be linked automatically when you visit this page after logging in. Otherwise, search for your firm below.
+              </p>
+              <div className="flex flex-col gap-3">
+                <Button onClick={() => window.location.href = '/provider/claim'} variant="default">
+                  Search &amp; Claim Your Firm
+                </Button>
+                <Button onClick={() => window.location.href = '/provider/add-firm'} variant="outline">
+                  Add New Firm
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : (

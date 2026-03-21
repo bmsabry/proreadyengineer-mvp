@@ -51,20 +51,76 @@ async def get_provider_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get current user's provider profile."""
-    from app.models.provider import ProviderMembership, Provider
+    """Get current user's provider profile.
 
+    If no explicit membership exists, auto-discovers the provider via RFQ dispatch
+    email matching (invite flow recovery) and creates the membership automatically.
+    """
+    from app.models.provider import ProviderMembership, Provider, MembershipRole, MembershipStatus
+    from app.models.rfq import RFQDispatch
+    import uuid as _uuid
+
+    # 1. Normal path: explicit membership exists
     result = await db.execute(
         select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
     )
     membership = result.scalar_one_or_none()
+
     if not membership:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No provider profile found")
+        # 2. Auto-discover: check if this user's email was in a dispatch (invite flow recovery)
+        dispatch_result = await db.execute(
+            select(RFQDispatch).where(
+                RFQDispatch.email_target == current_user.email
+            ).limit(1)
+        )
+        dispatch = dispatch_result.scalar_one_or_none()
+
+        if dispatch:
+            # Check if membership already exists for this provider (race condition guard)
+            existing_result = await db.execute(
+                select(ProviderMembership).where(
+                    ProviderMembership.provider_id == dispatch.provider_id,
+                    ProviderMembership.user_id == current_user.id,
+                )
+            )
+            existing = existing_result.scalar_one_or_none()
+
+            if not existing:
+                # Auto-create the membership (invite email matched)
+                membership = ProviderMembership(
+                    provider_id=dispatch.provider_id,
+                    user_id=current_user.id,
+                    membership_role=MembershipRole.OWNER,
+                    status=MembershipStatus.ACTIVE,
+                    created_by=current_user.id,
+                    invite_email=current_user.email,
+                )
+                db.add(membership)
+
+                # Add provider role if missing
+                if "provider" not in (current_user.roles or []):
+                    current_user.roles = list(current_user.roles or []) + ["provider"]
+
+                await db.commit()
+                await db.refresh(membership)
+            else:
+                membership = existing
+
+        if not membership:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No provider profile found"
+            )
 
     result = await db.execute(
         select(Provider).where(Provider.id == membership.provider_id)
     )
-    provider = result.scalar_one()
+    provider = result.scalar_one_or_none()
+    if not provider:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Provider record not found"
+        )
     return ProviderResponse.from_orm(provider)
 
 
