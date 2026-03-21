@@ -443,7 +443,7 @@ async def unlock_checkout(
 
         # Build redirect URLs
         frontend_url = getattr(_settings, 'FRONTEND_URL', 'https://promechdirectory.onrender.com')
-        success_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=success"
+        success_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=success&session_id={{CHECKOUT_SESSION_ID}}"
         cancel_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=cancelled"
 
         # Ensure rfq_id is UUID for DB storage
@@ -502,94 +502,39 @@ async def unlock_checkout(
 
 
 
-@router.get("/provider/rfqs/{rfq_id}/verify-payment")
+@router.post("/provider/rfqs/{rfq_id}/verify-payment")
 async def verify_payment(
     rfq_id: str,
-    session_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Verify a Stripe checkout session and fulfill RFQ unlock atomically."""
+    """Verify payment and fulfill RFQ unlock.
+
+    Looks up the most recent PaymentAttempt for this rfq+user,
+    checks Stripe status, and creates RFQUnlock if paid.
+    No session_id needed - finds it from the database.
+    """
     import logging
+    import uuid as _uuid
     _log = logging.getLogger(__name__)
 
     try:
-        _log.info("verify_payment called: rfq_id=%s, session_id=%s, user=%s", rfq_id, session_id, current_user.id)
+        _log.info("verify_payment called: rfq_id=%s, user=%s", rfq_id, current_user.id)
 
-        # Step 1: Configure Stripe
         from app.services.config_service import get_runtime_config as _grc
-        _cfg = await _grc(db)
-        stripe.api_key = _cfg.get('STRIPE_SECRET_KEY', '') or ''
-        if not stripe.api_key:
-            raise HTTPException(status_code=500, detail="Stripe not configured")
+        from app.models.rfq import RFQUnlock
+        from app.models.provider import ProviderMembership
+        from app.services.payment_service import _fulfill_checkout_rfq_unlock
+        from sqlalchemy import select
+        from datetime import datetime, timezone
 
-        # Step 2: Retrieve the Stripe session
-        try:
-            checkout_session = stripe.checkout.Session.retrieve(session_id)
-            _log.info("Stripe session %s: payment_status=%s, status=%s",
-                     session_id, checkout_session.payment_status, checkout_session.status)
-        except stripe.error.StripeError as e:
-            _log.error("Failed to retrieve Stripe session %s: %s", session_id, e)
-            raise HTTPException(status_code=400, detail=f"Could not verify payment session: {e}")
-
-        # Step 3: Find the PaymentAttempt for this session
-        import uuid as _uuid
+        # Step 1: Parse rfq_id
         try:
             rfq_uuid = _uuid.UUID(rfq_id)
         except (ValueError, AttributeError):
             return {"unlocked": False, "reason": "Invalid RFQ ID"}
 
-        result = await db.execute(
-            select(PaymentAttempt).where(
-                PaymentAttempt.external_payment_id == session_id,
-                PaymentAttempt.initiated_by_user_id == current_user.id,
-            )
-        )
-        payment = result.scalar_one_or_none()
-
-        if not payment:
-            # Fallback: find by RFQ + user
-            result = await db.execute(
-                select(PaymentAttempt)
-                .where(
-                    PaymentAttempt.related_entity_id == rfq_uuid,
-                    PaymentAttempt.purpose == "rfq_unlock",
-                    PaymentAttempt.initiated_by_user_id == current_user.id,
-                )
-                .order_by(PaymentAttempt.initiated_at.desc())
-                .limit(1)
-            )
-            payment = result.scalar_one_or_none()
-
-        if not payment:
-            _log.warning("verify-payment: No payment found for session=%s rfq=%s user=%s",
-                        session_id, rfq_id, current_user.id)
-            return {"unlocked": False, "reason": "No payment record found"}
-
-        # Step 4: If already completed, check if unlock exists
-        if str(payment.payment_status) == str(PaymentStatus.COMPLETED):
-            _log.info("verify-payment: Payment already completed for rfq=%s", rfq_id)
-            return {"unlocked": True, "reason": "Payment already verified"}
-
-        # Step 5: Check if Stripe says it's paid
-        if checkout_session.payment_status != "paid":
-            _log.info("verify-payment: Session %s not paid yet: %s",
-                     session_id, checkout_session.payment_status)
-            return {"unlocked": False, "reason": f"Payment status: {checkout_session.payment_status}"}
-
-        # Step 6: Payment confirmed! Update PaymentAttempt AND create RFQUnlock ATOMICALLY
-        # Do NOT commit payment status before unlock creation succeeds
-        _log.info("verify-payment: Session %s PAID - fulfilling unlock atomically", session_id)
-
-        from datetime import datetime, timezone
-        from app.services.payment_service import _fulfill_checkout_rfq_unlock
-        from app.models import ProviderMembership
-
-        # Mark payment as completed (but don't commit yet)
-        payment.payment_status = PaymentStatus.COMPLETED
-        payment.confirmed_at = datetime.now(timezone.utc)
-
-        # Resolve provider_id
+        # Step 2: Check if already unlocked (fast path)
         mem_result = await db.execute(
             select(ProviderMembership).where(
                 ProviderMembership.user_id == current_user.id
@@ -598,8 +543,77 @@ async def verify_payment(
         membership = mem_result.scalar_one_or_none()
         provider_id_str = str(membership.provider_id) if membership else ""
 
-        # Create RFQUnlock record (idempotent function)
-        # This and the payment status update will be committed together
+        if membership:
+            existing_unlock = await db.execute(
+                select(RFQUnlock).where(
+                    RFQUnlock.rfq_id == rfq_uuid,
+                    RFQUnlock.provider_id == membership.provider_id,
+                    RFQUnlock.unlock_status == "unlocked"
+                )
+            )
+            if existing_unlock.scalar_one_or_none():
+                _log.info("verify-payment: Already unlocked for rfq=%s", rfq_id)
+                return {"unlocked": True, "reason": "Already unlocked"}
+
+        # Step 3: Find the most recent PaymentAttempt for this rfq+user
+        result = await db.execute(
+            select(PaymentAttempt)
+            .where(
+                PaymentAttempt.related_entity_id == rfq_uuid,
+                PaymentAttempt.purpose == "rfq_unlock",
+                PaymentAttempt.initiated_by_user_id == current_user.id,
+            )
+            .order_by(PaymentAttempt.initiated_at.desc())
+            .limit(1)
+        )
+        payment = result.scalar_one_or_none()
+
+        if not payment:
+            _log.warning("verify-payment: No payment found for rfq=%s user=%s", rfq_id, current_user.id)
+            return {"unlocked": False, "reason": "No payment record found. Please try the unlock button again."}
+
+        # Step 4: If already completed, just fulfill (idempotent)
+        if str(payment.payment_status) == str(PaymentStatus.COMPLETED):
+            _log.info("verify-payment: Payment already COMPLETED, ensuring unlock exists")
+            await _fulfill_checkout_rfq_unlock(
+                db=db,
+                rfq_id_str=rfq_id,
+                user_id_str=str(current_user.id),
+                provider_id_str=provider_id_str,
+                payment_attempt_id=payment.id,
+            )
+            await db.commit()
+            return {"unlocked": True, "reason": "Payment already verified"}
+
+        # Step 5: Check Stripe status using stored session ID
+        stripe_session_id = payment.external_payment_id
+        if not stripe_session_id:
+            _log.error("verify-payment: No Stripe session ID stored for payment %s", payment.id)
+            return {"unlocked": False, "reason": "Payment session not found. Please try again."}
+
+        _cfg = await _grc(db)
+        stripe.api_key = _cfg.get('STRIPE_SECRET_KEY', '') or ''
+        if not stripe.api_key:
+            return {"unlocked": False, "reason": "Payment system not configured."}
+
+        try:
+            checkout_session = stripe.checkout.Session.retrieve(stripe_session_id)
+            _log.info("Stripe session %s: payment_status=%s, status=%s",
+                     stripe_session_id, checkout_session.payment_status, checkout_session.status)
+        except Exception as e:
+            _log.error("Failed to retrieve Stripe session %s: %s", stripe_session_id, e)
+            return {"unlocked": False, "reason": "Could not verify payment with Stripe. Please refresh."}
+
+        # Step 6: Not paid yet
+        if checkout_session.payment_status != "paid":
+            _log.info("verify-payment: Session %s not paid: %s", stripe_session_id, checkout_session.payment_status)
+            return {"unlocked": False, "reason": f"Payment status: {checkout_session.payment_status}. Please complete payment."}
+
+        # Step 7: PAID! Update payment and create unlock atomically
+        _log.info("verify-payment: Session %s PAID - fulfilling unlock", stripe_session_id)
+        payment.payment_status = PaymentStatus.COMPLETED
+        payment.confirmed_at = datetime.now(timezone.utc)
+
         await _fulfill_checkout_rfq_unlock(
             db=db,
             rfq_id_str=rfq_id,
@@ -608,9 +622,8 @@ async def verify_payment(
             payment_attempt_id=payment.id,
         )
 
-        # Now commit both changes atomically
         await db.commit()
-
+        _log.info("verify-payment: Unlock fulfilled for rfq=%s", rfq_id)
         return {"unlocked": True, "reason": "Payment verified and access granted"}
 
     except HTTPException:
