@@ -137,6 +137,113 @@ async def create_payment_intent(
     }
 
 
+
+
+async def create_stripe_checkout_session(
+    db: AsyncSession,
+    purpose: str,
+    amount: int,
+    currency: str,
+    user: User,
+    related_entity_type: str,
+    related_id: str,
+    success_url: str,
+    cancel_url: str,
+    metadata: Optional[dict] = None,
+) -> dict[str, Any]:
+    """Create a Stripe Checkout Session that redirects to Stripe-hosted payment page.
+
+    Returns dict with 'checkout_url' and 'payment_attempt_id'.
+    """
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    if not stripe.api_key:
+        raise RuntimeError(
+            "Stripe is not configured. Please add your Stripe secret key in admin settings."
+        )
+
+    idempotency_key = _create_idempotency_key(purpose, user.id, related_id)
+
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": currency.lower(),
+                    "product_data": {
+                        "name": _get_payment_product_name(purpose),
+                        "description": _get_payment_description(
+                            purpose, related_entity_type, str(related_id)
+                        ),
+                    },
+                    "unit_amount": amount,
+                },
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=success_url,
+            cancel_url=cancel_url,
+            customer_email=user.email,
+            metadata={
+                "purpose": purpose,
+                "user_id": str(user.id),
+                "related_entity_type": related_entity_type,
+                "related_id": str(related_id),
+                **(metadata or {}),
+            },
+        )
+    except stripe.error.StripeError as e:
+        raise RuntimeError(f"Stripe error: {e}")
+
+    # Record payment attempt
+    payment_attempt = PaymentAttempt(
+        provider_name="stripe",
+        external_payment_id=session.id,
+        external_checkout_id=session.url,
+        purpose=purpose,
+        related_entity_type=related_entity_type,
+        related_entity_id=related_id,
+        amount=amount,
+        currency=currency.lower(),
+        payment_status=PaymentStatus.PENDING,
+        idempotency_key=idempotency_key,
+        initiated_by_user_id=user.id,
+        metadata=metadata,
+    )
+    db.add(payment_attempt)
+    await db.commit()
+    await db.refresh(payment_attempt)
+
+    return {
+        "checkout_url": session.url,
+        "payment_attempt_id": str(payment_attempt.id),
+        "session_id": session.id,
+    }
+
+
+def _get_payment_product_name(purpose: str) -> str:
+    """Return human-readable product name for Stripe line item."""
+    names = {
+        "rfq_unlock": "RFQ Access - One Time Unlock",
+        "nda_fee": "NDA Document Handling Fee",
+        "provider_profile_subscription": "Provider Profile Subscription",
+        "search_subscription": "Search Subscription",
+        "advertisement_subscription": "Advertisement Subscription",
+    }
+    return names.get(purpose, "ProReadyEngineer Service")
+
+
+def _get_payment_description(purpose: str, entity_type: str, entity_id: str) -> str:
+    """Return line-item description for Stripe checkout."""
+    if purpose == "rfq_unlock":
+        return (
+            f"Unlock access to view and respond to RFQ #{entity_id[:8]}. "
+            "Full project details, files, and customer contact upon quote acceptance."
+        )
+    elif purpose == "nda_fee":
+        return "One-time NDA document handling and signing fee for your project request."
+    return f"ProReadyEngineer {purpose} payment"
+
 async def handle_stripe_webhook(
     db: AsyncSession,
     payload: bytes,

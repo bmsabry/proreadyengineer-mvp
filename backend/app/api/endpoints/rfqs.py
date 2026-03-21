@@ -410,21 +410,50 @@ async def get_rfq_teaser(
         "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
     }
 
-@router.post("/provider/rfqs/{rfq_id}/unlock/checkout", response_model=PaymentIntentResponse)
+@router.post("/provider/rfqs/{rfq_id}/unlock/checkout")
 async def unlock_checkout(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Create payment intent to unlock RFQ."""
-    intent = await create_payment_intent(
-        db, "rfq_unlock", 1000, "usd", current_user, rfq_id  # $10.00
-    )
+    """Create Stripe Checkout Session to unlock RFQ access for $10."""
+    from app.services.payment_service import create_stripe_checkout_session
+    from app.core.config import settings as _settings
 
-    return PaymentIntentResponse(
-        client_secret=intent["client_secret"],
-        payment_intent_id=intent["id"],
-    )
+    # Verify RFQ exists and is open
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    rfq_status_str = str(rfq.rfq_status)
+    if rfq_status_str in ("closed_no_selection", "cancelled", "quote_limit_reached"):
+        raise HTTPException(status_code=400, detail="This RFQ is no longer accepting new providers.")
+
+    # Build redirect URLs
+    frontend_url = getattr(_settings, 'FRONTEND_URL', 'https://promechdirectory.onrender.com')
+    success_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=success"
+    cancel_url = f"{frontend_url}/provider/rfq/{rfq_id}?payment=cancelled"
+
+    try:
+        session_data = await create_stripe_checkout_session(
+            db=db,
+            purpose="rfq_unlock",
+            amount=1000,  # $10.00
+            currency="usd",
+            user=current_user,
+            related_entity_type="rfq",
+            related_id=rfq_id,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return {
+        "checkout_url": session_data["checkout_url"],
+        "payment_attempt_id": session_data["payment_attempt_id"],
+    }
 
 
 @router.get("/provider/rfqs/{rfq_id}/unlock/status")
