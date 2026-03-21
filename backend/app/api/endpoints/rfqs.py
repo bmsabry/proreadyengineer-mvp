@@ -252,7 +252,7 @@ async def get_rfq_status(
 
     return RFQStatusResponse(
         rfq_id=rfq_id,
-        status=rfq.rfq_status.value if rfq.rfq_status else "unknown",
+        status=str(rfq.rfq_status) if rfq.rfq_status else "unknown",
         firms_contacted=firms_contacted,
         quotes_received=quotes_received,
         quote_limit=5,
@@ -351,7 +351,7 @@ async def get_provider_teasers(
         preview = (desc[:300] + "...") if len(desc) > 300 else desc
         teasers.append({
             "rfq_id": str(rfq.id),
-            "status": dispatch.dispatch_status.value,
+            "status": str(dispatch.dispatch_status) if dispatch.dispatch_status else "unknown",
             "urgency": rfq.urgency,
             "tollgate_phases": rfq.tollgate_phases or [],
             "nda_required": rfq.nda_required,
@@ -402,7 +402,7 @@ async def get_rfq_teaser(
     return {
         "rfq_id": rfq_id,
         "urgency": rfq.urgency,
-        "dispatch_status": dispatch.dispatch_status.value,
+        "dispatch_status": str(dispatch.dispatch_status) if dispatch.dispatch_status else "unknown",
         "tollgate_phases": rfq.tollgate_phases or [],
         "nda_required": rfq.nda_required,
         "business_name": rfq.business_name,
@@ -472,7 +472,7 @@ async def get_unlock_status(
         "nda_required": rfq.nda_required,
         "business_name": rfq.business_name,
         "project_description_preview": preview,
-        "rfq_status": rfq.rfq_status.value if rfq.rfq_status else None,
+        "rfq_status": str(rfq.rfq_status) if rfq.rfq_status else None,
         "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
     }
 
