@@ -65,6 +65,44 @@ async def register(
     response.set_cookie(key="access_token", value=access_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=3600)
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=604800)
 
+    # ATOMIC INVITE TOKEN PROCESSING
+    # If an invite_token was provided, process it now in the same request
+    # This guarantees ProviderMembership is created at registration time
+    if getattr(data, 'invite_token', None):
+        try:
+            from app.services.auth_service import verify_invite_token
+            from app.models.provider import ProviderMembership, MembershipRole, MembershipStatus
+            from sqlalchemy import select as _sel
+            invite_payload = verify_invite_token(data.invite_token)
+            if invite_payload:
+                provider_id = int(invite_payload["provider_id"])
+                # Check membership doesn't already exist
+                _existing = await db.execute(
+                    _sel(ProviderMembership).where(
+                        ProviderMembership.user_id == user.id,
+                        ProviderMembership.provider_id == provider_id,
+                    )
+                )
+                if not _existing.scalar_one_or_none():
+                    _membership = ProviderMembership(
+                        provider_id=provider_id,
+                        user_id=user.id,
+                        membership_role=MembershipRole.OWNER,
+                        status=MembershipStatus.ACTIVE,
+                        created_by=user.id,
+                        invite_email=invite_payload.get("sent_to_email"),
+                    )
+                    db.add(_membership)
+                    # Ensure provider role is set
+                    if "provider" not in (user.roles or []):
+                        user.roles = list(user.roles or []) + ["provider"]
+                    await db.commit()
+                    await db.refresh(user)
+        except Exception as _inv_err:
+            import logging
+            logging.getLogger(__name__).warning(f"Invite token processing failed during registration: {_inv_err}")
+            # Non-fatal: registration still succeeds, user can manually claim
+
     return RegisterResponse(
         user=user,
         access_token=access_token,

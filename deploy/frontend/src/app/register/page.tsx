@@ -84,6 +84,9 @@ function RegisterPageContent() {
         email: fd.email,
         password: fd.password,
         roles: [fd.role],
+        // Pass invite_token in registration body for ATOMIC processing on backend
+        // This ensures ProviderMembership is created in the same request as user creation
+        ...(inviteToken ? { invite_token: inviteToken } : {}),
       };
       if (fd.full_name.trim()) body.full_name = fd.full_name.trim();
       if (fd.company_name.trim()) body.company_name = fd.company_name.trim();

@@ -19,6 +19,8 @@ class UserRegisterRequest(BaseSchema):
     full_name: Optional[str] = None
     business_name: Optional[str] = None
     roles: Optional[List[str]] = None
+    invite_token: Optional[str] = None  # invite token from email link
+    company_name: Optional[str] = None  # alias for business_name
 
 
 class UserLoginRequest(BaseSchema):
