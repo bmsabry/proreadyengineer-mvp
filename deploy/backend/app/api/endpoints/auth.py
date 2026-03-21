@@ -1,6 +1,7 @@
 """Authentication API endpoints."""
 
 from typing import Optional
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -317,3 +318,66 @@ async def password_reset(
 async def get_me(current_user: User = Depends(get_current_active_user)):
     """Get current user profile."""
     return current_user
+
+
+class RedeemInviteRequest(BaseModel):
+    token: str
+
+
+class RedeemInviteResponse(BaseModel):
+    provider_id: int
+    rfq_id: str
+    already_member: bool
+
+
+@router.post("/redeem-invite", response_model=RedeemInviteResponse)
+async def redeem_invite(
+    data: RedeemInviteRequest,
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Redeem an invite token after authentication - creates provider membership."""
+    from app.services.auth_service import verify_invite_token
+    from app.models.provider import ProviderMembership, MembershipRole, MembershipStatus
+    from sqlalchemy import select as _select
+
+    payload = verify_invite_token(data.token)
+    if not payload:
+        raise HTTPException(status_code=400, detail="Invalid or expired invite token")
+
+    provider_id = int(payload["provider_id"])
+    rfq_id = str(payload["rfq_id"])
+
+    # Check if membership already exists
+    result = await db.execute(
+        _select(ProviderMembership).where(
+            ProviderMembership.user_id == current_user.id,
+            ProviderMembership.provider_id == provider_id,
+        )
+    )
+    existing = result.scalar_one_or_none()
+
+    if existing:
+        return RedeemInviteResponse(
+            provider_id=provider_id, rfq_id=rfq_id, already_member=True
+        )
+
+    # Create membership
+    membership = ProviderMembership(
+        provider_id=provider_id,
+        user_id=current_user.id,
+        membership_role=MembershipRole.OWNER,
+        status=MembershipStatus.ACTIVE,
+        created_by=current_user.id,
+    )
+    db.add(membership)
+
+    # Add provider role to user if not already set
+    if "provider" not in (current_user.roles or []):
+        current_user.roles = list(current_user.roles or []) + ["provider"]
+
+    await db.commit()
+
+    return RedeemInviteResponse(
+        provider_id=provider_id, rfq_id=rfq_id, already_member=False
+    )
