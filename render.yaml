@@ -153,9 +153,10 @@ services:
   # Render Cron Job: dispatch RFQ batches every 15 minutes
   - type: cron
     name: proreadyengineer-rfq-cron
-    env: docker
+    env: python
     schedule: "*/15 * * * *"
-    dockerCommand: >-
+    buildCommand: echo "cron ready"
+    startCommand: >-
       curl -s -X POST
       https://proreadyengineer-api.onrender.com/api/v1/internal/cron/dispatch-rfq-batches
       -H "Authorization: Bearer ${CRON_SECRET}"
