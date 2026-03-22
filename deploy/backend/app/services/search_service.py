@@ -81,10 +81,19 @@ def _get_client(cfg: Dict[str, Any] = None) -> AsyncOpenAI:
 
 
 def _get_embedding_client(cfg: Dict[str, Any] = None) -> AsyncOpenAI:
-    """Build AsyncOpenAI client for embeddings. Uses EMBEDDING keys if set, else falls back to LLM2 keys."""
+    """Build AsyncOpenAI client for embeddings.
+    ONLY uses dedicated EMBEDDING_ keys when BOTH EMBEDDING_API_KEY and EMBEDDING_API_BASE are set.
+    Otherwise falls back entirely to LLM2 (OPENAI_) keys to prevent partial-override bugs.
+    """
     if cfg:
-        api_key = cfg.get('EMBEDDING_API_KEY') or cfg.get('OPENAI_API_KEY') or 'dummy-key'
-        base_url = cfg.get('EMBEDDING_API_BASE') or cfg.get('OPENAI_API_BASE') or ''
+        embed_key = (cfg.get('EMBEDDING_API_KEY') or '').strip()
+        embed_base = (cfg.get('EMBEDDING_API_BASE') or '').strip()
+        if embed_key and embed_base:
+            api_key = embed_key
+            base_url = embed_base
+        else:
+            api_key = cfg.get('OPENAI_API_KEY') or 'dummy-key'
+            base_url = cfg.get('OPENAI_API_BASE') or ''
     else:
         api_key = getattr(settings, 'OPENAI_API_KEY', 'dummy-key') or 'dummy-key'
         base_url = getattr(settings, 'OPENAI_API_BASE', '') or ''
@@ -98,7 +107,10 @@ def _embedding_model(cfg: Dict[str, Any] = None) -> str:
     """Return embedding model name, adapting for deepinfra when needed."""
     if cfg:
         model = cfg.get('OPENAI_EMBEDDING_MODEL') or 'BAAI/bge-large-en-v1.5'
-        base = cfg.get('EMBEDDING_API_BASE') or cfg.get('OPENAI_API_BASE') or ''
+        embed_key = (cfg.get('EMBEDDING_API_KEY') or '').strip()
+        embed_base = (cfg.get('EMBEDDING_API_BASE') or '').strip()
+        # Only use embedding-specific base when BOTH keys are explicitly configured
+        base = embed_base if (embed_key and embed_base) else (cfg.get('OPENAI_API_BASE') or '')
     else:
         model = getattr(settings, 'OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small') or 'text-embedding-3-small'
         base = getattr(settings, 'OPENAI_API_BASE', '') or ''
@@ -1599,7 +1611,11 @@ async def search_providers(
     from app.services.config_service import get_runtime_config
     runtime_config = await get_runtime_config(db)
     api_key = runtime_config.get('OPENAI_API_KEY', '') or ''
-    has_key = bool(api_key) and api_key not in ('dummy-key', 'your-api-key-here', '')
+    embed_key_gate = runtime_config.get('EMBEDDING_API_KEY', '') or ''
+    has_key = (
+        (bool(api_key) and api_key not in ('dummy-key', 'your-api-key-here', ''))
+        or (bool(embed_key_gate) and embed_key_gate not in ('dummy-key', 'your-api-key-here', ''))
+    )
     if has_key:
         try:
             from app.models.system_config import SystemConfig
