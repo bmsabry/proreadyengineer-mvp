@@ -57,7 +57,7 @@ function formatDate(d: string | null): string {
   catch { return ''; }
 }
 export default function CustomerDashboard() {
-  const { user, isLoading: authLoading } = useRequireAuth(['customer']);
+  const { user, isLoading: authLoading } = useRequireAuth();
   const router = useRouter();
   const [rfqs, setRfqs] = useState<CustomerRFQ[]>([]);
   const [isLoading, setIsLoading] = useState(true);
