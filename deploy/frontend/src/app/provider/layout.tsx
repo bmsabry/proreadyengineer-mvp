@@ -1,8 +1,10 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Building2, LayoutDashboard, Search, UserCircle, Home, LogOut } from 'lucide-react';
 
@@ -13,6 +15,16 @@ export default function ProviderLayout({
 }) {
   const { logout } = useAuth();
   const router = useRouter();
+  const [hasFirm, setHasFirm] = useState(false);
+
+  useEffect(() => {
+    api.providers.getMemberships()
+      .then((res: any) => {
+        const data = res.data ?? res;
+        setHasFirm(Array.isArray(data) && data.length > 0);
+      })
+      .catch(() => setHasFirm(false));
+  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -40,12 +52,14 @@ export default function ProviderLayout({
                 Dashboard
               </Button>
             </Link>
-            <Link href="/provider/claim">
-              <Button variant="ghost" size="sm" className="flex items-center gap-1">
-                <Search className="h-4 w-4" />
-                Claim Firm
-              </Button>
-            </Link>
+            {!hasFirm && (
+              <Link href="/provider/claim">
+                <Button variant="ghost" size="sm" className="flex items-center gap-1">
+                  <Search className="h-4 w-4" />
+                  Claim Firm
+                </Button>
+              </Link>
+            )}
             <Link href="/provider/profile">
               <Button variant="ghost" size="sm" className="flex items-center gap-1">
                 <UserCircle className="h-4 w-4" />
