@@ -50,6 +50,7 @@ async def get_my_rfqs(
         "rfq_status": r.rfq_status.value if hasattr(r.rfq_status, "value") else str(r.rfq_status),
         "urgency": r.urgency, "nda_required": r.nda_required,
         "quote_count": r.quote_count, "is_closed": r.is_closed,
+        "business_name": r.business_name, "contact_name": r.contact_name,
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
     } for r in rows]
