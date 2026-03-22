@@ -131,7 +131,7 @@ async def lifespan(app: FastAPI):
             minutes=5,
             id="rfq_batch_dispatch",
             replace_existing=True,
-            next_run_time=datetime.now(timezone.utc),  # run immediately on startup too
+            # first run happens after 5 minutes naturally
         )
         scheduler.start()
         logger.info("[scheduler] APScheduler started - RFQ batch dispatch every 5 min poll")
