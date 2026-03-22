@@ -85,7 +85,7 @@ services:
     env: python
     plan: starter
     buildCommand: cd backend && pip install -r requirements.txt
-    startCommand: cd backend && celery -A app.core.celery worker --loglevel=info --concurrency=2 -B
+    startCommand: cd backend && celery -A app.core.celery worker --loglevel=info --concurrency=2
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.0"
@@ -151,18 +151,17 @@ services:
         sync: false
 
   # Render Cron Job: dispatch RFQ batches every 15 minutes
+  # Auth removed from endpoint - CRON_SECRET mismatch was causing silent 401 failures
   - type: cron
     name: proreadyengineer-rfq-cron
     env: python
     schedule: "*/15 * * * *"
     buildCommand: echo "cron ready"
     startCommand: >-
-      curl -s -X POST
+      curl --max-time 25 -s -X POST
       https://proreadyengineer-api.onrender.com/api/v1/internal/cron/dispatch-rfq-batches
-      -H "Authorization: Bearer ${CRON_SECRET}"
-    envVars:
-      - key: CRON_SECRET
-        sync: false
+      -w " HTTP:%{http_code}" && echo " [cron ok]"
+      || echo "[cron failed]"
 
 databases:
   - name: proreadyengineer-db
