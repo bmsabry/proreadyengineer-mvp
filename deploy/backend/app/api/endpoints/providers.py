@@ -46,7 +46,7 @@ class ListingInquiryRequest(BaseModel):
 
 # --------------- profile ---------------
 
-@router.get("/profile", response_model=ProviderResponse)
+@router.get("/provider/profile", response_model=ProviderResponse)
 async def get_provider_profile(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -144,7 +144,7 @@ async def get_provider_profile(
 
 
 
-@router.post("/profile", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/provider/profile", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
 async def create_provider_profile(
     data: ProviderUpdateRequest,
     db: AsyncSession = Depends(get_db),
@@ -182,7 +182,7 @@ async def create_provider_profile(
     return ProviderResponse.from_orm(provider)
 
 
-@router.patch("/profile", response_model=ProviderResponse)
+@router.patch("/provider/profile", response_model=ProviderResponse)
 async def update_provider_profile(
     data: ProviderUpdateRequest,
     db: AsyncSession = Depends(get_db),
@@ -226,7 +226,7 @@ async def update_provider_profile(
     return ProviderResponse.from_orm(provider)
 
 
-@router.post("/profile/request-rank-up")
+@router.post("/provider/profile/request-rank-up")
 async def request_rank_up(
     reason: str,
     db: AsyncSession = Depends(get_db),
@@ -262,7 +262,22 @@ async def request_rank_up(
 
 # --------------- claim-search (NEW: with email_match flag) ---------------
 
-@router.get("/claim-search", response_model=List[ClaimSearchResult])
+
+
+@router.get("/provider/memberships")
+async def get_provider_memberships(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get current user's provider memberships."""
+    from app.models.provider import ProviderMembership
+    result = await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
+    )
+    memberships = result.scalars().all()
+    return [{"id": str(m.id), "provider_id": m.provider_id, "membership_role": str(m.membership_role.value) if hasattr(m.membership_role, 'value') else str(m.membership_role), "status": str(m.status.value) if hasattr(m.status, 'value') else str(m.status)} for m in memberships]
+
+@router.get("/providers/claim-search", response_model=List[ClaimSearchResult])
 async def claim_search_providers(
     query: str = Query(..., min_length=2, description="Firm name to search"),
     db: AsyncSession = Depends(get_db),
@@ -290,7 +305,7 @@ async def claim_search_providers(
 
 # --------------- claims (UPDATED: email validation gate) ---------------
 
-@router.post("/claims", response_model=ProviderClaimResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/provider-claims", response_model=ProviderClaimResponse, status_code=status.HTTP_201_CREATED)
 async def create_claim_request(
     data: ProviderClaimRequest,
     db: AsyncSession = Depends(get_db),
@@ -337,7 +352,7 @@ async def create_claim_request(
     return ProviderClaimResponse.from_orm(claim)
 
 
-@router.get("/claims/me", response_model=List[ProviderClaimResponse])
+@router.get("/provider-claims/me", response_model=List[ProviderClaimResponse])
 async def get_my_claims(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -354,7 +369,7 @@ async def get_my_claims(
 
 # --------------- admin claims ---------------
 
-@router.get("/admin/claims", response_model=PagedResponse[ProviderClaimResponse])
+@router.get("/admin/provider-claims", response_model=PagedResponse[ProviderClaimResponse])
 async def admin_list_claims(
     status: str = None,
     db: AsyncSession = Depends(get_db),
@@ -376,7 +391,7 @@ async def admin_list_claims(
     )
 
 
-@router.post("/admin/claims/{claim_id}/approve")
+@router.post("/admin/provider-claims/{claim_id}/approve")
 async def admin_approve_claim(
     claim_id: str,
     notes: str = "",
@@ -412,7 +427,7 @@ async def admin_approve_claim(
     return {"message": "Claim approved", "membership_id": str(membership.id)}
 
 
-@router.post("/admin/claims/{claim_id}/reject")
+@router.post("/admin/provider-claims/{claim_id}/reject")
 async def admin_reject_claim(
     claim_id: str,
     notes: str = "",
@@ -440,7 +455,7 @@ async def admin_reject_claim(
 
 # --------------- self-register ($100 one-time) ---------------
 
-@router.post("/self-register/checkout")
+@router.post("/providers/self-register/checkout")
 async def self_register_provider_checkout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
@@ -464,7 +479,7 @@ async def self_register_provider_checkout(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post("/self-register/submit")
+@router.post("/providers/self-register/submit")
 async def self_register_provider_submit(
     data: SelfRegisterProviderRequest,
     db: AsyncSession = Depends(get_db),
@@ -534,7 +549,7 @@ async def self_register_provider_submit(
 
 # --------------- listing inquiry ($750 AI-assisted) ---------------
 
-@router.post("/listing-inquiry")
+@router.post("/providers/listing-inquiry")
 async def submit_listing_inquiry(
     data: ListingInquiryRequest,
     db: AsyncSession = Depends(get_db),
