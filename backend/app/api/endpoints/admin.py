@@ -2511,6 +2511,62 @@ async def admin_debug_test_llm(
     except Exception as e:
         return {"success": False, "error": str(e), "model": None, "response": None}
 
+
+
+@router.post("/admin/debug/test-doc-llm")
+async def admin_debug_test_doc_llm(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(["admin"])),
+):
+    """Test Document Collapse LLM (LLM3) connectivity using its configured API key and model."""
+    from openai import AsyncOpenAI
+    try:
+        cfg = await _get_runtime_config(db)
+        # Use DOC_LLM config, fall back to main LLM config
+        api_key = cfg.get('DOC_LLM_API_KEY') or cfg.get('OPENAI_API_KEY')
+        api_base = cfg.get('DOC_LLM_API_BASE') or cfg.get('OPENAI_API_BASE')
+        model = cfg.get('DOC_LLM_MODEL') or cfg.get('LLM_MODEL') or 'mistralai/Mistral-7B-Instruct-v0.2'
+
+        if not api_key:
+            return {"success": False, "error": "No API key configured for Document Collapse LLM (LLM3). Set DOC_LLM_API_KEY in admin settings.",
+                    "model": model, "response": None}
+
+        prompt = body.get('prompt', 'Summarise the following engineering document in two sentences.')
+        client = AsyncOpenAI(api_key=api_key, base_url=api_base or None)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+        reply = None
+        if response.choices:
+            msg = response.choices[0].message
+            content_val = getattr(msg, 'content', None)
+            if content_val and content_val.strip():
+                reply = content_val.strip()
+            else:
+                reasoning = getattr(msg, 'reasoning_content', None)
+                if reasoning and reasoning.strip():
+                    reply = f"[Reasoning model output]:\n{reasoning.strip()}"
+                else:
+                    reply = f"(model returned empty content - raw: {repr(content_val)})"
+        else:
+            reply = "(no choices in response)"
+        return {
+            "success": True,
+            "model": model,
+            "api_base": api_base or "(default OpenAI)",
+            "prompt": prompt,
+            "response": reply,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else None,
+                "completion_tokens": response.usage.completion_tokens if response.usage else None,
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "model": None, "response": None}
+
 # ---------------------------------------------------------------------------
 # Admin Extract: RFQ Dispatches
 # ---------------------------------------------------------------------------
