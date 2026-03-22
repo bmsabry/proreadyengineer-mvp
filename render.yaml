@@ -150,5 +150,5 @@ services:
 
 databases:
   - name: proreadyengineer-db
-    plan: starter
+    plan: basic
     ipAllowList: []
