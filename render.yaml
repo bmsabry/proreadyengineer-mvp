@@ -76,6 +76,8 @@ services:
         value: "USD"
       - key: SENTRY_DSN
         sync: false
+      - key: CRON_SECRET
+        sync: false
 
   # Celery Worker for background tasks (RFQ batch dispatch, emails, etc.)
   - type: worker
@@ -146,6 +148,19 @@ services:
       - key: NEXT_PUBLIC_API_URL
         value: https://proreadyengineer-api.onrender.com
       - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+        sync: false
+
+  # Render Cron Job: dispatch RFQ batches every 15 minutes
+  - type: cron
+    name: proreadyengineer-rfq-cron
+    env: docker
+    schedule: "*/15 * * * *"
+    dockerCommand: >-
+      curl -s -X POST
+      https://proreadyengineer-api.onrender.com/api/v1/internal/cron/dispatch-rfq-batches
+      -H "Authorization: Bearer ${CRON_SECRET}"
+    envVars:
+      - key: CRON_SECRET
         sync: false
 
 databases:

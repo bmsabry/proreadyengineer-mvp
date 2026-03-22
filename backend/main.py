@@ -25,6 +25,7 @@ from app.api.endpoints import (
     ads_router,
     admin_router,
 )
+from app.api.endpoints.internal import router as internal_router
 
 
 @asynccontextmanager
@@ -159,6 +160,9 @@ def create_application() -> FastAPI:
         prefix="/api/v1",
         tags=["Admin"],
     )
+
+    # Internal cron routes: /api/v1/internal/*
+    app.include_router(internal_router, prefix="/api/v1", tags=["internal"])
 
     # ===========================================================================
     # Health & Root Endpoints

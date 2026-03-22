@@ -484,6 +484,27 @@ async def admin_terminate_rfq_dispatch(
     await db.commit()
     return {"message": "RFQ dispatch terminated", "rfq_id": rfq_id}
 
+@router.post("/admin/rfqs/{rfq_id}/force-dispatch")
+async def admin_force_rfq_dispatch(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin: Force dispatch next batch for an RFQ immediately."""
+    import uuid as _uuid
+    from app.services.rfq_service import dispatch_next_batch
+    try:
+        rfq_uuid = _uuid.UUID(rfq_id)
+        dispatched = await dispatch_next_batch(db, rfq_uuid)
+        return {
+            "status": "ok",
+            "rfq_id": rfq_id,
+            "providers_emailed": len(dispatched),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 
 @router.get("/admin/payments", response_model=PagedResponse[PaymentAttemptResponse])

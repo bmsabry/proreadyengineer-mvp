@@ -178,6 +178,24 @@ export default function AdminRFQDetailPage() {
                 {terminating ? 'Stopping...' : 'Stop Dispatch'}
               </button>
               <button
+                onClick={async () => {
+                  setTerminating(true);
+                  try {
+                    await api.post(`/admin/rfqs/${rfqId}/force-dispatch`);
+                    alert('Next batch dispatched successfully!');
+                    fetchTracking();
+                  } catch (e: any) {
+                    alert('Error: ' + (e.response?.data?.detail || e.message));
+                  } finally {
+                    setTerminating(false);
+                  }
+                }}
+                disabled={terminating}
+                className="px-3 py-1.5 text-sm border border-blue-500 text-blue-700 rounded-md hover:bg-blue-50 disabled:opacity-50"
+              >
+                Force Next Batch
+              </button>
+              <button
                 onClick={handleForceClose}
                 disabled={forceClosing}
                 className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"

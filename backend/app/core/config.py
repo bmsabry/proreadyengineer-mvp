@@ -105,6 +105,9 @@ class Settings(BaseSettings):
     RFQ_DISPATCH_BATCH_SIZE: int = 5
     RFQ_DISPATCH_BATCH_INTERVAL_HOURS: int = 24
 
+    # Cron job
+    CRON_SECRET: Optional[str] = None
+
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
     def assemble_db_connection(cls, v: Optional[str], info) -> str:
