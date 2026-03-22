@@ -150,7 +150,7 @@ async def admin_status_alias(
 async def admin_list_rfqs(
     status: Optional[str] = None,
     page: int = 1,
-    size: int = 50,
+    page_size: int = 50,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(require_role(["admin"])),
 ):
@@ -166,16 +166,16 @@ async def admin_list_rfqs(
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = count_result.scalar()
 
-    # Get paginated results
-    result = await db.execute(query.offset((page - 1) * size).limit(size))
+    # Get paginated results - order by newest first
+    result = await db.execute(query.order_by(RFQ.created_at.desc()).offset((page - 1) * page_size).limit(page_size))
     rfqs = result.scalars().all()
 
     return PagedResponse(
         items=[RFQResponse.from_orm(r) for r in rfqs],
         total=total,
         page=page,
-        page_size=size,
-        pages=max(1, (total + size - 1) // size) if total else 1
+        page_size=page_size,
+        pages=max(1, (total + page_size - 1) // page_size) if total else 1
     )
 
 
