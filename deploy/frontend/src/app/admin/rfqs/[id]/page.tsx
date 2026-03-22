@@ -181,7 +181,7 @@ export default function AdminRFQDetailPage() {
                 onClick={async () => {
                   setTerminating(true);
                   try {
-                    await api.post(`/admin/rfqs/${rfqId}/force-dispatch`);
+                    await api.admin.forceDispatchRFQ(rfqId);
                     alert('Next batch dispatched successfully!');
                     fetchTracking();
                   } catch (e: any) {
