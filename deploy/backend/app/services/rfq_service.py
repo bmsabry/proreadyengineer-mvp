@@ -475,7 +475,16 @@ async def can_submit_quote(
     if rfq.is_closed:
         return False, "RFQ is closed"
 
-    if rfq.quote_count >= settings.RFQ_MAX_QUOTES:
+    # Use live SQL count instead of stale rfq.quote_count to prevent false rejections
+    from sqlalchemy import func as _csq_func
+    _live_count_res = await db.execute(
+        select(_csq_func.count()).select_from(Quote).where(
+            Quote.rfq_id == rfq_id,
+            Quote.quote_status.in_([QuoteStatus.SUBMITTED, QuoteStatus.ACCEPTED]),
+        )
+    )
+    _live_quote_count = _live_count_res.scalar() or 0
+    if _live_quote_count >= settings.RFQ_MAX_QUOTES:
         return False, "Quote limit reached"
 
     # Check for valid unlock

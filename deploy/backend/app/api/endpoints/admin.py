@@ -329,6 +329,7 @@ async def admin_rfq_dispatch_tracking(
         "urgency": rfq.urgency,
         "nda_required": rfq.nda_required,
         "quote_count": rfq.quote_count,
+        "live_quote_count": sum(1 for p in providers if p["submitted_quote"]),
         "is_closed": rfq.is_closed,
         "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
         "total_matches": len(providers),
@@ -338,6 +339,101 @@ async def admin_rfq_dispatch_tracking(
     }
 
 
+
+
+@router.post("/admin/rfqs/repair-quote-counts")
+async def repair_rfq_quote_counts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Repair corrupted quote_count values and is_closed flags on all RFQs.
+
+    Recalculates quote_count from the actual quotes table (submitted + accepted quotes only).
+    Fixes is_closed if quote_count < RFQ_MAX_QUOTES and status is not explicitly closed.
+    """
+    from sqlalchemy import text
+    from app.core.config import settings
+    max_quotes = getattr(settings, "RFQ_MAX_QUOTES", 5)
+
+    # Get all RFQs with their actual quote counts from the quotes table
+    result = await db.execute(text("""
+        SELECT 
+            r.id,
+            r.quote_count AS stored_count,
+            r.is_closed,
+            r.rfq_status,
+            COALESCE(q.actual_count, 0) AS actual_count
+        FROM rfqs r
+        LEFT JOIN (
+            SELECT rfq_id, COUNT(*) AS actual_count
+            FROM quotes
+            WHERE quote_status IN ('submitted', 'accepted')
+            GROUP BY rfq_id
+        ) q ON q.rfq_id = r.id
+        WHERE r.quote_count != COALESCE(q.actual_count, 0)
+           OR (r.is_closed = TRUE 
+               AND COALESCE(q.actual_count, 0) < :max_quotes
+               AND r.rfq_status NOT IN ('cancelled', 'closed_no_selection', 'customer_selected_provider'))
+    """), {"max_quotes": max_quotes})
+
+    rows = result.fetchall()
+    repaired = []
+
+    for row in rows:
+        rfq_id, stored_count, is_closed, rfq_status, actual_count = row
+
+        should_be_closed = actual_count >= max_quotes
+
+        # Only reopen RFQs where closure was caused by quote_count corruption
+        # Do NOT reopen explicitly closed/cancelled/selected RFQs
+        safe_to_reopen = rfq_status not in (
+            'cancelled', 'closed_no_selection', 'customer_selected_provider'
+        )
+
+        new_is_closed = should_be_closed or (is_closed and not safe_to_reopen)
+        if is_closed and safe_to_reopen:
+            new_is_closed = should_be_closed
+
+        new_status = rfq_status
+        if should_be_closed and rfq_status not in (
+            'quote_limit_reached', 'cancelled', 'closed_no_selection', 'customer_selected_provider'
+        ):
+            new_status = 'quote_limit_reached'
+        elif not should_be_closed and is_closed and safe_to_reopen and actual_count > 0:
+            new_status = 'open_for_unlock'
+        elif not should_be_closed and is_closed and safe_to_reopen and actual_count == 0:
+            new_status = 'open_for_dispatch'
+
+        await db.execute(text("""
+            UPDATE rfqs 
+            SET quote_count = :actual_count,
+                is_closed = :new_is_closed,
+                rfq_status = :new_status
+            WHERE id = :rfq_id
+        """), {
+            "actual_count": actual_count,
+            "new_is_closed": new_is_closed,
+            "new_status": new_status,
+            "rfq_id": str(rfq_id),
+        })
+
+        repaired.append({
+            "rfq_id": str(rfq_id),
+            "old_quote_count": stored_count,
+            "new_quote_count": actual_count,
+            "old_is_closed": is_closed,
+            "new_is_closed": new_is_closed,
+            "old_status": rfq_status,
+            "new_status": new_status,
+        })
+
+    await db.commit()
+
+    return {
+        "repaired_count": len(repaired),
+        "message": f"Repaired {len(repaired)} RFQ(s) with incorrect quote counts or closure flags",
+        "details": repaired,
+    }
 @router.post("/admin/rfqs/{rfq_id}/terminate-dispatch")
 async def admin_terminate_rfq_dispatch(
     rfq_id: str,

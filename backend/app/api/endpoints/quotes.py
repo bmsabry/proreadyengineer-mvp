@@ -64,11 +64,18 @@ async def submit_provider_quote(
             detail=str(e)
         )
 
-    # 4. Increment quote_count on the RFQ and update status if limit reached
+    # 4. Update quote_count using live SQL count (prevents stale-counter corruption)
     rfq_result = await db.execute(select(RFQ).where(RFQ.id == rfq_uuid))
     rfq = rfq_result.scalar_one_or_none()
     if rfq:
-        rfq.quote_count = (rfq.quote_count or 0) + 1
+        from sqlalchemy import func as _qfunc
+        _live_res = await db.execute(
+            select(_qfunc.count()).select_from(Quote).where(
+                Quote.rfq_id == rfq_uuid,
+                Quote.quote_status.in_(["submitted", "accepted"]),
+            )
+        )
+        rfq.quote_count = _live_res.scalar() or 0
         max_quotes = getattr(settings, "RFQ_MAX_QUOTES", 5)
         if rfq.quote_count >= max_quotes:
             rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED
@@ -120,7 +127,13 @@ async def get_customer_quotes(
     from app.models.quote import Quote
 
     # Verify RFQ ownership
-    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    # Parse rfq_id to UUID for correct PostgreSQL comparison
+    try:
+        rfq_uuid_q = uuid.UUID(rfq_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid RFQ ID")
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_uuid_q))
     rfq = result.scalar_one_or_none()
 
     if not rfq:
@@ -131,7 +144,7 @@ async def get_customer_quotes(
 
     # Get quotes
     result = await db.execute(
-        select(Quote).where(Quote.rfq_id == rfq_id).order_by(Quote.created_at.desc())
+        select(Quote).where(Quote.rfq_id == rfq_uuid_q).order_by(Quote.created_at.desc())
     )
     quotes = result.scalars().all()
 
