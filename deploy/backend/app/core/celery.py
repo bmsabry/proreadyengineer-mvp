@@ -44,19 +44,20 @@ celery_app.conf.update(
     worker_max_tasks_per_child=1000,
 )
 
-# Beat schedule for periodic tasks
+# Beat schedule for periodic tasks.
+# NOTE: check-and-dispatch-rfqs runs every 15 minutes as a POLLING LOOP.
+# The actual per-RFQ dispatch interval is read from the DB admin config
+# (RFQ_BATCH_INTERVAL_HOURS) inside check_and_dispatch_rfqs_task at runtime.
+# This means changing the admin setting takes effect on the next poll cycle
+# without requiring a redeploy.
 celery_app.conf.beat_schedule = {
     "cleanup-expired-tokens": {
         "task": "app.tasks.maintenance.cleanup_expired_tokens",
         "schedule": 86400.0,  # 24 hours
     },
-    "process-rfq-dispatches": {
-        "task": "app.tasks.rfq_tasks.process_pending_dispatches",
-        "schedule": 900.0,  # 15 minutes
-    },
-    'check-and-dispatch-rfqs-every-24h': {
-        'task': 'app.tasks.rfq_tasks.check_and_dispatch_rfqs_task',
-        'schedule': 86400.0,  # 24 hours in seconds
+    "check-and-dispatch-rfqs": {
+        "task": "app.tasks.rfq_tasks.check_and_dispatch_rfqs_task",
+        "schedule": 900.0,  # Poll every 15 minutes; interval logic is inside the task
     },
 }
 
