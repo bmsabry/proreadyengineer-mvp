@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from typing import Any, Dict, List, Optional
 import uuid
 
@@ -131,8 +132,11 @@ async def get_provider_profile(
                 detail="No provider profile found"
             )
 
+    # Fetch the provider record with eager loading to avoid async lazy load crash
     result = await db.execute(
-        select(Provider).where(Provider.id == membership.provider_id)
+        select(Provider)
+        .options(selectinload(Provider.memberships).selectinload(ProviderMembership.user))
+        .where(Provider.id == membership.provider_id)
     )
     provider = result.scalar_one_or_none()
     if not provider:
@@ -141,7 +145,6 @@ async def get_provider_profile(
             detail="Provider record not found"
         )
     return ProviderResponse.from_orm(provider)
-
 
 
 @router.post("/provider/profile", response_model=ProviderResponse, status_code=status.HTTP_201_CREATED)
@@ -177,6 +180,14 @@ async def create_provider_profile(
     )
     db.add(membership)
     await db.commit()
+
+    # Re-query with eager loading to avoid async lazy load crash on memberships
+    result2 = await db.execute(
+        select(Provider)
+        .options(selectinload(Provider.memberships).selectinload(ProviderMembership.user))
+        .where(Provider.id == provider.id)
+    )
+    provider = result2.scalar_one()
 
     celery_app.send_task("app.tasks.search_tasks.generate_provider_embedding_task", args=[str(provider.id)])
     return ProviderResponse.from_orm(provider)
@@ -220,6 +231,14 @@ async def update_provider_profile(
         setattr(provider, field, value)
     await db.commit()
 
+    # Re-query with eager loading to avoid async lazy load crash on memberships
+    result3 = await db.execute(
+        select(Provider)
+        .options(selectinload(Provider.memberships).selectinload(ProviderMembership.user))
+        .where(Provider.id == provider.id)
+    )
+    provider = result3.scalar_one()
+
     if data.business_description:
         celery_app.send_task("app.tasks.search_tasks.generate_provider_embedding_task", args=[str(provider.id)])
 
@@ -260,8 +279,7 @@ async def request_rank_up(
     return {"message": "Rank up request submitted", "request_id": str(request.id)}
 
 
-# --------------- claim-search (NEW: with email_match flag) ---------------
-
+# --------------- claim-search (with email_match flag) ---------------
 
 
 @router.get("/provider/memberships")
@@ -277,6 +295,7 @@ async def get_provider_memberships(
     memberships = result.scalars().all()
     return [{"id": str(m.id), "provider_id": m.provider_id, "membership_role": str(m.membership_role.value) if hasattr(m.membership_role, 'value') else str(m.membership_role), "status": str(m.status.value) if hasattr(m.status, 'value') else str(m.status)} for m in memberships]
 
+
 @router.get("/providers/claim-search", response_model=List[ClaimSearchResult])
 async def claim_search_providers(
     query: str = Query(..., min_length=2, description="Firm name to search"),
@@ -287,10 +306,14 @@ async def claim_search_providers(
     Returns email_match=True when the authenticated user email
     appears in provider.email_addresses (case-insensitive).
     """
-    from app.models.provider import Provider
+    from app.models.provider import Provider, ProviderMembership
     pattern = "%" + query + "%"
+    # Use selectinload to avoid async lazy load crash on memberships
     result = await db.execute(
-        select(Provider).where(Provider.name.ilike(pattern)).limit(10)
+        select(Provider)
+        .options(selectinload(Provider.memberships).selectinload(ProviderMembership.user))
+        .where(Provider.name.ilike(pattern))
+        .limit(10)
     )
     providers = result.scalars().all()
     user_email = (current_user.email or "").strip().lower()
@@ -301,7 +324,6 @@ async def claim_search_providers(
         base["email_match"] = bool(user_email and user_email in provider_emails)
         response.append(ClaimSearchResult(**base))
     return response
-
 
 # --------------- claims (UPDATED: email validation gate) ---------------
 
