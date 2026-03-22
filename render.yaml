@@ -150,19 +150,6 @@ services:
       - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
         sync: false
 
-  # Render Cron Job: dispatch RFQ batches every 15 minutes
-  # Auth removed from endpoint - CRON_SECRET mismatch was causing silent 401 failures
-  - type: cron
-    name: proreadyengineer-rfq-cron
-    env: python
-    schedule: "*/15 * * * *"
-    buildCommand: echo "cron ready"
-    startCommand: >-
-      curl --max-time 25 -s -X POST
-      https://proreadyengineer-api.onrender.com/api/v1/internal/cron/dispatch-rfq-batches
-      -w " HTTP:%{http_code}" && echo " [cron ok]"
-      || echo "[cron failed]"
-
 databases:
   - name: proreadyengineer-db
     plan: Basic-256mb
