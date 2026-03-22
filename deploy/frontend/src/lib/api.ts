@@ -438,6 +438,8 @@ const admin = {
   
   terminateRFQDispatch: (rfqId: string) =>
     apiClient.post<{ message: string; rfq_id: string }>(`/admin/rfqs/${rfqId}/terminate-dispatch`),
+  repairQuoteCounts: () =>
+    apiClient.post<{ message: string; repaired_count: number; details: any[] }>('/admin/rfqs/repair-quote-counts'),
   
   
   overrideRFQStatus: (id: string, status: string) => 

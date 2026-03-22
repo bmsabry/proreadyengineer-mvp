@@ -13,7 +13,7 @@ import {
   TableHeader, TableRow,
 } from '@/components/ui/table';
 import { formatDate, getRFQStatusBadgeColor } from '@/lib/utils';
-import { AlertTriangle, Eye, RefreshCw, XCircle } from 'lucide-react';
+import { AlertTriangle, Eye, RefreshCw, Wrench, XCircle } from 'lucide-react';
 
 export default function AdminRFQsPage() {
   const { isLoading: authLoading } = useRequireAuth(['admin']);
@@ -22,6 +22,8 @@ export default function AdminRFQsPage() {
   const [error, setError] = useState<string | null>(null);
   const [terminating, setTerminating] = useState<string | null>(null);
   const [terminateMessage, setTerminateMessage] = useState<{ id: string; text: string; ok: boolean } | null>(null);
+  const [repairing, setRepairing] = useState(false);
+  const [repairResult, setRepairResult] = useState<{ message: string; repaired_count: number; details: any[] } | null>(null);
 
   const fetchRFQs = useCallback(async () => {
     setIsLoading(true);
@@ -56,6 +58,21 @@ export default function AdminRFQsPage() {
       });
     } finally {
       setTerminating(null);
+    }
+  };
+
+  const handleRepairQuoteCounts = async () => {
+    if (!confirm('Recalculate all RFQ quote_count values from actual quote records? This fixes any double-counting.')) return;
+    setRepairing(true);
+    setRepairResult(null);
+    try {
+      const response = await api.admin.repairQuoteCounts();
+      setRepairResult(response.data);
+      await fetchRFQs();
+    } catch (err: any) {
+      setRepairResult({ message: err?.response?.data?.detail || 'Repair failed.', repaired_count: -1, details: [] });
+    } finally {
+      setRepairing(false);
     }
   };
 
@@ -96,6 +113,16 @@ export default function AdminRFQsPage() {
           <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
+        <Button
+          onClick={handleRepairQuoteCounts}
+          disabled={repairing}
+          variant="outline"
+          size="sm"
+          className="flex items-center gap-2 text-orange-600 border-orange-300 hover:bg-orange-50"
+        >
+          <Wrench className="h-4 w-4" />
+          {repairing ? 'Repairing...' : 'Repair Quote Counts'}
+        </Button>
       </div>
       {/* Error Banner */}
       {error && (
@@ -105,6 +132,20 @@ export default function AdminRFQsPage() {
         </div>
       )}
 
+      {/* Repair feedback */}
+      {repairResult && (
+        <div className={`flex items-center gap-3 p-3 rounded-lg border text-sm ${
+          repairResult.repaired_count >= 0
+            ? 'bg-green-50 border-green-200 text-green-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <span>{repairResult.message}</span>
+          {repairResult.repaired_count > 0 && (
+            <span className="font-medium">({repairResult.repaired_count} RFQs updated)</span>
+          )}
+          <button onClick={() => setRepairResult(null)} className="ml-auto text-gray-400 hover:text-gray-600">x</button>
+        </div>
+      )}
       {/* Terminate feedback */}
       {terminateMessage && (
         <div className={`flex items-center gap-3 p-4 rounded-lg border ${
