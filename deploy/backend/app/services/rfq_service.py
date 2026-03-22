@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import func, select
@@ -119,7 +119,7 @@ async def submit_rfq(
             return
 
         rfq.rfq_status = RfqStatus.OPEN_FOR_DISPATCH
-        rfq.submitted_at = datetime.utcnow()
+        rfq.submitted_at = datetime.now(timezone.utc)
 
         from app.services.search_service import search_providers
         logger.info("submit_rfq: running AI search rfq_id=%s", rfq_id)
@@ -534,7 +534,7 @@ async def submit_quote(
         turnaround_estimate_text=data.turnaround_estimate_text,
         assumptions_text=data.assumptions_text,
         scope_notes=data.scope_notes,
-        submitted_at=datetime.utcnow(),
+        submitted_at=datetime.now(timezone.utc),
     )
 
     db.add(quote)
