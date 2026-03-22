@@ -38,22 +38,42 @@ async def get_my_rfqs(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """List all RFQs owned by the authenticated customer."""
-    from sqlalchemy import select
-    from app.models.rfq import RFQ
+    """List all RFQs owned by the authenticated customer with dispatch stats."""
+    from sqlalchemy import select, func as F
+    from app.models.rfq import RFQ, RFQMatch, RFQDispatch
     rows = (await db.execute(
         select(RFQ).where(RFQ.customer_user_id == current_user.id).order_by(RFQ.created_at.desc())
     )).scalars().all()
-    return [{
-        "id": str(r.id),
-        "project_description": r.project_description,
-        "rfq_status": r.rfq_status.value if hasattr(r.rfq_status, "value") else str(r.rfq_status),
-        "urgency": r.urgency, "nda_required": r.nda_required,
-        "quote_count": r.quote_count, "is_closed": r.is_closed,
-        "business_name": r.business_name, "contact_name": r.contact_name,
-        "created_at": r.created_at.isoformat() if r.created_at else None,
-        "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
-    } for r in rows]
+
+    result = []
+    for r in rows:
+        uid = r.id
+        # Count total matched providers
+        total_matched = (await db.execute(
+            select(F.count()).select_from(RFQMatch).where(RFQMatch.rfq_id == uid)
+        )).scalar() or 0
+        # Count dispatched providers (teaser emails sent)
+        dispatched_count = (await db.execute(
+            select(F.count()).select_from(RFQDispatch).where(RFQDispatch.rfq_id == uid)
+        )).scalar() or 0
+        remaining = max(0, total_matched - dispatched_count)
+        result.append({
+            "id": str(uid),
+            "project_description": r.project_description,
+            "rfq_status": r.rfq_status.value if hasattr(r.rfq_status, "value") else str(r.rfq_status),
+            "urgency": r.urgency,
+            "nda_required": r.nda_required,
+            "quote_count": r.quote_count,
+            "is_closed": r.is_closed,
+            "business_name": r.business_name,
+            "contact_name": r.contact_name,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+            "total_matched": total_matched,
+            "dispatched_count": dispatched_count,
+            "remaining_count": remaining,
+        })
+    return result
 
 
 @router.get("/customer/rfqs/{rfq_id}/tracking")

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { MessageSquare, Users, Activity, Clock, ChevronRight, FileText } from 'lucide-react';
 
 const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
 
@@ -18,11 +19,17 @@ interface RFQ {
   id: string;
   project_description: string;
   rfq_status: string;
-  quote_count: number;
-  created_at: string;
-  submitted_at: string | null;
-  business_name: string | null;
   urgency: string | null;
+  nda_required: boolean;
+  quote_count: number;
+  is_closed: boolean;
+  business_name: string | null;
+  contact_name: string | null;
+  created_at: string | null;
+  submitted_at: string | null;
+  total_matched: number;
+  dispatched_count: number;
+  remaining_count: number;
 }
 
 function statusBadgeClass(status: string): string {
@@ -44,6 +51,15 @@ function statusBadgeClass(status: string): string {
 
 function formatStatus(status: string): string {
   return status.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return 'Not yet submitted';
+  try {
+    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return 'Unknown date';
+  }
 }
 
 export default function CustomerQuotesPage() {
@@ -115,16 +131,14 @@ export default function CustomerQuotesPage() {
               <Link
                 href="/auth/login"
                 className="mt-4 inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
-              >
-                Log In
-              </Link>
+              >Log In</Link>
             )}
           </div>
         )}
 
         {!loading && !error && rfqs.length === 0 && (
           <div className="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
-            <div className="text-5xl mb-4">&#128203;</div>
+            <FileText className="mx-auto h-12 w-12 text-gray-300 mb-4" />
             <h2 className="text-xl font-semibold text-gray-700 mb-2">No RFQs yet</h2>
             <p className="text-gray-400 mb-6">
               You haven&apos;t submitted any RFQs. Start by searching for engineering firms.
@@ -141,58 +155,114 @@ export default function CustomerQuotesPage() {
         {!loading && !error && rfqs.length > 0 && (
           <div className="space-y-4">
             {rfqs.map((rfq) => (
-              <div
-                key={rfq.id}
-                className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-2 flex-wrap">
-                      <span
-                        className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${statusBadgeClass(rfq.rfq_status)}`}
-                      >
-                        {formatStatus(rfq.rfq_status)}
-                      </span>
-                      {rfq.urgency && (
-                        <span className="text-xs text-gray-400 border border-gray-200 px-2 py-0.5 rounded-full">
-                          {rfq.urgency} urgency
+              <Link key={rfq.id} href={`/customer/rfq/${rfq.id}`} className="block">
+                <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm hover:shadow-md hover:border-blue-300 transition-all cursor-pointer group">
+                  {/* Top row */}
+                  <div className="flex items-start justify-between gap-4 mb-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-2 flex-wrap">
+                        <span className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${statusBadgeClass(rfq.rfq_status)}`}>
+                          {formatStatus(rfq.rfq_status)}
                         </span>
-                      )}
+                        {rfq.urgency && (
+                          <span className="text-xs text-gray-400 border border-gray-200 px-2 py-0.5 rounded-full">
+                            {rfq.urgency} urgency
+                          </span>
+                        )}
+                        {rfq.nda_required && (
+                          <span className="text-xs text-purple-600 border border-purple-200 px-2 py-0.5 rounded-full">
+                            NDA Required
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-gray-800 font-medium mb-1 group-hover:text-blue-700 transition-colors">
+                        {rfq.project_description
+                          ? rfq.project_description.slice(0, 140) + (rfq.project_description.length > 140 ? '...' : '')
+                          : '(No description)'}
+                      </p>
+                      <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                        <Clock className="h-3 w-3" />
+                        {formatDate(rfq.submitted_at ?? rfq.created_at)}
+                        {rfq.business_name && (
+                          <>
+                            <span className="text-gray-300">&middot;</span>
+                            <span>{rfq.business_name}</span>
+                          </>
+                        )}
+                      </p>
                     </div>
-                    <p className="text-gray-800 font-medium mb-1">
-                      {rfq.project_description
-                        ? rfq.project_description.slice(0, 120) +
-                          (rfq.project_description.length > 120 ? '...' : '')
-                        : '(No description)'}
-                    </p>
-                    {rfq.business_name && (
-                      <p className="text-sm text-gray-500 mb-1">{rfq.business_name}</p>
-                    )}
-                    <p className="text-xs text-gray-400">
-                      Submitted:{' '}
-                      {rfq.submitted_at
-                        ? new Date(rfq.submitted_at).toLocaleDateString()
-                        : 'Not yet submitted'}
-                    </p>
+                    <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-blue-600 transition-colors flex-shrink-0 mt-1" />
                   </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className="text-3xl font-bold text-blue-700">{rfq.quote_count ?? 0}</div>
-                    <div className="text-xs text-gray-400 mb-3">
-                      quote{rfq.quote_count !== 1 ? 's' : ''} received
+
+                  {/* Stats grid */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {/* Quotes received */}
+                    <div className="bg-green-50 border border-green-100 rounded-lg p-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5 mb-1">
+                        <MessageSquare className="h-4 w-4 text-green-600" />
+                        <span className="text-xs font-medium text-green-700">Quotes Received</span>
+                      </div>
+                      <p className="text-2xl font-bold text-green-700">{rfq.quote_count}</p>
+                      <p className="text-xs text-green-600">of 5 max</p>
                     </div>
-                    <Link
-                      href={`/customer/rfq/${rfq.id}`}
-                      className="inline-block bg-blue-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                    >
-                      View Details
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            ))}
+
+                    {/* Firms contacted */}
+                    <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-center">
+                      <div className="flex items-center justify-center gap-1.5 mb-1">
+                        <Users className="h-4 w-4 text-blue-600" />
+                        <span className="text-xs font-medium text-blue-700">Firms Contacted</span>
+                      </div>
+                      <p className="text-2xl font-bold text-blue-700">{rfq.dispatched_count}</p>
+                      <p className="text-xs text-blue-600">
+                        {rfq.total_matched > 0 ? `of ${rfq.total_matched} matched` : 'providers'}
+                      </p>
+                    </div>
+
+                    {/* Pipeline remaining */}
+                    <div className={`border rounded-lg p-3 text-center ${
+                      rfq.is_closed || rfq.quote_count >= 5
+                        ? 'bg-gray-50 border-gray-100'
+                        : rfq.remaining_count > 0
+                        ? 'bg-orange-50 border-orange-100'
+                        : 'bg-gray-50 border-gray-100'
+                    }`}>
+                      <div className="flex items-center justify-center gap-1.5 mb-1">
+                        <Activity className={
+                          rfq.is_closed || rfq.quote_count >= 5
+                            ? 'h-4 w-4 text-gray-400'
+                            : rfq.remaining_count > 0
+                            ? 'h-4 w-4 text-orange-600'
+                            : 'h-4 w-4 text-gray-400'
+                        } />
+                        <span className={
+                          rfq.is_closed || rfq.quote_count >= 5
+                            ? 'text-xs font-medium text-gray-500'
+                            : rfq.remaining_count > 0
+                            ? 'text-xs font-medium text-orange-700'
+                            : 'text-xs font-medium text-gray-500'
+                        }>Pipeline Remaining</span>
+                      </div>
+                      <p className={
+                        rfq.is_closed || rfq.quote_count >= 5
+                          ? 'text-2xl font-bold text-gray-400'
+                          : rfq.remaining_count > 0
+                          ? 'text-2xl font-bold text-orange-700'
+                          : 'text-2xl font-bold text-gray-400'
+                      }>
+                        {rfq.is_closed || rfq.quote_count >= 5 ? '—' : rfq.remaining_count}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {rfq.is_closed || rfq.quote_count >= 5 ? 'Closed' : 'firms in queue'}
+                      </p>
+                    </div>
+                  </div>{/* end stats grid */}
+                </div>{/* end card */}
+              </Link>
+            ))}{/* end map */}
           </div>
         )}
       </main>
     </div>
   );
 }
+
