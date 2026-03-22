@@ -83,7 +83,7 @@ services:
     env: python
     plan: starter
     buildCommand: cd backend && pip install -r requirements.txt
-    startCommand: cd backend && celery -A app.core.celery worker --loglevel=info --concurrency=2
+    startCommand: cd backend && celery -A app.core.celery worker --loglevel=info --concurrency=2 -B
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.0"

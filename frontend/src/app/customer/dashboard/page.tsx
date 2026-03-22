@@ -44,7 +44,7 @@ export default function CustomerDashboard() {
         const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000') + '/api/v1';
         const res = await fetch(`${apiBase}/rfqs/customer/my-rfqs`, {
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         });
         if (!res.ok) {
           // Don't surface the error - just show empty state

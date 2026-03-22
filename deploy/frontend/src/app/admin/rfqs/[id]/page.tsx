@@ -308,7 +308,7 @@ export default function AdminRFQDetailPage() {
                         <td className="px-4 py-3 text-right font-mono text-xs text-gray-700">
                           {p.composite_score != null ? p.composite_score.toFixed(1) : '--'}
                         </td>
-                        <td className="px-4 py-3 text-xs text-gray-600 max-w-[180px] truncate">{p.email_target || '--'}</td>
+                        <td className="px-4 py-3 text-xs text-gray-600 max-w-[180px] truncate">{p.email_target || p.provider_email || '--'}</td>
                         <td className="px-4 py-3 text-center">
                           {p.dispatch_status ? (
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${getDispatchStatusColor(p.dispatch_status)}`}>
