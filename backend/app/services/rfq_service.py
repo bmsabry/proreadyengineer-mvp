@@ -361,7 +361,15 @@ async def unlock_rfq(
     if rfq_row.is_closed:
         raise ValueError("RFQ is closed")
 
-    if rfq_row.quote_count >= settings.RFQ_MAX_QUOTES:
+    from sqlalchemy import func as _func
+    from app.models.quote import Quote as _QuoteModel
+    _sq_res = await db.execute(
+        select(_func.count()).select_from(_QuoteModel).where(
+            _QuoteModel.rfq_id == rfq_id,
+            _QuoteModel.quote_status.in_(["submitted", "accepted"])
+        )
+    )
+    if (_sq_res.scalar() or 0) >= settings.RFQ_MAX_QUOTES:
         raise ValueError("Quote limit reached")
 
     # Check for existing unlock
@@ -424,21 +432,20 @@ async def complete_rfq_unlock(
     if not rfq or rfq.is_closed:
         raise ValueError("RFQ is closed or no longer available")
 
-    if rfq.quote_count >= settings.RFQ_MAX_QUOTES:
+    from sqlalchemy import func as _func2
+    from app.models.quote import Quote as _QuoteModel2
+    _sq_res2 = await db.execute(
+        select(_func2.count()).select_from(_QuoteModel2).where(
+            _QuoteModel2.rfq_id == unlock.rfq_id,
+            _QuoteModel2.quote_status.in_(["submitted", "accepted"])
+        )
+    )
+    if (_sq_res2.scalar() or 0) >= settings.RFQ_MAX_QUOTES:
         raise ValueError("Quote limit reached - unlock cannot be completed")
 
     # Update unlock
     unlock.unlock_status = UnlockStatus.UNLOCKED
     unlock.unlocked_at = datetime.utcnow()
-
-    # Increment quote_count
-    rfq.quote_count += 1
-
-    # Check if limit reached
-    if rfq.quote_count >= settings.RFQ_MAX_QUOTES:
-        rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED
-        rfq.is_closed = True
-        rfq.closed_at = datetime.utcnow()
 
     await db.commit()
     await db.refresh(unlock)

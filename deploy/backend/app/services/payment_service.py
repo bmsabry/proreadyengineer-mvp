@@ -530,12 +530,20 @@ async def _fulfill_checkout_rfq_unlock(
 
     rfq_status_str = str(rfq.rfq_status) if rfq.rfq_status else ""
 
-    # quota guard — re-check under lock
-    current_count = rfq.quote_count or 0
-    if current_count >= 5:
+    # quota guard — re-check under lock using actual submitted quote count
+    from sqlalchemy import func
+    from app.models.quote import Quote as QuoteModel
+    submitted_count_result = await db.execute(
+        select(func.count()).select_from(QuoteModel).where(
+            QuoteModel.rfq_id == rfq_uuid,
+            QuoteModel.quote_status.in_(["submitted", "accepted"])
+        )
+    )
+    submitted_count = submitted_count_result.scalar() or 0
+    if submitted_count >= 5:
         _log.warning(
-            "RFQ %s quote_count=%d >= 5 under lock — quota full, refund needed",
-            rfq_uuid, current_count,
+            "RFQ %s already has %d submitted quotes — quota full",
+            rfq_uuid, submitted_count,
         )
         return
 
@@ -557,18 +565,10 @@ async def _fulfill_checkout_rfq_unlock(
     )
     db.add(unlock)
 
-    # ── increment quote_count ────────────────────────────────────
-    rfq.quote_count = current_count + 1
-
-    # close RFQ if limit reached
-    if rfq.quote_count >= 5:
-        rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED
-        rfq.is_closed = True
-
     await db.commit()
     _log.info(
-        "RFQ %s unlocked for provider %s — quote_count now %d",
-        rfq_uuid, provider_id, rfq.quote_count,
+        "RFQ %s unlocked for provider %s",
+        rfq_uuid, provider_id,
     )
 
 

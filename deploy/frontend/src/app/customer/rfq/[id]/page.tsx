@@ -170,6 +170,12 @@ export default function RFQDetailPage() {
                         <p className="mt-1 text-sm">{quote.turnaround_estimate_text}</p>
                       </div>
                     )}
+                    {quote.scope_notes && (
+                      <div className="mt-2">
+                        <h4 className="font-medium text-sm text-muted-foreground">Additional Scope Notes</h4>
+                        <p className="mt-1 text-sm">{quote.scope_notes}</p>
+                      </div>
+                    )}
 
                     {rfq.rfq_status !== 'customer_selected_provider' && rfq.rfq_status !== 'closed_no_selection' && (
                       <Button 
