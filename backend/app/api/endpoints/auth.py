@@ -82,7 +82,11 @@ async def register(
                 _logger.info(f"Invite token verified: provider_id={provider_id}")
 
                 # ALWAYS store linked_provider_id on user (the bulletproof link)
-                user.linked_provider_id = provider_id
+                # Wrapped in try/except: column may not exist in production DB yet
+                try:
+                    user.linked_provider_id = provider_id
+                except Exception as _col_err:
+                    _logger.warning(f"Could not set linked_provider_id (column may not exist yet): {_col_err}")
 
                 # Create ProviderMembership if not exists
                 _existing = await db.execute(

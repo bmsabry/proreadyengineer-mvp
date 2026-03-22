@@ -15,6 +15,7 @@ export default function ProviderProfilePage() {
   const { user, isLoading: authLoading } = useRequireAuth(['provider']);
   const [provider, setProvider] = useState<Provider | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isInviteFlow, setIsInviteFlow] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -54,38 +55,43 @@ export default function ProviderProfilePage() {
         });
       };
 
+      // Check for pending invite token FIRST (before any profile load attempt)
+      const pendingToken = typeof window !== 'undefined'
+        ? localStorage.getItem('pendingInviteToken')
+        : null;
+
+      if (pendingToken) {
+        // Mark as invite flow so we show the right message if profile still not found
+        setIsInviteFlow(true);
+        console.log('[Profile] Pending invite token found, redeeming BEFORE profile load...');
+        try {
+          await api.auth.redeemInvite(pendingToken);
+          console.log('[Profile] Invite token redeemed successfully');
+        } catch (redeemErr) {
+          console.warn('[Profile] Invite redemption failed (may already be redeemed):', redeemErr);
+          // Continue anyway - the backend may have already created the membership
+        }
+      }
+
+      // Now attempt to load the profile (after any redemption attempt)
       try {
-        // First attempt: load profile directly
         const response = await api.providers.getProfile();
         if (response.data) {
           applyProfileData(response.data);
-          setIsLoading(false);
-          return;
-        }
-      } catch {
-        // Profile not found - try invite token redemption below
-      }
-
-      // Second attempt: redeem pending invite token if available
-      try {
-        const pendingToken = typeof window !== 'undefined'
-          ? localStorage.getItem('pendingInviteToken')
-          : null;
-
-        if (pendingToken) {
-          console.log('Profile not found, attempting invite token redemption...');
-          await api.auth.redeemInvite(pendingToken);
-          localStorage.removeItem('pendingInviteToken');
-          localStorage.removeItem('pendingInviteRfqId');
-
-          // Retry profile load after redemption
-          const retryResponse = await api.providers.getProfile();
-          if (retryResponse.data) {
-            applyProfileData(retryResponse.data);
+          // SUCCESS: clean up invite tokens from localStorage
+          if (pendingToken) {
+            localStorage.removeItem('pendingInviteToken');
+            localStorage.removeItem('pendingInviteRfqId');
+            console.log('[Profile] Firm linked successfully, cleared invite tokens from localStorage');
           }
         }
-      } catch (error) {
-        console.error('Invite redemption or profile retry failed:', error);
+      } catch (err) {
+        // Profile not found - if this was an invite flow, show linking message
+        if (pendingToken) {
+          console.warn('[Profile] Profile not found after invite redemption - showing linking message');
+        } else {
+          console.warn('[Profile] No provider profile found and no invite token present');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -136,18 +142,34 @@ export default function ProviderProfilePage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold mb-2">No Firm Linked Yet</h3>
-              <p className="text-muted-foreground text-sm mb-6">
-                Your account is not yet linked to an engineering firm. If you received an invitation email, your firm will be linked automatically when you visit this page after logging in. Otherwise, search for your firm below.
-              </p>
-              <div className="flex flex-col gap-3">
-                <Button onClick={() => window.location.href = '/provider/claim'} variant="default">
-                  Search &amp; Claim Your Firm
-                </Button>
-                <Button onClick={() => window.location.href = '/provider/add-firm'} variant="outline">
-                  Add New Firm
-                </Button>
-              </div>
+              {isInviteFlow || (user?.roles || []).includes('provider') ? (
+                // Invited providers: show linking message, NOT claim/add buttons
+                <>
+                  <h3 className="text-lg font-semibold mb-2">Linking Your Firm&hellip;</h3>
+                  <p className="text-muted-foreground text-sm mb-6">
+                    Your engineering firm is being linked to your account. Please refresh this page in a moment.
+                  </p>
+                  <Button onClick={() => window.location.reload()} variant="default">
+                    Refresh Page
+                  </Button>
+                </>
+              ) : (
+                // Non-invite users: show claim/add options
+                <>
+                  <h3 className="text-lg font-semibold mb-2">No Firm Linked Yet</h3>
+                  <p className="text-muted-foreground text-sm mb-6">
+                    Your account is not yet linked to an engineering firm. Search for your firm below to claim it, or add a new one.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <Button onClick={() => window.location.href = '/provider/claim'} variant="default">
+                      Search &amp; Claim Your Firm
+                    </Button>
+                    <Button onClick={() => window.location.href = '/provider/add-firm'} variant="outline">
+                      Add New Firm
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>

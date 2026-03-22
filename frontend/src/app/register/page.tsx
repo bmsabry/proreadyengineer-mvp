@@ -106,10 +106,9 @@ function RegisterPageContent() {
         try {
           // Use api client (has correct /api/v1 base URL)
           const redeemRes = await api.auth.redeemInvite(inviteToken);
-
-          // Clean up localStorage regardless of result
-          localStorage.removeItem('pendingInviteToken');
-          localStorage.removeItem('pendingInviteRfqId');
+          // NOTE: We intentionally do NOT remove pendingInviteToken here.
+          // The profile page will remove it after confirming the firm is linked.
+          // This ensures the profile page can redeem the token as a fallback.
 
           if (redeemRes?.data) {
             // FIX 3: Always redirect to /provider/dashboard after successful registration+invite.
