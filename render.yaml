@@ -127,6 +127,12 @@ services:
       - key: SENTRY_DSN
         sync: false
 
+  # Redis (Key-Value store for Celery broker)
+  - type: redis
+    name: proreadyengineer-redis
+    plan: starter
+    ipAllowList: []
+
   # Next.js Frontend
   - type: web
     name: proreadyengineer-web
@@ -144,10 +150,5 @@ services:
 
 databases:
   - name: proreadyengineer-db
-    plan: starter
-    ipAllowList: []
-
-redis:
-  - name: proreadyengineer-redis
     plan: starter
     ipAllowList: []
