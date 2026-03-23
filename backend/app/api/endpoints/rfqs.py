@@ -15,7 +15,6 @@ from app.models.user import User
 from app.services.rfq_service import create_rfq, submit_rfq, get_rfq_matches
 from app.services.file_service import generate_upload_url
 from app.services.payment_service import create_payment_intent
-from app.core.celery import celery_app
 
 router = APIRouter()
 

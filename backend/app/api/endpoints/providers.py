@@ -15,7 +15,12 @@ from app.schemas.provider import (
 )
 from app.schemas.base import PagedResponse
 from app.models.user import User
-from app.core.celery import celery_app
+# Celery is optional - falls back gracefully if Redis not available
+try:
+    from app.core.celery import celery_app as _celery_app
+except Exception:
+    _celery_app = None
+celery_app = _celery_app
 
 router = APIRouter()
 
@@ -189,7 +194,7 @@ async def create_provider_profile(
     )
     provider = result2.scalar_one()
 
-    celery_app.send_task("app.tasks.search_tasks.generate_provider_embedding_task", args=[str(provider.id)])
+    if celery_app: celery_app.send_task("app.tasks.search_tasks.generate_provider_embedding_task", args=[str(provider.id)])
     return ProviderResponse.from_orm(provider)
 
 
@@ -240,7 +245,7 @@ async def update_provider_profile(
     provider = result3.scalar_one()
 
     if data.business_description:
-        celery_app.send_task("app.tasks.search_tasks.generate_provider_embedding_task", args=[str(provider.id)])
+        if celery_app: celery_app.send_task("app.tasks.search_tasks.generate_provider_embedding_task", args=[str(provider.id)])
 
     return ProviderResponse.from_orm(provider)
 
@@ -561,10 +566,11 @@ async def self_register_provider_submit(
     await db.refresh(new_provider)
 
     # Queue embedding generation async
-    celery_app.send_task(
-        "app.tasks.search_tasks.generate_provider_embedding_task",
-        args=[str(new_provider.id)]
-    )
+    if celery_app:
+        celery_app.send_task(
+            "app.tasks.search_tasks.generate_provider_embedding_task",
+            args=[str(new_provider.id)]
+        )
 
     return {"success": True, "provider_id": str(new_provider.id)}
 
