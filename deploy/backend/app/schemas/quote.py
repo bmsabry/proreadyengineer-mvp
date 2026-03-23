@@ -105,13 +105,21 @@ class QuoteAcceptRequest(BaseSchema):
 
 
 class QuoteAcceptResponse(BaseSchema):
-    """Quote acceptance response."""
+    """Quote acceptance response - includes provider contact info revealed on acceptance."""
     success: bool
     message: str
     rfq_id: UUID
     selected_quote_id: UUID
     selected_provider_id: int
     provider_contact_revealed: bool = True
+    # Provider contact details (revealed upon acceptance)
+    provider_name: Optional[str] = None
+    provider_email: Optional[str] = None
+    provider_phone: Optional[str] = None
+    provider_website: Optional[str] = None
+    provider_city: Optional[str] = None
+    provider_state: Optional[str] = None
+    provider_address: Optional[str] = None
 
 
 class QuoteWithdrawRequest(BaseSchema):

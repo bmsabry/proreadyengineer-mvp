@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Your Quote Was Accepted - ProReadyEngineer{% endblock %}
+{% block content %}
+<h2 style="color: #1e40af;">Congratulations, {{ provider_name }}!</h2>
+<p>Great news &mdash; a customer has accepted your quote. You are now selected to move forward on this project.</p>
+
+<div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin: 20px 0;">
+    <h3 style="color: #166534; margin-top: 0;">Customer Contact Details</h3>
+    <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #374151; width: 140px;">Name:</td>
+            <td style="padding: 6px 0; color: #111827;">{{ customer_name }}</td>
+        </tr>
+        <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #374151;">Email:</td>
+            <td style="padding: 6px 0;">
+                {% if customer_email %}
+                <a href="mailto:{{ customer_email }}" style="color: #2563eb;">{{ customer_email }}</a>
+                {% else %}
+                <span style="color: #6b7280;">Contact via platform</span>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+</div>
+
+<h3 style="color: #374151;">Next Steps</h3>
+<ol style="color: #374151; line-height: 1.8;">
+    <li>Reach out to the customer directly at the email above to introduce yourself.</li>
+    <li>Schedule a discovery call to discuss the full project scope.</li>
+    <li>Provide a refined, binding estimate based on detailed requirements.</li>
+    <li>Agree on contract terms and project timeline.</li>
+</ol>
+
+<div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px; margin: 20px 0;">
+    <p style="margin: 0; color: #92400e; font-size: 14px;">
+        <strong>Reminder:</strong> Your original quote was a rough, non-binding, order-of-magnitude estimate.
+        The customer understands a refined final estimate will follow direct engagement.
+    </p>
+</div>
+
+<p style="text-align: center; margin-top: 24px;">
+    <a href="{{ next_steps_url }}" class="button" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+        View Quote Details
+    </a>
+</p>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 24px;">
+    Thank you for using ProReadyEngineer. We look forward to seeing this project succeed!
+</p>
+{% endblock %}

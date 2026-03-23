@@ -564,7 +564,7 @@ async def accept_quote(
     db: AsyncSession,
     quote_id: uuid.UUID,
     customer: User,
-) -> None:
+) -> dict:
     """Accept a quote and close the RFQ.
 
     Args:
@@ -620,8 +620,79 @@ async def accept_quote(
 
     await db.commit()
 
-    # Notify provider (via email service)
-    # This would queue Celery task in production
+    # Load provider for contact details and email notification
+    from sqlalchemy.orm import joinedload as _jl
+    from app.services.email_service import (
+        send_quote_accepted_notification,
+        send_email,
+    )
+
+    # Reload quote with provider relationship
+    q_result = await db.execute(
+        select(Quote)
+        .options(_jl(Quote.provider))
+        .where(Quote.id == quote_id)
+    )
+    accepted_quote = q_result.scalar_one_or_none()
+
+    provider_contact = {}
+    if accepted_quote and accepted_quote.provider:
+        p = accepted_quote.provider
+        # Parse provider email - stored as JSON array or plain string
+        provider_email = None
+        if p.email_addresses:
+            import json as _json
+            try:
+                emails = _json.loads(p.email_addresses) if isinstance(p.email_addresses, str) else p.email_addresses
+                provider_email = emails[0] if emails else None
+            except Exception:
+                provider_email = str(p.email_addresses)
+
+        provider_contact = {
+            "provider_name": p.firm_name,
+            "provider_email": provider_email,
+            "provider_phone": p.phone,
+            "provider_website": p.website,
+            "provider_city": p.city,
+            "provider_state": p.state,
+            "provider_address": p.address,
+        }
+
+        # Send notification email to provider
+        if provider_email:
+            try:
+                await send_quote_accepted_notification(
+                    provider_email=provider_email,
+                    quote=accepted_quote,
+                    db=db,
+                )
+            except Exception as e:
+                import logging as _logging
+                _logging.getLogger(__name__).error(f"Failed to send quote accepted email to provider: {e}")
+
+        # Send confirmation email to customer
+        try:
+            await send_email(
+                to=rfq.customer_email,
+                template="customer_quote_selected",
+                subject="You have selected a provider - Next Steps",
+                context={
+                    "customer_name": rfq.contact_name or "Customer",
+                    "provider_name": p.firm_name,
+                    "provider_email": provider_email or "(contact via platform)",
+                    "provider_phone": p.phone or "Not provided",
+                    "provider_website": p.website or "Not provided",
+                    "provider_city": p.city or "",
+                    "provider_state": p.state or "",
+                    "rfq_url": f"{settings.FRONTEND_URL}/customer/rfq/{rfq.id}",
+                },
+                db=db,
+            )
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger(__name__).error(f"Failed to send quote selected email to customer: {e}")
+
+    return provider_contact
 
 
 async def check_rfq_nda_status(

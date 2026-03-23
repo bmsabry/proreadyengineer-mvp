@@ -6,7 +6,7 @@ from typing import List
 import uuid
 
 from app.api.deps import get_db, get_current_active_user, require_role
-from app.schemas.quote import QuoteResponse, QuoteCreateRequest
+from app.schemas.quote import QuoteResponse, QuoteCreateRequest, QuoteAcceptResponse
 from app.models.user import User
 from app.services.rfq_service import submit_quote, accept_quote
 
@@ -151,20 +151,50 @@ async def get_customer_quotes(
     return [QuoteResponse.from_orm(q) for q in quotes]
 
 
-@router.post("/customer/quotes/{quote_id}/accept")
+@router.post("/customer/quotes/{quote_id}/accept", response_model=QuoteAcceptResponse)
 async def accept_quote_endpoint(
     quote_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Accept a quote (customer only)."""
+    """Accept a quote (customer only). Returns provider contact info on success."""
     try:
-        await accept_quote(db, quote_id, current_user)
+        quote_uuid = uuid.UUID(quote_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid quote ID")
+
+    try:
+        provider_contact = await accept_quote(db, quote_uuid, current_user)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
-    return {"message": "Quote accepted"}
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Accept quote error: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+    # Re-fetch the accepted quote to get rfq_id and provider_id
+    from sqlalchemy import select as _select
+    from app.models.quote import Quote as _Quote
+    result = await db.execute(_select(_Quote).where(_Quote.id == quote_uuid))
+    quote = result.scalar_one_or_none()
+
+    return QuoteAcceptResponse(
+        success=True,
+        message="Quote accepted successfully. Provider contact details are now revealed.",
+        rfq_id=quote.rfq_id,
+        selected_quote_id=quote.id,
+        selected_provider_id=quote.provider_id,
+        provider_contact_revealed=True,
+        provider_name=provider_contact.get("provider_name"),
+        provider_email=provider_contact.get("provider_email"),
+        provider_phone=provider_contact.get("provider_phone"),
+        provider_website=provider_contact.get("provider_website"),
+        provider_city=provider_contact.get("provider_city"),
+        provider_state=provider_contact.get("provider_state"),
+        provider_address=provider_contact.get("provider_address"),
+    )
 
 
 @router.post("/provider/quotes/{quote_id}/withdraw")

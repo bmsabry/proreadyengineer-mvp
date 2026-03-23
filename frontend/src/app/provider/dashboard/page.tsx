@@ -10,13 +10,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate } from '@/lib/utils';
-import { Mail, FileText, DollarSign, PlusCircle, AlertCircle } from 'lucide-react';
+import { Mail, FileText, AlertCircle, Trophy, Phone, Globe, ArrowRight } from 'lucide-react';
 
 export default function ProviderDashboard() {
   const { user, isLoading: authLoading } = useRequireAuth(['provider']);
   const router = useRouter();
   const [teasers, setTeasers] = useState<RFQTeaser[]>([]);
-  const [unlockedRFQs, setUnlockedRFQs] = useState<any[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [hasMembership, setHasMembership] = useState<boolean | null>(null);
@@ -60,38 +59,87 @@ export default function ProviderDashboard() {
     );
   }
 
+  const acceptedQuotes = quotes.filter(q => q.quote_status === 'accepted');
+  const pendingTeasers = teasers.filter(t => t.status !== 'unlocked' && t.status !== 'accepted');
+
   return (
     <div className="container py-8">
-      {/* PENDING ACTION SECTION - at top */}
-      {(() => {
-        const pendingTeasers = teasers.filter(t => t.status !== 'unlocked' && t.status !== 'accepted');
-        if (pendingTeasers.length === 0) return null;
-        return (
-          <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <AlertCircle className="h-5 w-5 text-amber-600" />
-              <h2 className="text-lg font-semibold text-amber-900">Action Required: Pending RFQ Opportunities</h2>
-            </div>
-            <p className="text-sm text-amber-700 mb-4">
-              You have {pendingTeasers.length} RFQ{pendingTeasers.length > 1 ? 's' : ''} waiting. Unlock to submit a quote — only the first 5 quotes per RFQ are accepted.
-            </p>
-            <div className="space-y-2">
-              {pendingTeasers.map(teaser => (
-                <div key={teaser.rfq_id} className="flex items-center justify-between bg-white border border-amber-100 rounded-md px-4 py-3">
-                  <span className="text-sm font-medium text-gray-800">RFQ #{teaser.rfq_id}</span>
-                  <Button
-                    size="sm"
-                    className="bg-amber-600 hover:bg-amber-700 text-white"
-                    onClick={() => router.push(`/provider/rfq/${teaser.rfq_id}`)}
-                  >
-                    View &amp; Unlock ($10)
-                  </Button>
-                </div>
-              ))}
-            </div>
+
+      {/* ACCEPTED QUOTE BANNER - highest priority, shown at very top */}
+      {acceptedQuotes.length > 0 && (
+        <div className="bg-green-50 border-2 border-green-400 rounded-lg p-6 mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <Trophy className="h-6 w-6 text-green-600" />
+            <h2 className="text-lg font-bold text-green-900">
+              {acceptedQuotes.length === 1 ? 'Your Quote Was Accepted!' : acceptedQuotes.length + ' Quotes Were Accepted!'}
+            </h2>
+            <Badge className="bg-green-600 text-white">Congratulations</Badge>
           </div>
-        );
-      })()}
+          <p className="text-sm text-green-800 mb-4">
+            A customer has selected your quote. Customer contact details have been sent to your email address.
+            Please reach out to the customer directly to begin engagement and provide a refined estimate.
+          </p>
+          <div className="space-y-3">
+            {acceptedQuotes.map((quote) => (
+              <div key={quote.id} className="bg-white border border-green-200 rounded-md p-4 flex items-center justify-between">
+                <div>
+                  <p className="font-medium text-gray-900 text-sm">RFQ Project</p>
+                  <p className="text-xs text-gray-500">
+                    Accepted {quote.submitted_at ? formatDate(quote.submitted_at) : 'recently'}
+                  </p>
+                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
+                    {quote.rough_price_min && quote.rough_price_max && (
+                      <span className="font-medium">
+                        ${Number(quote.rough_price_min).toLocaleString()} &ndash; ${Number(quote.rough_price_max).toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700 text-white gap-1"
+                  onClick={() => router.push('/provider/rfq/' + quote.rfq_id)}
+                >
+                  View Project
+                  <ArrowRight className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+            <strong>Next step:</strong> Check your email for the customer&apos;s direct contact information,
+            then reach out to schedule a discovery call and provide a refined, binding estimate.
+          </div>
+        </div>
+      )}
+
+      {/* PENDING ACTION SECTION */}
+      {pendingTeasers.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <AlertCircle className="h-5 w-5 text-amber-600" />
+            <h2 className="text-lg font-semibold text-amber-900">Action Required: Pending RFQ Opportunities</h2>
+          </div>
+          <p className="text-sm text-amber-700 mb-4">
+            You have {pendingTeasers.length} RFQ{pendingTeasers.length > 1 ? 's' : ''} waiting.
+            Unlock to submit a quote &mdash; only the first 5 quotes per RFQ are accepted.
+          </p>
+          <div className="space-y-2">
+            {pendingTeasers.map(teaser => (
+              <div key={teaser.rfq_id} className="flex items-center justify-between bg-white border border-amber-100 rounded-md px-4 py-3">
+                <span className="text-sm font-medium text-gray-800">RFQ #{String(teaser.rfq_id).slice(0, 8)}&hellip;</span>
+                <Button
+                  size="sm"
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                  onClick={() => router.push('/provider/rfq/' + teaser.rfq_id)}
+                >
+                  View &amp; Unlock ($10)
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-8">
         <div>
@@ -111,9 +159,7 @@ export default function ProviderDashboard() {
               <Mail className="h-5 w-5" />
               New RFQ Teasers
             </CardTitle>
-            <CardDescription>
-              Opportunities matching your profile
-            </CardDescription>
+            <CardDescription>Opportunities matching your profile</CardDescription>
           </CardHeader>
           <CardContent>
             {teasers.length === 0 ? (
@@ -125,19 +171,14 @@ export default function ProviderDashboard() {
                   <div className="mt-2 space-y-3">
                     <p className="text-sm font-medium text-gray-700">Choose how to list your firm:</p>
 
-                    {/* Option 1: Free - Search & Claim */}
                     <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-bold bg-green-600 text-white px-2 py-0.5 rounded">FREE</span>
-                            <h3 className="text-sm font-semibold text-green-900">Find &amp; Claim Existing Listing</h3>
-                          </div>
-                          <p className="text-xs text-green-700 mb-2">
-                            Search our database of 5,400+ firms. If your firm is listed and your email matches, you can claim it instantly.
-                          </p>
-                        </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold bg-green-600 text-white px-2 py-0.5 rounded">FREE</span>
+                        <h3 className="text-sm font-semibold text-green-900">Find &amp; Claim Existing Listing</h3>
                       </div>
+                      <p className="text-xs text-green-700 mb-2">
+                        Search our database of 5,400+ firms. If your firm is listed and your email matches, claim it instantly.
+                      </p>
                       <Link href="/provider/claim">
                         <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white text-xs w-full">
                           Search My Firm
@@ -145,17 +186,14 @@ export default function ProviderDashboard() {
                       </Link>
                     </div>
 
-                    {/* Option 2: $100 Self-Service */}
                     <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-bold bg-blue-600 text-white px-2 py-0.5 rounded">$100</span>
-                          <h3 className="text-sm font-semibold text-blue-900">Self-Service New Listing</h3>
-                        </div>
-                        <p className="text-xs text-blue-700 mb-2">
-                          Create your own profile with your description, specialties, and notable projects. One-time fee.
-                        </p>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold bg-blue-600 text-white px-2 py-0.5 rounded">$100</span>
+                        <h3 className="text-sm font-semibold text-blue-900">Self-Service New Listing</h3>
                       </div>
+                      <p className="text-xs text-blue-700 mb-2">
+                        Create your own profile with description, specialties, and notable projects. One-time fee.
+                      </p>
                       <Link href="/provider/add-firm">
                         <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white text-xs w-full">
                           Create My Listing
@@ -163,17 +201,14 @@ export default function ProviderDashboard() {
                       </Link>
                     </div>
 
-                    {/* Option 3: $750 AI-Assisted */}
                     <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-bold bg-purple-600 text-white px-2 py-0.5 rounded">$750</span>
-                          <h3 className="text-sm font-semibold text-purple-900">AI-Assisted Premium Listing</h3>
-                        </div>
-                        <p className="text-xs text-purple-700 mb-2">
-                          Our team uses AI to build a comprehensive, optimized profile from your website and materials. Includes tier evaluation.
-                        </p>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-bold bg-purple-600 text-white px-2 py-0.5 rounded">$750</span>
+                        <h3 className="text-sm font-semibold text-purple-900">AI-Assisted Premium Listing</h3>
                       </div>
+                      <p className="text-xs text-purple-700 mb-2">
+                        Our team uses AI to build a comprehensive, optimized profile from your website and materials.
+                      </p>
                       <Link href="/provider/add-firm?tier=premium">
                         <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-white text-xs w-full">
                           Request AI Listing
@@ -186,7 +221,7 @@ export default function ProviderDashboard() {
             ) : (
               <div className="space-y-4">
                 {teasers.slice(0, 5).map((teaser) => (
-                  <Link key={teaser.rfq_id} href={`/provider/rfq/${teaser.rfq_id}/teaser`}>
+                  <Link key={teaser.rfq_id} href={'/provider/rfq/' + teaser.rfq_id + '/teaser'}>
                     <Card className="hover:bg-muted/50 transition-colors cursor-pointer">
                       <CardContent className="p-4">
                         <div className="flex justify-between items-start">
@@ -216,32 +251,73 @@ export default function ProviderDashboard() {
               <FileText className="h-5 w-5" />
               My Quotes
             </CardTitle>
-            <CardDescription>
-              Quotes you have submitted
-            </CardDescription>
+            <CardDescription>Quotes you have submitted</CardDescription>
           </CardHeader>
           <CardContent>
             {quotes.length === 0 ? (
-              <p className="text-center text-muted-foreground py-4">
-                No quotes submitted yet
-              </p>
+              <p className="text-center text-muted-foreground py-4">No quotes submitted yet</p>
             ) : (
               <div className="space-y-4">
                 {quotes.slice(0, 5).map((quote) => (
-                  <Card key={quote.id}>
+                  <Card
+                    key={quote.id}
+                    className={quote.quote_status === 'accepted' ? 'border-green-400 bg-green-50/50' : ''}
+                  >
                     <CardContent className="p-4">
                       <div className="flex justify-between items-start">
                         <div>
-                          <p className="font-medium">{quote.provider?.name}</p>
-                          <p className="text-sm text-muted-foreground">
-                            Submitted {quote.submitted_at ? formatDate(quote.submitted_at) : 'Unknown'}
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-medium text-sm">
+                              RFQ #{String(quote.rfq_id).slice(0, 8)}&hellip;
+                            </p>
+                            {quote.quote_status === 'accepted' && (
+                              <Badge className="bg-green-600 text-white text-xs">
+                                <Trophy className="h-3 w-3 mr-1" />
+                                Accepted!
+                              </Badge>
+                            )}
+                            {quote.quote_status === 'submitted' && (
+                              <Badge variant="outline" className="text-xs">Submitted</Badge>
+                            )}
+                            {quote.quote_status === 'not_selected' && (
+                              <Badge variant="secondary" className="text-xs">Not Selected</Badge>
+                            )}
+                            {quote.quote_status === 'withdrawn' && (
+                              <Badge variant="secondary" className="text-xs">Withdrawn</Badge>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {quote.submitted_at ? formatDate(quote.submitted_at) : 'Draft'}
                           </p>
+                          {quote.rough_price_min != null && quote.rough_price_max != null && (
+                            <p className="text-sm font-medium mt-1">
+                              ${Number(quote.rough_price_min).toLocaleString()} &ndash; ${Number(quote.rough_price_max).toLocaleString()}
+                            </p>
+                          )}
                         </div>
-                        <Badge>{quote.quote_status}</Badge>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => router.push('/provider/rfq/' + quote.rfq_id)}
+                          className="gap-1"
+                        >
+                          View
+                          <ArrowRight className="h-3 w-3" />
+                        </Button>
                       </div>
+                      {quote.quote_status === 'accepted' && (
+                        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
+                          Customer contact details have been sent to your email. Please reach out directly.
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ))}
+                {quotes.length > 5 && (
+                  <p className="text-xs text-center text-muted-foreground">
+                    Showing 5 of {quotes.length} quotes
+                  </p>
+                )}
               </div>
             )}
           </CardContent>

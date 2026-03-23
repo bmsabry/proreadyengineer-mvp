@@ -342,6 +342,23 @@ export interface QuoteFile {
   created_at: string;
   presigned_url?: string;
 }
+export interface QuoteAcceptResponse {
+  success: boolean;
+  message: string;
+  rfq_id: string;
+  selected_quote_id: string;
+  selected_provider_id: number;
+  provider_contact_revealed: boolean;
+  provider_name?: string;
+  provider_email?: string;
+  provider_phone?: string;
+  provider_website?: string;
+  provider_city?: string;
+  provider_state?: string;
+  provider_address?: string;
+}
+
+
 
 export interface CreateQuoteRequest {
   rough_price_min?: number;

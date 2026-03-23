@@ -4,13 +4,13 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
-import { RFQ, Quote } from '@/types';
+import { RFQ, Quote, QuoteAcceptResponse } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, getRFQStatusBadgeColor, formatCurrency } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, MessageSquare, Download, CheckCircle } from 'lucide-react';
+import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy } from 'lucide-react';
 
 export default function RFQDetailPage() {
   const { id } = useParams();
@@ -18,6 +18,8 @@ export default function RFQDetailPage() {
   const [rfq, setRfq] = useState<RFQ | null>(null);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [acceptedContact, setAcceptedContact] = useState<QuoteAcceptResponse | null>(null);
+  const [acceptError, setAcceptError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -41,17 +43,21 @@ export default function RFQDetailPage() {
   }, [user, id]);
 
   const handleAcceptQuote = async (quoteId: string) => {
+    setAcceptError(null);
     try {
-      await api.quotes.accept(quoteId);
-      // Refresh data
+      const response = await api.quotes.accept(quoteId);
+      const contactData = response.data as QuoteAcceptResponse;
+      setAcceptedContact(contactData);
+      // Refresh RFQ and quotes data
       const [rfqResponse, quotesResponse] = await Promise.all([
         api.rfqs.get(id as string),
         api.quotes.getForCustomer(id as string),
       ]);
       setRfq(rfqResponse.data);
       setQuotes(quotesResponse.data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to accept quote:', error);
+      setAcceptError(error?.response?.data?.detail || 'Failed to accept quote. Please try again.');
     }
   };
 
@@ -73,6 +79,9 @@ export default function RFQDetailPage() {
     );
   }
 
+  const isProviderSelected = rfq.rfq_status === 'customer_selected_provider';
+  const selectedQuote = quotes.find(q => q.quote_status === 'accepted');
+
   return (
     <div className="container py-8">
       <div className="flex justify-between items-start mb-8">
@@ -88,6 +97,78 @@ export default function RFQDetailPage() {
           </p>
         </div>
       </div>
+
+      {/* Provider Contact Card - shown when a quote is accepted */}
+      {(acceptedContact || isProviderSelected) && (
+        <div className="bg-green-50 border border-green-300 rounded-lg p-6 mb-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Trophy className="h-6 w-6 text-green-600" />
+            <h2 className="text-lg font-bold text-green-900">Provider Selected!</h2>
+            <Badge className="bg-green-600 text-white">Engagement Started</Badge>
+          </div>
+          <p className="text-sm text-green-800 mb-4">
+            You have selected a provider. Their contact details are now revealed. Please reach out directly to begin engagement.
+          </p>
+          {acceptedContact && (
+            <div className="bg-white border border-green-200 rounded-md p-4">
+              <h3 className="font-semibold text-gray-900 text-lg mb-3">
+                {acceptedContact.provider_name}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {acceptedContact.provider_email && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                    <a href={'mailto:' + acceptedContact.provider_email} className="text-blue-600 hover:underline break-all">
+                      {acceptedContact.provider_email}
+                    </a>
+                  </div>
+                )}
+                {acceptedContact.provider_phone && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                    <a href={'tel:' + acceptedContact.provider_phone} className="text-blue-600 hover:underline">
+                      {acceptedContact.provider_phone}
+                    </a>
+                  </div>
+                )}
+                {acceptedContact.provider_website && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Globe className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                    <a href={acceptedContact.provider_website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                      {acceptedContact.provider_website}
+                    </a>
+                  </div>
+                )}
+                {(acceptedContact.provider_city || acceptedContact.provider_state) && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                    <span className="text-gray-700">
+                      {[acceptedContact.provider_city, acceptedContact.provider_state].filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {!acceptedContact.provider_email && !acceptedContact.provider_phone && !acceptedContact.provider_website && (
+                <p className="text-sm text-gray-500 italic">Contact information not available. A confirmation email has been sent to you and the provider.</p>
+              )}
+            </div>
+          )}
+          {isProviderSelected && !acceptedContact && (
+            <div className="bg-white border border-green-200 rounded-md p-4">
+              <p className="text-sm text-gray-600">Provider contact details were sent to your email when you accepted the quote.</p>
+            </div>
+          )}
+          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
+            <strong>Reminder:</strong> The accepted quote was a rough, non-binding, order-of-magnitude estimate. A refined final estimate will follow direct engagement with the provider.
+          </div>
+        </div>
+      )}
+
+      {acceptError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+          <p className="text-sm text-red-700">{acceptError}</p>
+        </div>
+      )}
 
       <Tabs defaultValue="details">
         <TabsList>
@@ -138,53 +219,84 @@ export default function RFQDetailPage() {
             </Card>
           ) : (
             <div className="space-y-4">
+              <div className="p-3 bg-gray-50 border rounded text-xs text-gray-600">
+                Quotes are rough, non-binding, order-of-magnitude estimates. A refined final estimate will follow direct engagement.
+              </div>
               {quotes.map((quote) => (
-                <Card key={quote.id}>
+                <Card key={quote.id} className={quote.quote_status === 'accepted' ? 'border-green-400 bg-green-50/30' : ''}>
                   <CardContent className="p-6">
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start mb-4">
                       <div>
-                        <h3 className="font-semibold">{quote.provider?.name}</h3>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold">
+                            {(quote as any).provider?.firm_name || (quote as any).provider?.name || ('Provider #' + quote.provider_id)}
+                          </h3>
+                          {quote.quote_status === 'accepted' && (
+                            <Badge className="bg-green-600 text-white">
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Selected
+                            </Badge>
+                          )}
+                          {quote.quote_status === 'not_selected' && (
+                            <Badge variant="secondary">Not Selected</Badge>
+                          )}
+                          {quote.quote_status === 'submitted' && (
+                            <Badge variant="outline">Submitted</Badge>
+                          )}
+                        </div>
                         <p className="text-sm text-muted-foreground">
-                          Submitted {quote.submitted_at ? formatDate(quote.submitted_at) : "Unknown"}
+                          Submitted {quote.submitted_at ? formatDate(quote.submitted_at) : 'Unknown'}
                         </p>
                       </div>
                       <div className="text-right">
-                        {quote.rough_price_min && quote.rough_price_max && (
+                        {quote.rough_price_min != null && quote.rough_price_max != null && (
                           <p className="font-semibold text-lg">
-                            {formatCurrency(quote.rough_price_min)} - {formatCurrency(quote.rough_price_max)}
+                            {formatCurrency(quote.rough_price_min)} &ndash; {formatCurrency(quote.rough_price_max)}
                           </p>
+                        )}
+                        {quote.rough_price_min != null && quote.rough_price_max == null && (
+                          <p className="font-semibold text-lg">From {formatCurrency(quote.rough_price_min)}</p>
+                        )}
+                        {quote.currency && (
+                          <p className="text-xs text-muted-foreground">{quote.currency}</p>
                         )}
                       </div>
                     </div>
-                    
-                    {quote.assumptions_text && (
-                      <div className="mt-4">
-                        <h4 className="font-medium text-sm text-muted-foreground">Assumptions</h4>
-                        <p className="mt-1 text-sm">{quote.assumptions_text}</p>
-                      </div>
-                    )}
-                    
+
                     {quote.turnaround_estimate_text && (
-                      <div className="mt-2">
-                        <h4 className="font-medium text-sm text-muted-foreground">Timeline Estimate</h4>
+                      <div className="mb-3">
+                        <h4 className="font-medium text-sm text-muted-foreground">Turnaround Estimate</h4>
                         <p className="mt-1 text-sm">{quote.turnaround_estimate_text}</p>
                       </div>
                     )}
+
+                    {quote.assumptions_text && (
+                      <div className="mb-3">
+                        <h4 className="font-medium text-sm text-muted-foreground">Assumptions</h4>
+                        <p className="mt-1 text-sm whitespace-pre-wrap">{quote.assumptions_text}</p>
+                      </div>
+                    )}
+
                     {quote.scope_notes && (
-                      <div className="mt-2">
+                      <div className="mb-3">
                         <h4 className="font-medium text-sm text-muted-foreground">Additional Scope Notes</h4>
                         <p className="mt-1 text-sm">{quote.scope_notes}</p>
                       </div>
                     )}
 
-                    {rfq.rfq_status !== 'customer_selected_provider' && rfq.rfq_status !== 'closed_no_selection' && (
-                      <Button 
-                        className="mt-4"
-                        onClick={() => handleAcceptQuote(quote.id)}
-                      >
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        Accept Quote
-                      </Button>
+                    {!isProviderSelected && quote.quote_status === 'submitted' && (
+                      <div className="mt-4 pt-4 border-t">
+                        <Button
+                          onClick={() => handleAcceptQuote(quote.id)}
+                          className="bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Accept This Quote &amp; Reveal Contact
+                        </Button>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Accepting a quote will reveal the provider&apos;s direct contact information and mark other quotes as not selected.
+                        </p>
+                      </div>
                     )}
                   </CardContent>
                 </Card>
@@ -197,10 +309,31 @@ export default function RFQDetailPage() {
           <Card>
             <CardHeader>
               <CardTitle>Attached Files</CardTitle>
-              <CardDescription>Project documents and specifications</CardDescription>
+              <CardDescription>Files uploaded with this RFQ</CardDescription>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground text-center py-8">No files attached</p>
+              {(rfq as any).files && (rfq as any).files.length > 0 ? (
+                <ul className="space-y-2">
+                  {(rfq as any).files.map((file: any) => (
+                    <li key={file.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded border">
+                      <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                      <span className="text-sm flex-1 truncate">{file.original_filename}</span>
+                      {file.download_url && (
+                        <a
+                          href={file.download_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-600 hover:underline flex-shrink-0"
+                        >
+                          Download
+                        </a>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-muted-foreground py-4 text-center">No files attached to this RFQ.</p>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

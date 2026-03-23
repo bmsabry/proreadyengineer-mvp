@@ -4,7 +4,7 @@ import {
   Provider, ProviderClaimRequest, ProviderMembership, TierEvaluationRequest,
   SearchQueryRequest, SearchQueryResponse,
   RFQ, RFQFile, RFQDispatch, RFQUnlock, RFQMatch, RFQNDA, RFQTeaser, CreateRFQRequest,
-  Quote, QuoteFile, CreateQuoteRequest,
+  Quote, QuoteAcceptResponse, QuoteFile, CreateQuoteRequest,
   PaymentAttempt, Subscription,
   Advertisement, AdSlot,
   AdminRFQDispatchTracking, AdminDispatchProvider, AuditLog, PaginatedResponse
@@ -356,7 +356,7 @@ const quotes = {
     apiClient.get<Quote[]>(`/customer/rfqs/${rfqId}/quotes`),
   
   accept: (quoteId: string) => 
-    apiClient.post<Quote>(`/customer/quotes/${quoteId}/accept`),
+    apiClient.post<QuoteAcceptResponse>(`/customer/quotes/${quoteId}/accept`),
   
   // Provider endpoints
   withdraw: (quoteId: string) => 

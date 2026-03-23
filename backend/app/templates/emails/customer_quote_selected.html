@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Provider Selected - ProReadyEngineer{% endblock %}
+{% block content %}
+<h2 style="color: #1e40af;">You Have Selected a Provider</h2>
+<p>Hi {{ customer_name }},</p>
+<p>You have successfully selected <strong>{{ provider_name }}</strong> for your project. Their contact details are now revealed below so you can begin direct engagement.</p>
+
+<div style="background: #eff6ff; border: 1px solid #93c5fd; border-radius: 8px; padding: 16px; margin: 20px 0;">
+    <h3 style="color: #1e40af; margin-top: 0;">{{ provider_name }}</h3>
+    <table style="width: 100%; border-collapse: collapse;">
+        {% if provider_email %}
+        <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #374151; width: 140px;">Email:</td>
+            <td style="padding: 6px 0;">
+                <a href="mailto:{{ provider_email }}" style="color: #2563eb;">{{ provider_email }}</a>
+            </td>
+        </tr>
+        {% endif %}
+        {% if provider_phone %}
+        <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #374151;">Phone:</td>
+            <td style="padding: 6px 0; color: #111827;">{{ provider_phone }}</td>
+        </tr>
+        {% endif %}
+        {% if provider_website %}
+        <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #374151;">Website:</td>
+            <td style="padding: 6px 0;">
+                <a href="{{ provider_website }}" style="color: #2563eb;">{{ provider_website }}</a>
+            </td>
+        </tr>
+        {% endif %}
+        {% if provider_city or provider_state %}
+        <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #374151;">Location:</td>
+            <td style="padding: 6px 0; color: #111827;">{{ provider_city }}{% if provider_city and provider_state %}, {% endif %}{{ provider_state }}</td>
+        </tr>
+        {% endif %}
+    </table>
+</div>
+
+<h3 style="color: #374151;">Suggested Next Steps</h3>
+<ol style="color: #374151; line-height: 1.8;">
+    <li>Contact {{ provider_name }} directly using the details above.</li>
+    <li>Schedule a discovery call to discuss full project requirements.</li>
+    <li>Request a refined, binding estimate based on detailed scope.</li>
+    <li>Agree on contract terms, deliverables, and timeline.</li>
+</ol>
+
+<div style="background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 12px; margin: 20px 0;">
+    <p style="margin: 0; color: #92400e; font-size: 14px;">
+        <strong>Reminder:</strong> The quote you accepted was a rough, non-binding, order-of-magnitude estimate.
+        A refined final estimate will be provided by the provider during direct engagement.
+    </p>
+</div>
+
+<p style="text-align: center; margin-top: 24px;">
+    <a href="{{ rfq_url }}" class="button" style="background: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+        View Your RFQ
+    </a>
+</p>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 24px;">
+    Thank you for using ProReadyEngineer. We wish you success on your project!
+</p>
+{% endblock %}
