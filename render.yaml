@@ -141,7 +141,7 @@ services:
     env: node
     plan: starter
     buildCommand: cd frontend && rm -rf node_modules .next && npm ci && npm run build
-    startCommand: cd frontend && npm start
+    startCommand: cd frontend && npx next start -p $PORT
     envVars:
       - key: NODE_ENV
         value: production
