@@ -33,24 +33,27 @@ logger = logging.getLogger(__name__)
 
 
 async def _scheduler_dispatch_job():
-    """Called by APScheduler every poll_interval. Creates its own DB session."""
+    """Called by APScheduler every 5 min poll. Uses fresh sessions to avoid stale-object issues."""
     from app.db.session import AsyncSessionLocal
     from app.models.rfq import RFQ, RfqStatus, RFQDispatchBatch
     from app.services.rfq_service import dispatch_next_batch
-    from app.services.config_service import _get_runtime_config
+    from app.services.config_service import get_runtime_config as _get_runtime_config
     from sqlalchemy import select
+    import uuid as _uuid
 
     logger.info("[scheduler] RFQ batch dispatch poll starting")
+
+    # --- Phase 1: read config and collect open RFQ IDs (one session, read-only) ---
+    rfqs_to_check = []  # list of (rfq_id, last_dispatched_at, quote_count)
+    interval_hours = float(settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS)
+
     async with AsyncSessionLocal() as db:
         try:
             cfg = await _get_runtime_config(db)
             interval_hours = float(cfg.get("RFQ_BATCH_INTERVAL_HOURS",
                                            settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS))
-        except Exception:
-            interval_hours = float(settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS)
-
-        interval_delta = timedelta(hours=interval_hours)
-        now = datetime.now(timezone.utc)
+        except Exception as e:
+            logger.warning("[scheduler] config read failed, using default interval: %s", e)
 
         try:
             result = await db.execute(
@@ -71,6 +74,7 @@ async def _scheduler_dispatch_job():
 
         for rfq in rfqs:
             if rfq.quote_count >= 5:
+                logger.info("[scheduler] rfq=%s already has %d quotes, skipping", rfq.id, rfq.quote_count)
                 continue
             try:
                 last_batch_result = await db.execute(
@@ -80,36 +84,52 @@ async def _scheduler_dispatch_job():
                     .limit(1)
                 )
                 last_batch = last_batch_result.scalar_one_or_none()
-
-                should_dispatch = False
-                if last_batch is None:
-                    should_dispatch = True
-                else:
-                    last_dispatched = last_batch.dispatched_at
-                    if last_dispatched is None:
-                        should_dispatch = True
-                    else:
-                        if last_dispatched.tzinfo is None:
-                            last_dispatched = last_dispatched.replace(tzinfo=timezone.utc)
-                        elapsed = now - last_dispatched
-                        if elapsed >= interval_delta:
-                            should_dispatch = True
-                            logger.info("[scheduler] rfq=%s elapsed=%.2fh >= interval=%.2fh -> dispatching",
-                                        rfq.id, elapsed.total_seconds() / 3600, interval_hours)
-                        else:
-                            remaining = (interval_delta - elapsed).total_seconds() / 60
-                            logger.info("[scheduler] rfq=%s skipping, %.0f min remaining",
-                                        rfq.id, remaining)
-
-                if should_dispatch:
-                    dispatched = await dispatch_next_batch(db, rfq.id)
-                    logger.info("[scheduler] rfq=%s dispatched %d providers",
-                                rfq.id, len(dispatched))
+                last_dispatched_at = last_batch.dispatched_at if last_batch else None
+                # Snapshot the values we need - don't hold ORM objects across sessions
+                rfqs_to_check.append((
+                    str(rfq.id),
+                    last_dispatched_at,
+                    rfq.quote_count,
+                ))
             except Exception as e:
-                logger.error("[scheduler] error processing rfq=%s: %s", rfq.id, e, exc_info=True)
+                logger.error("[scheduler] error reading rfq=%s batch info: %s", rfq.id, e)
+
+    # --- Phase 2: for each eligible RFQ, open a FRESH session and dispatch ---
+    interval_delta = timedelta(hours=interval_hours)
+    now = datetime.now(timezone.utc)
+    logger.info("[scheduler] interval=%.2fh, checking %d RFQs", interval_hours, len(rfqs_to_check))
+
+    for rfq_id_str, last_dispatched_at, quote_count in rfqs_to_check:
+        try:
+            should_dispatch = False
+            if last_dispatched_at is None:
+                should_dispatch = True
+                logger.info("[scheduler] rfq=%s no previous batch -> dispatch", rfq_id_str)
+            else:
+                ld = last_dispatched_at
+                if ld.tzinfo is None:
+                    ld = ld.replace(tzinfo=timezone.utc)
+                elapsed = now - ld
+                elapsed_h = elapsed.total_seconds() / 3600
+                if elapsed >= interval_delta:
+                    should_dispatch = True
+                    logger.info("[scheduler] rfq=%s elapsed=%.2fh >= interval=%.2fh -> dispatching",
+                                rfq_id_str, elapsed_h, interval_hours)
+                else:
+                    remaining_min = (interval_delta - elapsed).total_seconds() / 60
+                    logger.info("[scheduler] rfq=%s elapsed=%.2fh, %.1f min remaining until next batch",
+                                rfq_id_str, elapsed_h, remaining_min)
+
+            if should_dispatch:
+                async with AsyncSessionLocal() as fresh_db:
+                    rfq_uuid = _uuid.UUID(rfq_id_str)
+                    dispatched = await dispatch_next_batch(fresh_db, rfq_uuid)
+                    logger.info("[scheduler] rfq=%s dispatched %d providers in new batch",
+                                rfq_id_str, len(dispatched))
+        except Exception as e:
+            logger.error("[scheduler] error dispatching rfq=%s: %s", rfq_id_str, e, exc_info=True)
 
     logger.info("[scheduler] poll complete")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
