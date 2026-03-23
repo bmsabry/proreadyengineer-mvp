@@ -326,6 +326,9 @@ export interface Quote {
   assumptions_text?: string;
   scope_notes?: string;
   submitted_at?: string;
+  customer_contact_name?: string;
+  customer_company?: string;
+  customer_email?: string;
   created_at: string;
   updated_at: string;
   provider?: Provider;

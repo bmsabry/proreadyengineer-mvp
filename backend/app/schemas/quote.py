@@ -78,6 +78,10 @@ class QuoteResponse(ResponseSchema):
     scope_notes: Optional[str]
     submitted_at: Optional[datetime]
     customer_viewed_at: Optional[datetime]
+    # Customer contact info - only populated for accepted quotes (provider view)
+    customer_contact_name: Optional[str] = None
+    customer_company: Optional[str] = None
+    customer_email: Optional[str] = None
 
 
 class QuoteForCustomerResponse(QuoteResponse):

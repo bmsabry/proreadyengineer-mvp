@@ -76,39 +76,56 @@ export default function ProviderDashboard() {
             <Badge className="bg-green-600 text-white">Congratulations</Badge>
           </div>
           <p className="text-sm text-green-800 mb-4">
-            A customer has selected your quote. Customer contact details have been sent to your email address.
-            Please reach out to the customer directly to begin engagement and provide a refined estimate.
+            A customer has selected your quote. Please reach out to the customer directly to begin engagement and provide a refined estimate.
           </p>
           <div className="space-y-3">
             {acceptedQuotes.map((quote) => (
-              <div key={quote.id} className="bg-white border border-green-200 rounded-md p-4 flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900 text-sm">RFQ Project</p>
-                  <p className="text-xs text-gray-500">
-                    Accepted {quote.submitted_at ? formatDate(quote.submitted_at) : 'recently'}
-                  </p>
-                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
-                    {quote.rough_price_min && quote.rough_price_max && (
-                      <span className="font-medium">
-                        ${Number(quote.rough_price_min).toLocaleString()} &ndash; ${Number(quote.rough_price_max).toLocaleString()}
-                      </span>
-                    )}
+              <div key={quote.id} className="bg-white border border-green-200 rounded-md p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="font-medium text-gray-900 text-sm">RFQ Project</p>
+                    <p className="text-xs text-gray-500">
+                      Accepted {quote.submitted_at ? formatDate(quote.submitted_at) : 'recently'}
+                    </p>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
+                      {quote.rough_price_min && quote.rough_price_max && (
+                        <span className="font-medium">
+                          ${Number(quote.rough_price_min).toLocaleString()} &ndash; ${Number(quote.rough_price_max).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    className="bg-green-600 hover:bg-green-700 text-white gap-1"
+                    onClick={() => router.push('/provider/rfq/' + quote.rfq_id)}
+                  >
+                    View Project
+                    <ArrowRight className="h-3 w-3" />
+                  </Button>
+                </div>
+                {/* Customer contact card */}
+                <div className="bg-white border border-green-200 rounded-md p-4">
+                  <p className="text-xs font-semibold text-green-700 uppercase mb-2">Customer Contact Information</p>
+                  <div className="grid grid-cols-1 gap-1 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-700 w-20">Name:</span>
+                      <span className="text-gray-900">{quote.customer_contact_name || 'Not provided'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-700 w-20">Company:</span>
+                      <span className="text-gray-900">{quote.customer_company || 'Not provided'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-700 w-20">Email:</span>
+                      {quote.customer_email ? (
+                        <a href={`mailto:${quote.customer_email}`} className="text-blue-600 hover:underline">{quote.customer_email}</a>
+                      ) : <span className="text-gray-500">Not provided</span>}
+                    </div>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700 text-white gap-1"
-                  onClick={() => router.push('/provider/rfq/' + quote.rfq_id)}
-                >
-                  View Project
-                  <ArrowRight className="h-3 w-3" />
-                </Button>
               </div>
             ))}
-          </div>
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-            <strong>Next step:</strong> Check your email for the customer&apos;s direct contact information,
-            then reach out to schedule a discovery call and provide a refined, binding estimate.
           </div>
         </div>
       )}
@@ -306,8 +323,13 @@ export default function ProviderDashboard() {
                         </Button>
                       </div>
                       {quote.quote_status === 'accepted' && (
-                        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800">
-                          Customer contact details have been sent to your email. Please reach out directly.
+                        <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800 space-y-1">
+                          <p className="font-semibold">🎉 Your quote was accepted! Contact the customer directly:</p>
+                          <p><span className="font-medium">Name:</span> {quote.customer_contact_name || 'See email'}</p>
+                          <p><span className="font-medium">Company:</span> {quote.customer_company || 'See email'}</p>
+                          {quote.customer_email && (
+                            <p><span className="font-medium">Email:</span> <a href={`mailto:${quote.customer_email}`} className="underline">{quote.customer_email}</a></p>
+                          )}
                         </div>
                       )}
                     </CardContent>

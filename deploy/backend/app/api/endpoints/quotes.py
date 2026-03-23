@@ -235,10 +235,11 @@ async def get_provider_quotes(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["provider"])),
 ):
-    """Get all quotes submitted by provider."""
+    """Get all quotes submitted by provider. Accepted quotes include customer contact info."""
     from sqlalchemy import select
     from app.models.quote import Quote
     from app.models.provider import ProviderMembership
+    from app.models.rfq import RFQ
 
     # Get user's provider
     result = await db.execute(
@@ -254,4 +255,19 @@ async def get_provider_quotes(
     )
     quotes = result.scalars().all()
 
-    return [QuoteResponse.from_orm(q) for q in quotes]
+    responses = []
+    for q in quotes:
+        resp = QuoteResponse.from_orm(q)
+        # For accepted quotes, reveal customer contact information
+        if q.quote_status == "accepted":
+            rfq_result = await db.execute(
+                select(RFQ).where(RFQ.id == q.rfq_id)
+            )
+            rfq = rfq_result.scalar_one_or_none()
+            if rfq:
+                resp.customer_contact_name = rfq.contact_name
+                resp.customer_company = rfq.business_name
+                resp.customer_email = rfq.customer_email
+        responses.append(resp)
+
+    return responses
