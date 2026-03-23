@@ -140,8 +140,8 @@ services:
     name: proreadyengineer-web
     env: node
     plan: starter
-    buildCommand: cd frontend && rm -rf node_modules .next && npm ci && npm run build
-    startCommand: cd frontend && npx next start -p $PORT
+    buildCommand: cd frontend && rm -rf node_modules .next && npm ci && npm run build && cp -r public .next/standalone/ && cp -r .next/static .next/standalone/.next/
+    startCommand: cd frontend && node .next/standalone/server.js
     envVars:
       - key: NODE_ENV
         value: production
