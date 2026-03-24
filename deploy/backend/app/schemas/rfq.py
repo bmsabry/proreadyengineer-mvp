@@ -48,6 +48,18 @@ class RFQSubmitRequest(BaseSchema):
     pass  # Just the action, no body needed
 
 
+# === RFQ Files (defined here so RFQResponse can reference it) ===
+
+class RFQFileResponse(ResponseSchema):
+    """RFQ file details."""
+    id: UUID
+    rfq_id: UUID
+    original_filename: str
+    mime_type: str
+    file_size_bytes: int
+    extracted_text: Optional[str]
+    download_url: Optional[str] = None
+
 # === RFQ Response ===
 
 class RFQResponse(ResponseSchema):
@@ -93,15 +105,6 @@ class RFQFileCreateRequest(BaseSchema):
     file_size_bytes: int
 
 
-class RFQFileResponse(ResponseSchema):
-    """RFQ file details."""
-    id: UUID
-    rfq_id: UUID
-    original_filename: str
-    mime_type: str
-    file_size_bytes: int
-    extracted_text: Optional[str]
-    download_url: Optional[str] = None
 
 
 class RFQFileUploadInitiateResponse(BaseSchema):
