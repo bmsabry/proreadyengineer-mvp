@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   Loader2, AlertCircle, CheckCircle, Download, FileText, Clock,
   Lock, LockOpen, Building2, ShieldAlert, ArrowLeft, CalendarDays, Layers,
-  CreditCard, Send, Upload, X, Sparkles,
+  CreditCard, Send, Upload, X, Sparkles, Trophy, Ban,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import { Quote } from '@/types';
 import { useRequireAuth } from '@/hooks/useAuth';
 
 interface UnlockStatus {
@@ -142,6 +143,120 @@ function FilesSection({ files, loading }: { files: RFQFile[]; loading: boolean }
     </ul>
   );
 }
+
+
+const CLOSED_STATUSES = [
+  'customer_selected_provider',
+  'closed_no_selection',
+  'quote_limit_reached',
+  'cancelled',
+  'closed',
+];
+
+function SubmittedQuoteCard({ quote }: { quote: Quote }) {
+  const isAccepted = quote.quote_status === 'accepted';
+  const isNotSelected = quote.quote_status === 'not_selected';
+  const isWithdrawn = quote.quote_status === 'withdrawn';
+
+  const statusLabels: Record<string, string> = {
+    draft: 'Draft',
+    submitted: 'Submitted - Awaiting Customer Review',
+    withdrawn: 'Withdrawn',
+    customer_viewed: 'Viewed by Customer',
+    shortlisted: 'Shortlisted by Customer',
+    accepted: 'Accepted - You Won!',
+    not_selected: 'Not Selected',
+    expired: 'Expired',
+  };
+
+  const statusLabel = statusLabels[quote.quote_status] || quote.quote_status;
+
+  return (
+    <div className="space-y-4">
+      {isAccepted && (
+        <Card className="border-yellow-300 bg-yellow-50">
+          <CardContent className="pt-5">
+            <div className="flex items-center gap-3 mb-3">
+              <Trophy className="h-8 w-8 text-yellow-600" />
+              <div>
+                <h3 className="font-bold text-yellow-900 text-lg">Your Quote Was Accepted!</h3>
+                <p className="text-yellow-700 text-sm">The customer has selected your firm. Direct contact details are below.</p>
+              </div>
+            </div>
+            {(quote.customer_contact_name || quote.customer_email || quote.customer_company) && (
+              <div className="mt-3 rounded-md border border-yellow-200 bg-white p-3 space-y-1">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Customer Contact</p>
+                {quote.customer_contact_name && <p className="text-sm font-medium text-gray-900">{quote.customer_contact_name}</p>}
+                {quote.customer_company && <p className="text-sm text-gray-600">{quote.customer_company}</p>}
+                {quote.customer_email && (
+                  <a href={`mailto:${quote.customer_email}`} className="text-sm text-blue-600 hover:underline block">{quote.customer_email}</a>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className={isAccepted ? 'border-green-300' : isNotSelected ? 'border-gray-300' : 'border-blue-200'}>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CheckCircle className="h-5 w-5 text-green-500" />
+              Your Submitted Quote
+            </CardTitle>
+            <Badge
+              variant={isAccepted ? 'default' : isNotSelected ? 'secondary' : 'outline'}
+              className={isAccepted ? 'bg-green-100 text-green-800' : isWithdrawn ? 'bg-red-100 text-red-700' : ''}>
+              {statusLabel}
+            </Badge>
+          </div>
+          {quote.submitted_at && (
+            <CardDescription>Submitted {fmtDate(quote.submitted_at)}</CardDescription>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {(quote.rough_price_min != null || quote.rough_price_max != null) && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Estimate Range</p>
+              <p className="text-sm text-gray-800">
+                {quote.rough_price_min != null ? `$${quote.rough_price_min.toLocaleString()}` : 'N/A'}
+                {' — '}
+                {quote.rough_price_max != null ? `$${quote.rough_price_max.toLocaleString()}` : 'N/A'}
+                {quote.currency ? ` ${quote.currency}` : ' USD'}
+              </p>
+            </div>
+          )}
+          {quote.turnaround_estimate_text && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Turnaround</p>
+              <p className="text-sm text-gray-800">{quote.turnaround_estimate_text}</p>
+            </div>
+          )}
+          {quote.assumptions_text && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Technical Assumptions</p>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{quote.assumptions_text}</p>
+            </div>
+          )}
+          {quote.scope_notes && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Scope Notes</p>
+              <p className="text-sm text-gray-800 whitespace-pre-wrap">{quote.scope_notes}</p>
+            </div>
+          )}
+          {quote.document_filename && (
+            <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 flex items-center gap-2">
+              <FileText className="h-4 w-4 text-blue-500" />
+              <span className="text-sm text-gray-700">{quote.document_filename}</span>
+              <Badge className="ml-auto text-xs bg-blue-50 text-blue-700">Attached</Badge>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 
 function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void }) {
   const [min, setMin] = useState('');
@@ -344,6 +459,8 @@ function ProviderRFQPageInner() {
   const [filesLoading, setFilesLoading] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [quoteSubmitted, setQuoteSubmitted] = useState(false);
+  const [existingQuote, setExistingQuote] = useState<Quote | null>(null);
+  const [quotesLoading, setQuotesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
@@ -367,6 +484,20 @@ function ProviderRFQPageInner() {
     } catch {
       // files may be temporarily unavailable
     } finally { setFilesLoading(false); }
+  }, [rfqId]);
+
+  const loadExistingQuote = useCallback(async () => {
+    setQuotesLoading(true);
+    try {
+      const res = await api.quotes.getMyQuotes();
+      const myQuotes: Quote[] = Array.isArray(res.data) ? res.data : [];
+      const match = myQuotes.find((q) => q.rfq_id === rfqId);
+      if (match) setExistingQuote(match);
+    } catch {
+      // silently ignore
+    } finally {
+      setQuotesLoading(false);
+    }
   }, [rfqId]);
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
@@ -397,7 +528,7 @@ function ProviderRFQPageInner() {
     if (result === 'cancelled') toast.info('Payment cancelled. You can unlock anytime.');
   }, [searchParams, rfqId, loadStatus]);
 
-  useEffect(() => { if (status?.unlocked) loadFiles(); }, [status?.unlocked, loadFiles]);
+  useEffect(() => { if (status?.unlocked) { loadFiles(); loadExistingQuote(); } }, [status?.unlocked, loadFiles, loadExistingQuote]);
 
   const handleUnlock = async () => {
     setCheckingOut(true);
@@ -465,6 +596,8 @@ function ProviderRFQPageInner() {
 
   if (!status) return null;
 
+  const isClosed = CLOSED_STATUSES.includes(status.rfq_status || '');
+
   if (status.has_membership && status.has_dispatch === false) return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="max-w-md w-full">
@@ -527,7 +660,33 @@ function ProviderRFQPageInner() {
                 </CardContent>
               </Card>
 
-              {!quoteSubmitted ? (
+              {quotesLoading ? (
+                <Card>
+                  <CardContent className="pt-6 text-center">
+                    <Loader2 className="h-8 w-8 animate-spin text-blue-500 mx-auto mb-2" />
+                    <p className="text-sm text-gray-500">Loading quote status...</p>
+                  </CardContent>
+                </Card>
+              ) : existingQuote ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CheckCircle className="h-5 w-5 text-green-600" />Your Quote
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <SubmittedQuoteCard quote={existingQuote} />
+                  </CardContent>
+                </Card>
+              ) : isClosed ? (
+                <Card className="border-gray-200 bg-gray-50">
+                  <CardContent className="pt-6 text-center">
+                    <Ban className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                    <h3 className="font-semibold text-gray-700 text-lg mb-2">Project No Longer Accepting Quotes</h3>
+                    <p className="text-gray-500 text-sm">This project has been closed. No further quotes are being accepted.</p>
+                  </CardContent>
+                </Card>
+              ) : !quoteSubmitted ? (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
