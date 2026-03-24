@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db, require_role
 from app.core.config import settings
@@ -158,7 +159,7 @@ async def admin_list_rfqs(
     from sqlalchemy import select, func
     from app.models.rfq import RFQ
 
-    query = select(RFQ)
+    query = select(RFQ).options(selectinload(RFQ.files))
     if status:
         query = query.where(RFQ.rfq_status == status)
 
@@ -189,7 +190,7 @@ async def admin_get_rfq(
     from sqlalchemy import select
     from app.models.rfq import RFQ
 
-    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    result = await db.execute(select(RFQ).options(selectinload(RFQ.files)).where(RFQ.id == rfq_id))
     rfq = result.scalar_one_or_none()
 
     if not rfq:
