@@ -142,7 +142,7 @@ async def get_rfq_tracking(
     }
 
 
-@router.get("/rfqs/{rfq_id}", response_model=RFQResponse)
+@router.get("/rfqs/{rfq_id}", response_model=None)
 async def get_rfq(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
@@ -177,7 +177,7 @@ async def get_rfq(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
     # Build response with files + presigned download URLs
-    rfq_data = RFQResponse.from_orm(rfq)
+    rfq_data = RFQResponse.model_validate(rfq).model_dump()
 
     # Attach files with presigned download URLs
     file_responses = []
@@ -198,7 +198,7 @@ async def get_rfq(
                 pass
         file_responses.append(file_dict)
 
-    rfq_data.files = file_responses
+    rfq_data["files"] = file_responses
     return rfq_data
 
 

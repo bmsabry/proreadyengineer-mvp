@@ -68,6 +68,7 @@ class RFQResponse(ResponseSchema):
     has_documents: bool
     submitted_at: Optional[datetime]
     closed_at: Optional[datetime]
+    files: list[RFQFileResponse] = []
 
 
 class RFQStatusResponse(BaseSchema):
@@ -100,6 +101,7 @@ class RFQFileResponse(ResponseSchema):
     mime_type: str
     file_size_bytes: int
     extracted_text: Optional[str]
+    download_url: Optional[str] = None
 
 
 class RFQFileUploadInitiateResponse(BaseSchema):

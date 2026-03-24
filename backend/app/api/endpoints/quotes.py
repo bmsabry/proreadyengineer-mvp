@@ -303,6 +303,8 @@ async def get_customer_quotes(
         quote_dict = {
             "id": q.id,
             "rfq_id": q.rfq_id,
+            "created_at": q.created_at,
+            "updated_at": q.updated_at,
             "provider_id": q.provider_id,
             "submitter_user_id": q.submitter_user_id,
             "quote_status": q.quote_status,

@@ -142,26 +142,64 @@ async def get_rfq_tracking(
     }
 
 
-@router.get("/rfqs/{rfq_id}", response_model=RFQResponse)
+@router.get("/rfqs/{rfq_id}", response_model=None)
 async def get_rfq(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get RFQ details (customer only)."""
+    """Get RFQ details with files (customer or admin)."""
+    import uuid as _u
     from sqlalchemy import select
-    from app.models.rfq import RFQ
+    from sqlalchemy.orm import selectinload
+    from app.models.rfq import RFQ, RFQFile
+    from app.services.file_service import generate_download_url
 
-    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    # Validate and convert UUID
+    try:
+        uid = _u.UUID(rfq_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid RFQ ID format")
+
+    # Eagerly load files relationship
+    result = await db.execute(
+        select(RFQ)
+        .options(selectinload(RFQ.files))
+        .where(RFQ.id == uid)
+    )
     rfq = result.scalar_one_or_none()
 
     if not rfq:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
 
+    # Allow customer owner OR admin
     if rfq.customer_user_id != current_user.id and "admin" not in (current_user.roles or []):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
-    return RFQResponse.from_orm(rfq)
+    # Build response with files + presigned download URLs
+    rfq_data = RFQResponse.model_validate(rfq).model_dump()
+
+    # Attach files with presigned download URLs
+    file_responses = []
+    for f in (rfq.files or []):
+        file_dict = {
+            "id": f.id,
+            "rfq_id": f.rfq_id,
+            "original_filename": f.original_filename,
+            "mime_type": f.mime_type,
+            "file_size_bytes": f.file_size_bytes,
+            "extracted_text": getattr(f, "extracted_text", None),
+            "download_url": None,
+        }
+        if f.s3_key:
+            try:
+                file_dict["download_url"] = generate_download_url(f.s3_key, expire_seconds=3600)
+            except Exception:
+                pass
+        file_responses.append(file_dict)
+
+    rfq_data["files"] = file_responses
+    return rfq_data
 
 
 @router.post("/rfqs/{rfq_id}/files/initiate")

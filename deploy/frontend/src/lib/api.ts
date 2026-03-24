@@ -560,6 +560,7 @@ export const api = {
   webhooks,
 };
 
+export { apiClient };
 export default api;
 
 // ── Customer RFQ API helpers ─────────────────────────────────────────────────
