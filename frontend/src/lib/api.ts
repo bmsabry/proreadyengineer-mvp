@@ -4,7 +4,7 @@ import {
   Provider, ProviderClaimRequest, ProviderMembership, TierEvaluationRequest,
   SearchQueryRequest, SearchQueryResponse,
   RFQ, RFQFile, RFQDispatch, RFQUnlock, RFQMatch, RFQNDA, RFQTeaser, CreateRFQRequest,
-  Quote, QuoteAcceptResponse, QuoteFile, CreateQuoteRequest,
+  Quote, QuoteAcceptResponse, QuoteFile, CreateQuoteRequest, QuoteForCustomerResponse, QuoteDocExtractResponse,
   PaymentAttempt, Subscription,
   Advertisement, AdSlot,
   AdminRFQDispatchTracking, AdminDispatchProvider, AuditLog, PaginatedResponse
@@ -310,14 +310,7 @@ const providerRFQ = {
   getFiles: (rfqId: string) =>
     apiClient.get<RFQFile[]>(`/provider/rfqs/${rfqId}/files`),
 
-  submitQuote: (rfqId: string, data: {
-    rough_price_min?: number;
-    rough_price_max?: number;
-    currency?: string;
-    turnaround_estimate_text?: string;
-    assumptions_text?: string;
-    scope_notes?: string;
-  }) =>
+  submitQuote: (rfqId: string, data: CreateQuoteRequest) =>
     apiClient.post<Quote>(`/provider/rfqs/${rfqId}/quote`, data),
 };
 
@@ -350,10 +343,10 @@ const providerRfqAccess = {
 const quotes = {
   // Customer endpoints
   getCustomerQuotes: (rfqId: string) => 
-    apiClient.get<Quote[]>(`/customer/rfqs/${rfqId}/quotes`),
+    apiClient.get<QuoteForCustomerResponse[]>(`/customer/rfqs/${rfqId}/quotes`),
 
   getForCustomer: (rfqId: string) =>
-    apiClient.get<Quote[]>(`/customer/rfqs/${rfqId}/quotes`),
+    apiClient.get<QuoteForCustomerResponse[]>(`/customer/rfqs/${rfqId}/quotes`),
   
   accept: (quoteId: string) => 
     apiClient.post<QuoteAcceptResponse>(`/customer/quotes/${quoteId}/accept`),
@@ -367,6 +360,23 @@ const quotes = {
 
   getForProvider: () =>
     apiClient.get<Quote[]>('/provider/quotes/me'),
+
+  extractQuoteDocument: async (rfqId: string, file: File): Promise<QuoteDocExtractResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = getStoredToken();
+    const headers: Record<string, string> = { 'Content-Type': 'multipart/form-data' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await apiClient.post<QuoteDocExtractResponse>(
+      `/provider/rfqs/${rfqId}/quote/extract-document`,
+      formData,
+      { headers }
+    );
+    return response.data;
+  },
+
+  getQuoteDocumentDownload: (quoteId: string) =>
+    apiClient.get<{ download_url: string; filename: string }>(`/customer/quotes/${quoteId}/document`),
 };
 
 // Provider Profile API

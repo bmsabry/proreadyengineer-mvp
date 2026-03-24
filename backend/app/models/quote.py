@@ -27,12 +27,12 @@ if TYPE_CHECKING:
 
 class Quote(Base):
     """Provider quote submission for an RFQ.
-    
+
     MVP supports one active submitted quote per provider per RFQ.
     """
-    
+
     __tablename__ = "quotes"
-    
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
@@ -68,7 +68,10 @@ class Quote(Base):
     customer_viewed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    
+    # Optional uploaded quote document (stored in S3, shared with customer on acceptance)
+    document_s3_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    document_filename: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Relationships
     rfq: Mapped["RFQ"] = relationship("RFQ", back_populates="quotes")
     provider: Mapped["Provider"] = relationship("Provider", back_populates="quotes")
@@ -82,9 +85,9 @@ class Quote(Base):
 
 class QuoteFile(Base):
     """Quote attachment files stored in S3."""
-    
+
     __tablename__ = "quote_files"
-    
+
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
@@ -95,6 +98,6 @@ class QuoteFile(Base):
     original_filename: Mapped[str] = mapped_column(Text, nullable=False)
     mime_type: Mapped[str] = mapped_column(Text, nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
-    
+
     # Relationships
     quote: Mapped["Quote"] = relationship("Quote", back_populates="files")

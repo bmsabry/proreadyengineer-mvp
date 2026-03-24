@@ -329,6 +329,9 @@ export interface Quote {
   customer_contact_name?: string;
   customer_company?: string;
   customer_email?: string;
+  document_s3_key?: string;
+  document_filename?: string;
+  document_download_url?: string;
   created_at: string;
   updated_at: string;
   provider?: Provider;
@@ -370,6 +373,41 @@ export interface CreateQuoteRequest {
   turnaround_estimate_text?: string;
   assumptions_text?: string;
   scope_notes?: string;
+  document_s3_key?: string;
+  document_filename?: string;
+}
+
+export interface QuoteProviderInfo {
+  provider_id: number;
+  provider_name: string;
+  firm_name: string;
+  primary_specialty?: string;
+  // Only populated for accepted quotes
+  website?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  state?: string;
+  address?: string;
+}
+
+export interface QuoteForCustomerResponse extends Omit<Quote, 'provider'> {
+  provider: QuoteProviderInfo;
+  files: QuoteFile[];
+  document_download_url?: string;
+}
+
+export interface QuoteDocExtractResponse {
+  s3_key: string;
+  original_filename: string;
+  extracted_fields: Record<string, unknown>;
+  rough_price_min?: number;
+  rough_price_max?: number;
+  currency: string;
+  turnaround_estimate_text?: string;
+  assumptions_text?: string;
+  scope_notes?: string;
+  raw_extraction?: string;
 }
 
 // Payment Types

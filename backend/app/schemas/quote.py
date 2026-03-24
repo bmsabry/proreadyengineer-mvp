@@ -24,6 +24,9 @@ class QuoteCreateRequest(BaseSchema):
     turnaround_estimate_text: Optional[str] = Field(None, max_length=500)
     assumptions_text: Optional[str] = Field(None, max_length=2000)
     scope_notes: Optional[str] = Field(None, max_length=2000)
+    # Optional uploaded document reference
+    document_s3_key: Optional[str] = Field(None, description="S3 key of uploaded quote document")
+    document_filename: Optional[str] = Field(None, description="Original filename of uploaded document")
 
 
 class QuoteSubmitRequest(BaseSchema):
@@ -34,6 +37,9 @@ class QuoteSubmitRequest(BaseSchema):
     turnaround_estimate_text: Optional[str] = Field(None, max_length=500)
     assumptions_text: Optional[str] = Field(None, max_length=2000)
     scope_notes: Optional[str] = Field(None, max_length=2000)
+    # Optional uploaded document reference
+    document_s3_key: Optional[str] = Field(None)
+    document_filename: Optional[str] = Field(None)
 
 
 class QuoteFileCreateRequest(BaseSchema):
@@ -42,6 +48,23 @@ class QuoteFileCreateRequest(BaseSchema):
     original_filename: str
     mime_type: str
     file_size_bytes: int
+
+
+# === Document Extraction ===
+
+class QuoteDocExtractResponse(BaseSchema):
+    """Result of LLM extraction from an uploaded quote document."""
+    s3_key: str
+    original_filename: str
+    extracted_fields: dict
+    # Pre-filled suggestions
+    rough_price_min: Optional[Decimal] = None
+    rough_price_max: Optional[Decimal] = None
+    currency: str = "USD"
+    turnaround_estimate_text: Optional[str] = None
+    assumptions_text: Optional[str] = None
+    scope_notes: Optional[str] = None
+    raw_extraction: Optional[str] = None
 
 
 # === Quote Response ===
@@ -61,6 +84,13 @@ class QuoteProviderInfo(BaseSchema):
     provider_name: str
     firm_name: str
     primary_specialty: Optional[str]
+    # Contact fields - only populated for accepted quotes
+    website: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    address: Optional[str] = None
 
 
 class QuoteResponse(ResponseSchema):
@@ -78,6 +108,9 @@ class QuoteResponse(ResponseSchema):
     scope_notes: Optional[str]
     submitted_at: Optional[datetime]
     customer_viewed_at: Optional[datetime]
+    # Document attachment (revealed to customer only on acceptance)
+    document_s3_key: Optional[str] = None
+    document_filename: Optional[str] = None
     # Customer contact info - only populated for accepted quotes (provider view)
     customer_contact_name: Optional[str] = None
     customer_company: Optional[str] = None
@@ -88,6 +121,8 @@ class QuoteForCustomerResponse(QuoteResponse):
     """Quote as seen by customer."""
     provider: QuoteProviderInfo
     files: list[QuoteFileResponse]
+    # Document download URL (only populated for accepted quotes)
+    document_download_url: Optional[str] = None
 
 
 class QuoteForProviderResponse(QuoteResponse):

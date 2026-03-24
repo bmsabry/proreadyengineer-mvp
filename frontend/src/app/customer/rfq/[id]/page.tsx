@@ -4,22 +4,22 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
-import { RFQ, Quote, QuoteAcceptResponse } from '@/types';
+import { RFQ, QuoteForCustomerResponse } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { formatDate, getRFQStatusBadgeColor, formatCurrency } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy } from 'lucide-react';
+import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy, Download } from 'lucide-react';
 
 export default function RFQDetailPage() {
   const { id } = useParams();
   const { user, isLoading: authLoading } = useRequireAuth(['customer']);
   const [rfq, setRfq] = useState<RFQ | null>(null);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [quotes, setQuotes] = useState<QuoteForCustomerResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [acceptedContact, setAcceptedContact] = useState<QuoteAcceptResponse | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [downloadingQuoteId, setDownloadingQuoteId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -36,28 +36,38 @@ export default function RFQDetailPage() {
         setIsLoading(false);
       }
     };
-
-    if (user && id) {
-      fetchData();
-    }
+    if (user && id) fetchData();
   }, [user, id]);
 
   const handleAcceptQuote = async (quoteId: string) => {
     setAcceptError(null);
     try {
-      const response = await api.quotes.accept(quoteId);
-      const contactData = response.data as QuoteAcceptResponse;
-      setAcceptedContact(contactData);
-      // Refresh RFQ and quotes data
+      await api.quotes.accept(quoteId);
       const [rfqResponse, quotesResponse] = await Promise.all([
         api.rfqs.get(id as string),
         api.quotes.getForCustomer(id as string),
       ]);
       setRfq(rfqResponse.data);
       setQuotes(quotesResponse.data);
-    } catch (error: any) {
-      console.error('Failed to accept quote:', error);
-      setAcceptError(error?.response?.data?.detail || 'Failed to accept quote. Please try again.');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setAcceptError(err?.response?.data?.detail || 'Failed to accept quote. Please try again.');
+    }
+  };
+
+  const handleDownloadQuoteDocument = async (quote: QuoteForCustomerResponse) => {
+    setDownloadingQuoteId(quote.id);
+    try {
+      if (quote.document_download_url) {
+        window.open(quote.document_download_url, '_blank');
+      } else {
+        const response = await api.quotes.getQuoteDocumentDownload(quote.id);
+        window.open(response.data.download_url, '_blank');
+      }
+    } catch (error) {
+      console.error('Failed to get document download URL:', error);
+    } finally {
+      setDownloadingQuoteId(null);
     }
   };
 
@@ -80,7 +90,8 @@ export default function RFQDetailPage() {
   }
 
   const isProviderSelected = rfq.rfq_status === 'customer_selected_provider';
-  const selectedQuote = quotes.find(q => q.quote_status === 'accepted');
+  const acceptedQuote = quotes.find(q => q.quote_status === 'accepted');
+  const acceptedProvider = acceptedQuote?.provider;
 
   return (
     <div className="container py-8">
@@ -92,14 +103,12 @@ export default function RFQDetailPage() {
               {rfq.rfq_status.replace(/_/g, ' ')}
             </Badge>
           </div>
-          <p className="text-muted-foreground">
-            Created {formatDate(rfq.created_at)}
-          </p>
+          <p className="text-muted-foreground">Created {formatDate(rfq.created_at)}</p>
         </div>
       </div>
 
-      {/* Provider Contact Card - shown when a quote is accepted */}
-      {(acceptedContact || isProviderSelected) && (
+      {/* Provider Contact Card - shown when a provider has been selected */}
+      {isProviderSelected && acceptedProvider && (
         <div className="bg-green-50 border border-green-300 rounded-lg p-6 mb-6">
           <div className="flex items-center gap-3 mb-4">
             <Trophy className="h-6 w-6 text-green-600" />
@@ -107,59 +116,72 @@ export default function RFQDetailPage() {
             <Badge className="bg-green-600 text-white">Engagement Started</Badge>
           </div>
           <p className="text-sm text-green-800 mb-4">
-            You have selected a provider. Their contact details are now revealed. Please reach out directly to begin engagement.
+            You have selected a provider. Their contact details are shown below. Please reach out directly to begin engagement.
           </p>
-          {acceptedContact && (
-            <div className="bg-white border border-green-200 rounded-md p-4">
-              <h3 className="font-semibold text-gray-900 text-lg mb-3">
-                {acceptedContact.provider_name}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {acceptedContact.provider_email && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                    <a href={'mailto:' + acceptedContact.provider_email} className="text-blue-600 hover:underline break-all">
-                      {acceptedContact.provider_email}
-                    </a>
-                  </div>
-                )}
-                {acceptedContact.provider_phone && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                    <a href={'tel:' + acceptedContact.provider_phone} className="text-blue-600 hover:underline">
-                      {acceptedContact.provider_phone}
-                    </a>
-                  </div>
-                )}
-                {acceptedContact.provider_website && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <Globe className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                    <a href={acceptedContact.provider_website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
-                      {acceptedContact.provider_website}
-                    </a>
-                  </div>
-                )}
-                {(acceptedContact.provider_city || acceptedContact.provider_state) && (
-                  <div className="flex items-center gap-2 text-sm">
-                    <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                    <span className="text-gray-700">
-                      {[acceptedContact.provider_city, acceptedContact.provider_state].filter(Boolean).join(', ')}
-                    </span>
-                  </div>
-                )}
-              </div>
-              {!acceptedContact.provider_email && !acceptedContact.provider_phone && !acceptedContact.provider_website && (
-                <p className="text-sm text-gray-500 italic">Contact information not available. A confirmation email has been sent to you and the provider.</p>
+          <div className="bg-white border border-green-200 rounded-md p-4">
+            <h3 className="font-semibold text-gray-900 text-lg mb-3">
+              {(acceptedProvider as any).firm_name || (acceptedProvider as any).provider_name || 'Selected Provider'}
+            </h3>
+            {(acceptedProvider as any).primary_specialty && (
+              <p className="text-sm text-gray-500 mb-3">{(acceptedProvider as any).primary_specialty}</p>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(acceptedProvider as any).email && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <a href={`mailto:${(acceptedProvider as any).email}`} className="text-blue-600 hover:underline break-all">
+                    {(acceptedProvider as any).email}
+                  </a>
+                </div>
+              )}
+              {(acceptedProvider as any).phone && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <a href={`tel:${(acceptedProvider as any).phone}`} className="text-blue-600 hover:underline">
+                    {(acceptedProvider as any).phone}
+                  </a>
+                </div>
+              )}
+              {(acceptedProvider as any).website && (
+                <div className="flex items-center gap-2 text-sm">
+                  <Globe className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <a href={(acceptedProvider as any).website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+                    {(acceptedProvider as any).website}
+                  </a>
+                </div>
+              )}
+              {((acceptedProvider as any).city || (acceptedProvider as any).state) && (
+                <div className="flex items-center gap-2 text-sm">
+                  <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <span className="text-gray-700">
+                    {[(acceptedProvider as any).city, (acceptedProvider as any).state].filter(Boolean).join(', ')}
+                  </span>
+                </div>
               )}
             </div>
-          )}
-          {isProviderSelected && !acceptedContact && (
-            <div className="bg-white border border-green-200 rounded-md p-4">
-              <p className="text-sm text-gray-600">Provider contact details were sent to your email when you accepted the quote.</p>
-            </div>
-          )}
+            {!(acceptedProvider as any).email && !(acceptedProvider as any).phone && !(acceptedProvider as any).website && (
+              <p className="text-sm text-gray-500 italic">Contact information not available. A confirmation email has been sent to you and the provider.</p>
+            )}
+            {acceptedQuote && (acceptedQuote.document_download_url || acceptedQuote.document_s3_key) && (
+              <div className="mt-4 pt-4 border-t border-green-100">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownloadQuoteDocument(acceptedQuote)}
+                  disabled={downloadingQuoteId === acceptedQuote.id}
+                  className="flex items-center gap-2 text-blue-600 border-blue-200 hover:bg-blue-50"
+                >
+                  <Download className="h-4 w-4" />
+                  {downloadingQuoteId === acceptedQuote.id ? 'Preparing...' : 'Download Provider Official Quote'}
+                </Button>
+                {acceptedQuote.document_filename && (
+                  <p className="text-xs text-gray-400 mt-1">{acceptedQuote.document_filename}</p>
+                )}
+              </div>
+            )}
+          </div>
           <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-            <strong>Reminder:</strong> The accepted quote was a rough, non-binding, order-of-magnitude estimate. A refined final estimate will follow direct engagement with the provider.
+            <strong>Reminder:</strong> The accepted quote was a rough, non-binding, order-of-magnitude estimate. A refined final estimate will follow direct engagement.
           </div>
         </div>
       )}
@@ -185,9 +207,7 @@ export default function RFQDetailPage() {
 
         <TabsContent value="details" className="space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Project Information</CardTitle>
-            </CardHeader>
+            <CardHeader><CardTitle>Project Information</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div>
                 <h4 className="font-medium text-sm text-muted-foreground">Description</h4>
@@ -212,9 +232,7 @@ export default function RFQDetailPage() {
             <Card>
               <CardContent className="py-8 text-center">
                 <p className="text-muted-foreground">No quotes received yet</p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  Providers are reviewing your RFQ. You will be notified when quotes arrive.
-                </p>
+                <p className="text-sm text-muted-foreground mt-2">Providers are reviewing your RFQ. You will be notified when quotes arrive.</p>
               </CardContent>
             </Card>
           ) : (
@@ -284,15 +302,32 @@ export default function RFQDetailPage() {
                       </div>
                     )}
 
+                    {/* Download provider official quote - only visible on accepted quote */}
+                    {quote.quote_status === 'accepted' && (quote.document_download_url || quote.document_s3_key) && (
+                      <div className="mb-3">
+                        <button
+                          onClick={() => handleDownloadQuoteDocument(quote)}
+                          disabled={downloadingQuoteId === quote.id}
+                          className="flex items-center gap-2 text-sm text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
+                        >
+                          <Download className="h-4 w-4" />
+                          {downloadingQuoteId === quote.id ? 'Preparing download...' : 'Download Provider Official Quote'}
+                        </button>
+                        {quote.document_filename && (
+                          <p className="text-xs text-gray-400 mt-0.5 ml-6">{quote.document_filename}</p>
+                        )}
+                      </div>
+                    )}
+
                     {!isProviderSelected && quote.quote_status === 'submitted' && (
                       <div className="mt-4 pt-4 border-t">
-                        <Button
+                        <button
                           onClick={() => handleAcceptQuote(quote.id)}
-                          className="bg-green-600 hover:bg-green-700 text-white"
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors"
                         >
-                          <CheckCircle className="h-4 w-4 mr-2" />
+                          <CheckCircle className="h-4 w-4" />
                           Accept This Quote &amp; Reveal Contact
-                        </Button>
+                        </button>
                         <p className="text-xs text-muted-foreground mt-2">
                           Accepting a quote will reveal the provider&apos;s direct contact information and mark other quotes as not selected.
                         </p>

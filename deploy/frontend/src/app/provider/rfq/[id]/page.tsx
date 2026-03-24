@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
+import { useEffect, useState, useCallback, useRef, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   Loader2, AlertCircle, CheckCircle, Download, FileText, Clock,
-  Lock, LockOpen, Building2, ShieldAlert, ArrowLeft, CalendarDays, Layers, CreditCard, Send,
+  Lock, LockOpen, Building2, ShieldAlert, ArrowLeft, CalendarDays, Layers,
+  CreditCard, Send, Upload, X, Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -149,6 +150,57 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
   const [assumptions, setAssumptions] = useState('');
   const [scopeNotes, setScopeNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Document upload state
+  const [useDocument, setUseDocument] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractedDocKey, setExtractedDocKey] = useState<string | null>(null);
+  const [extractedDocFilename, setExtractedDocFilename] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const allowed = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+    if (!allowed.includes(file.type)) {
+      toast.error('Only PDF, DOCX, or TXT files are supported.');
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File must be under 10MB.');
+      return;
+    }
+    setSelectedFile(file);
+    setExtracting(true);
+    toast.info('Extracting quote fields from document...');
+    try {
+      const result = await api.quotes.extractQuoteDocument(rfqId, file);
+      // Pre-fill form fields with extracted data
+      if (result.rough_price_min != null) setMin(String(result.rough_price_min));
+      if (result.rough_price_max != null) setMax(String(result.rough_price_max));
+      if (result.turnaround_estimate_text) setTurnaround(result.turnaround_estimate_text);
+      if (result.assumptions_text) setAssumptions(result.assumptions_text);
+      if (result.scope_notes) setScopeNotes(result.scope_notes);
+      setExtractedDocKey(result.s3_key);
+      setExtractedDocFilename(result.original_filename);
+      toast.success('Fields pre-filled from your document. Please review before submitting.');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { detail?: string } } };
+      toast.error(e?.response?.data?.detail || 'Failed to extract fields from document. Please fill in manually.');
+      setSelectedFile(null);
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const handleClearDocument = () => {
+    setSelectedFile(null);
+    setExtractedDocKey(null);
+    setExtractedDocFilename(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleSubmit = async () => {
     if (!assumptions.trim()) { toast.error('Please list your technical assumptions.'); return; }
     if (!turnaround.trim()) { toast.error('Please provide a turnaround estimate.'); return; }
@@ -160,6 +212,8 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
         turnaround_estimate_text: turnaround,
         assumptions_text: assumptions,
         scope_notes: scopeNotes || undefined,
+        document_s3_key: extractedDocKey || undefined,
+        document_filename: extractedDocFilename || undefined,
       });
       toast.success('Quote submitted successfully!');
       onSuccess();
@@ -168,11 +222,85 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
       toast.error(detail || 'Failed to submit quote.');
     } finally { setSubmitting(false); }
   };
+
   return (
     <div className="space-y-4">
       <div className="rounded-md bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
         <strong>Note:</strong> Quotes are rough, non-binding estimates. A refined final estimate follows direct engagement.
       </div>
+
+      {/* Document upload toggle */}
+      <div className="rounded-md border border-gray-200 p-4 bg-gray-50">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <Upload className="h-4 w-4 text-gray-500" />
+            <span className="text-sm font-medium text-gray-700">Upload a quote document instead of typing</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setUseDocument(!useDocument); if (useDocument) handleClearDocument(); }}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              useDocument ? 'bg-blue-600' : 'bg-gray-300'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              useDocument ? 'translate-x-4' : 'translate-x-0.5'
+            }`} />
+          </button>
+        </div>
+        <p className="text-xs text-gray-500">Upload a PDF, DOCX, or TXT file. AI will extract fields and pre-fill the form for your review.</p>
+
+        {useDocument && (
+          <div className="mt-3">
+            {!selectedFile ? (
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  id="quote-doc-upload"
+                />
+                <label
+                  htmlFor="quote-doc-upload"
+                  className="flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed border-blue-300 rounded-md cursor-pointer hover:bg-blue-50 transition-colors"
+                >
+                  {extracting ? (
+                    <><Loader2 className="h-4 w-4 animate-spin text-blue-500" /><span className="text-sm text-blue-600">Analyzing document...</span></>
+                  ) : (
+                    <><Upload className="h-4 w-4 text-blue-500" /><span className="text-sm text-blue-600">Click to select file (PDF, DOCX, TXT)</span></>
+                  )}
+                </label>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between rounded-md border border-green-200 bg-green-50 px-3 py-2">
+                <div className="flex items-center gap-2">
+                  {extracting ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                  ) : (
+                    <><Sparkles className="h-4 w-4 text-green-500" /></>
+                  )}
+                  <span className="text-sm text-gray-700 truncate max-w-[200px]">{selectedFile.name}</span>
+                  {!extracting && extractedDocKey && (
+                    <Badge className="bg-green-100 text-green-700 text-xs">Fields extracted</Badge>
+                  )}
+                </div>
+                <button type="button" onClick={handleClearDocument} className="text-gray-400 hover:text-gray-600">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+            {extractedDocKey && (
+              <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                <CheckCircle className="h-3 w-3" />
+                Document saved. It will be shared with the customer only if your quote is accepted.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="qmin">Min Estimate (USD)</Label>
@@ -196,7 +324,7 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
         <Label htmlFor="scope">Additional Scope Notes</Label>
         <Textarea id="scope" placeholder="Optional: scope clarifications or exclusions..." rows={3} value={scopeNotes} onChange={(e) => setScopeNotes(e.target.value)}/>
       </div>
-      <Button onClick={handleSubmit} disabled={submitting} size="lg" className="w-full bg-green-600 hover:bg-green-700 text-white">
+      <Button onClick={handleSubmit} disabled={submitting || extracting} size="lg" className="w-full bg-green-600 hover:bg-green-700 text-white">
         {submitting ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Submitting...</> : <><Send className="h-4 w-4 mr-2"/>Submit Quote</>}
       </Button>
     </div>
@@ -246,43 +374,41 @@ function ProviderRFQPageInner() {
   useEffect(() => {
     const result = searchParams.get('payment');
     if (result === 'success') {
-      // Verify payment with Stripe and create RFQUnlock (fulfillment-on-redirect pattern)
       toast.info('Verifying payment...');
       api.providerRFQ.verifyPayment(rfqId)
         .then((res) => {
-          const data = res.data as any;
+          const data = res.data as { unlocked?: boolean; reason?: string };
           if (data?.unlocked) {
             toast.success('Payment confirmed! Project files are now unlocked.');
-            loadStatus(); // Re-fetch status which will now show unlocked
+            loadStatus();
           } else {
             toast.error(data?.reason || 'Payment verification pending. Please refresh in a moment.');
-            // Try loading status anyway in case webhook already processed it
             loadStatus();
           }
         })
-        .catch((err: any) => {
-          const serverMsg = err?.response?.data?.reason || err?.response?.data?.detail || err?.message || 'Unknown error';
-          const statusCode = err?.response?.status || 'network';
+        .catch((err: unknown) => {
+          const e = err as { response?: { status?: number; data?: { reason?: string; detail?: string } }; message?: string };
+          const serverMsg = e?.response?.data?.reason || e?.response?.data?.detail || e?.message || 'Unknown error';
+          const statusCode = e?.response?.status || 'network';
           toast.error(`Payment verification failed (${statusCode}): ${serverMsg}`);
-          console.error('verify-payment error:', { status: statusCode, data: err?.response?.data, message: err?.message });
-          loadStatus(); // Fallback: try loading status in case webhook handled it
+          loadStatus();
         });
     }
     if (result === 'cancelled') toast.info('Payment cancelled. You can unlock anytime.');
   }, [searchParams, rfqId, loadStatus]);
+
   useEffect(() => { if (status?.unlocked) loadFiles(); }, [status?.unlocked, loadFiles]);
 
   const handleUnlock = async () => {
     setCheckingOut(true);
     try {
       const res = await api.providerRFQ.unlockCheckout(rfqId);
-      const data = res.data as any;
+      const data = res.data as { already_paid?: boolean; checkout_url?: string; url?: string };
       if (data?.already_paid) {
-        // Payment already completed - verify and unlock
         toast.info('Payment already on file. Verifying access...');
         try {
           const vRes = await api.providerRFQ.verifyPayment(rfqId);
-          const vData = vRes.data as any;
+          const vData = vRes.data as { unlocked?: boolean };
           if (vData?.unlocked) {
             toast.success('Access granted! Loading project files...');
             loadStatus();
@@ -291,7 +417,7 @@ function ProviderRFQPageInner() {
             loadStatus();
           }
         } catch {
-          loadStatus(); // fallback - just reload status
+          loadStatus();
         }
         setCheckingOut(false);
         return;
@@ -306,20 +432,20 @@ function ProviderRFQPageInner() {
     } catch (e: unknown) {
       const err = e as { response?: { status?: number; data?: { detail?: string } }; message?: string };
       if (!err.response) {
-        // Network error - no response at all (CORS or connection issue)
         toast.error('Cannot connect to server. Please refresh and try again.');
-        console.error('Network error in unlockCheckout:', err.message);
       } else {
         const detail = err.response?.data?.detail;
         toast.error(detail || `Server error (${err.response?.status}). Please try again.`);
-        console.error('unlockCheckout error:', err.response?.status, detail);
       }
     } finally { setCheckingOut(false); }
   };
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center">
-      <div className="text-center"><Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto mb-3"/><p className="text-gray-500">Loading project details...</p></div>
+      <div className="text-center">
+        <Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto mb-3"/>
+        <p className="text-gray-500">Loading project details...</p>
+      </div>
     </div>
   );
 
@@ -329,7 +455,9 @@ function ProviderRFQPageInner() {
         <CardContent className="pt-6 text-center">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-3"/>
           <p className="text-gray-700 mb-4">{error}</p>
-          <Button variant="outline" onClick={() => router.push('/provider/dashboard')}><ArrowLeft className="h-4 w-4 mr-2"/>Back to Dashboard</Button>
+          <Button variant="outline" onClick={() => router.push('/provider/dashboard')}>
+            <ArrowLeft className="h-4 w-4 mr-2"/>Back to Dashboard
+          </Button>
         </CardContent>
       </Card>
     </div>
@@ -337,14 +465,15 @@ function ProviderRFQPageInner() {
 
   if (!status) return null;
 
-  // No dispatch record - provider stumbled on this URL
   if (status.has_membership && status.has_dispatch === false) return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="max-w-md w-full">
         <CardContent className="pt-6 text-center">
           <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-3"/>
           <p className="text-gray-700 mb-4">This project is not in your invitation list.</p>
-          <Button variant="outline" onClick={() => router.push('/provider/dashboard')}><ArrowLeft className="h-4 w-4 mr-2"/>Back to Dashboard</Button>
+          <Button variant="outline" onClick={() => router.push('/provider/dashboard')}>
+            <ArrowLeft className="h-4 w-4 mr-2"/>Back to Dashboard
+          </Button>
         </CardContent>
       </Card>
     </div>
@@ -353,9 +482,10 @@ function ProviderRFQPageInner() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-3xl mx-auto px-4 py-8">
-        {/* Header */}
         <div className="flex items-center gap-3 mb-6">
-          <Button variant="ghost" size="sm" onClick={() => router.push('/provider/dashboard')} className="text-gray-500 hover:text-gray-700"><ArrowLeft className="h-4 w-4 mr-1"/>Dashboard</Button>
+          <Button variant="ghost" size="sm" onClick={() => router.push('/provider/dashboard')} className="text-gray-500 hover:text-gray-700">
+            <ArrowLeft className="h-4 w-4 mr-1"/>Dashboard
+          </Button>
           <div className="h-4 w-px bg-gray-300" />
           <h1 className="text-xl font-semibold text-gray-900">Project Invitation</h1>
           {status.unlocked
@@ -365,33 +495,49 @@ function ProviderRFQPageInner() {
         </div>
 
         <div className="space-y-6">
-          {/* Always show teaser info */}
           <TeaserInfoPanel status={status} />
 
-          {/* Lock / Unlock section */}
           {!status.unlocked && (
             <LockedCard status={status} onUnlock={handleUnlock} checkingOut={checkingOut} />
           )}
 
-          {/* Unlocked: full description + files + quote form */}
           {status.unlocked && (
             <>
               {status.project_description && (
                 <Card>
-                  <CardHeader><CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5 text-blue-600"/>Full Project Description</CardTitle></CardHeader>
-                  <CardContent><p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{status.project_description}</p></CardContent>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-blue-600"/>Full Project Description
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{status.project_description}</p>
+                  </CardContent>
                 </Card>
               )}
 
               <Card>
-                <CardHeader><CardTitle className="flex items-center gap-2"><Download className="h-5 w-5 text-blue-600"/>Project Files</CardTitle></CardHeader>
-                <CardContent><FilesSection files={files} loading={filesLoading} /></CardContent>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Download className="h-5 w-5 text-blue-600"/>Project Files
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <FilesSection files={files} loading={filesLoading} />
+                </CardContent>
               </Card>
 
               {!quoteSubmitted ? (
                 <Card>
-                  <CardHeader><CardTitle className="flex items-center gap-2"><Send className="h-5 w-5 text-green-600"/>Submit Your Quote</CardTitle><CardDescription>Only the first 5 quotes are shown to the customer. Submit early.</CardDescription></CardHeader>
-                  <CardContent><QuoteForm rfqId={rfqId} onSuccess={() => setQuoteSubmitted(true)} /></CardContent>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Send className="h-5 w-5 text-green-600"/>Submit Your Quote
+                    </CardTitle>
+                    <CardDescription>Only the first 5 quotes are shown to the customer. Submit early.</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <QuoteForm rfqId={rfqId} onSuccess={() => setQuoteSubmitted(true)} />
+                  </CardContent>
                 </Card>
               ) : (
                 <Card className="border-green-200 bg-green-50">
@@ -412,7 +558,11 @@ function ProviderRFQPageInner() {
 
 export default function ProviderRFQPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Loader2 className="h-8 w-8 animate-spin text-blue-600"/></div>}>
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600"/>
+      </div>
+    }>
       <ProviderRFQPageInner />
     </Suspense>
   );
