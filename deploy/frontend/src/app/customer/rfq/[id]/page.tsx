@@ -14,12 +14,13 @@ import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Troph
 
 export default function RFQDetailPage() {
   const { id } = useParams();
-  const { user, isLoading: authLoading } = useRequireAuth(['customer']);
+  const { user, isLoading: authLoading } = useRequireAuth(['customer', 'admin']);
   const [rfq, setRfq] = useState<RFQ | null>(null);
   const [quotes, setQuotes] = useState<QuoteForCustomerResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [downloadingQuoteId, setDownloadingQuoteId] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -30,8 +31,19 @@ export default function RFQDetailPage() {
         ]);
         setRfq(rfqResponse.data);
         setQuotes(quotesResponse.data);
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Failed to fetch RFQ data:', error);
+        const err = error as { response?: { status?: number; data?: { detail?: string } } };
+        const httpStatus = err?.response?.status;
+        if (httpStatus === 404) {
+          setFetchError('This RFQ was not found. The link may be incorrect.');
+        } else if (httpStatus === 403) {
+          setFetchError('You do not have permission to view this RFQ.');
+        } else if (httpStatus === 401) {
+          setFetchError('Your session has expired. Please log in again.');
+        } else {
+          setFetchError('Failed to load RFQ details. Please try again.');
+        }
       } finally {
         setIsLoading(false);
       }
@@ -84,7 +96,15 @@ export default function RFQDetailPage() {
   if (!rfq) {
     return (
       <div className="container py-8">
-        <p className="text-center text-muted-foreground">RFQ not found</p>
+        <div className="flex flex-col items-center justify-center h-64 text-center">
+          <p className="text-red-600 font-medium text-lg mb-2">Unable to Load RFQ</p>
+          <p className="text-muted-foreground text-sm max-w-md">
+            {fetchError || 'RFQ not found. Please check the link or return to your dashboard.'}
+          </p>
+          <a href="/customer/dashboard" className="mt-4 text-blue-600 hover:underline text-sm">
+            ← Back to Dashboard
+          </a>
+        </div>
       </div>
     );
   }
