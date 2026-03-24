@@ -26,7 +26,14 @@ async def create_rfq_endpoint(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Create a new RFQ (anonymous or authenticated)."""
+    from sqlalchemy.orm import selectinload
+    from app.models.rfq import RFQ as _RFQ
     rfq = await create_rfq(db, data, current_user)
+    # Re-fetch with eager-loaded files to prevent MissingGreenlet in async context
+    result = await db.execute(
+        select(_RFQ).options(selectinload(_RFQ.files)).where(_RFQ.id == rfq.id)
+    )
+    rfq = result.scalar_one()
     return RFQResponse.from_orm(rfq)
 
 
