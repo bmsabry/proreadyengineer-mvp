@@ -96,13 +96,39 @@ async def extract_quote_document(
             from openai import AsyncOpenAI
             client = AsyncOpenAI(api_key=llm_api_key, base_url=llm_api_base)
             system_prompt = (
-                "You are an engineering quote parser. Extract structured information from the provided document. "
-                "Return a JSON object with these exact keys (use null for missing values): "
-                "rough_price_min (number or null), rough_price_max (number or null), "
-                "currency (3-letter code, default USD), "
-                "turnaround_estimate_text (string max 200 chars or null), "
-                "assumptions_text (key assumptions max 1000 chars or null), "
-                "scope_notes (scope of work max 1000 chars or null). "
+                "You are an expert engineering quote analyst specializing in engineering services procurement. "
+                "Parse the provided quote document and extract structured information. "
+                "Return ONLY valid JSON with these exact keys (use null for missing values, never omit keys).
+"
+                "
+"
+                "Field extraction rules:
+"
+                "- rough_price_min: Minimum or lower-bound price as a plain number (no symbols). "
+                "If document has a single total price, use that value for both min and max. "
+                "Look for: Total, Subtotal, Grand Total, Estimate, Budget, Price, Cost.
+"
+                "- rough_price_max: Maximum or upper-bound price. Same source as min if single price.
+"
+                "- currency: ISO 4217 3-letter code (e.g. USD, EUR, CAD). Default USD if not stated.
+"
+                "- turnaround_estimate_text: Max 200 chars. Look for Lead Time, Delivery Schedule, "
+                "Completion Date, Timeline, Weeks/Months from PO, ETA. Quote the text directly.
+"
+                "- assumptions_text: Max 1000 chars, formatted as bullet points starting with "- ". "
+                "FIRST look for an explicit Assumptions or Basis of Design section. "
+                "If none exists, INFER implicit assumptions from: technical standards referenced "
+                "(ASME, AISC, ISA, API, IEC, ANSI, AWS, NEMA, IEEE, etc.), material or component specifications, "
+                "environmental or site conditions implied, scope exclusions or boundaries stated, "
+                "payment or schedule conditions, any clauses beginning with 'subject to', "
+                "'based on', 'assumes', 'provided that', or 'per customer'. "
+                "Always populate this field if engineering or technical context exists in the document.
+"
+                "- scope_notes: Max 1000 chars. Look for Scope of Work, Deliverables, Line Items, "
+                "Services Included, Description of Work. List key deliverables and any explicit exclusions.
+"
+                "
+"
                 "Return only valid JSON. No markdown, no explanation."
             )
             response = await client.chat.completions.create(
