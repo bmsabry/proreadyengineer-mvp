@@ -387,6 +387,279 @@ async def dispatch_next_batch(
 
 
 
+
+
+async def get_rfq_matches(
+    db: AsyncSession,
+    rfq_id: uuid.UUID,
+) -> list[RFQMatch]:
+    """Get all matches for an RFQ.
+
+    Args:
+        db: Database session.
+        rfq_id: RFQ UUID.
+
+    Returns:
+        list[RFQMatch]: Ordered list of matches.
+    """
+    result = await db.execute(
+        select(RFQMatch)
+        .where(RFQMatch.rfq_id == rfq_id)
+        .order_by(RFQMatch.rank_position)
+    )
+    return list(result.scalars().all())
+
+
+async def unlock_rfq(
+    db: AsyncSession,
+    rfq_id: uuid.UUID,
+    provider_id: int,
+    user: User,
+) -> RFQUnlock:
+    """Unlock RFQ for a provider with concurrency-safe logic.
+
+    CRITICAL: Uses SELECT FOR UPDATE to prevent race conditions.
+
+    Args:
+        db: Database session.
+        rfq_id: RFQ UUID.
+        provider_id: Provider ID.
+        user: Provider user requesting unlock.
+
+    Returns:
+        RFQUnlock: Created unlock record.
+
+    Raises:
+        ValueError: If RFQ closed, quota reached, or already unlocked.
+        PermissionError: If user not authorized for provider.
+    """
+    from sqlalchemy import text
+
+    # Verify user has membership with provider
+    membership_result = await db.execute(
+        select(ProviderMembership).where(
+            ProviderMembership.provider_id == provider_id,
+            ProviderMembership.user_id == user.id,
+            ProviderMembership.status == "active",
+        )
+    )
+    if not membership_result.scalar_one_or_none():
+        raise PermissionError("User not authorized for this provider")
+
+    # Lock the RFQ row to prevent concurrent modifications
+    # Using raw SQL for SELECT FOR UPDATE
+    lock_result = await db.execute(
+        text("SELECT * FROM rfqs WHERE id = :rfq_id FOR UPDATE"),
+        {"rfq_id": str(rfq_id)},
+    )
+    rfq_row = lock_result.fetchone()
+
+    if not rfq_row:
+        raise ValueError("RFQ not found")
+
+    # Re-check conditions after acquiring lock
+    if rfq_row.is_closed:
+        raise ValueError("RFQ is closed")
+
+    from sqlalchemy import func as _func
+    from app.models.quote import Quote as _QuoteModel
+    _sq_res = await db.execute(
+        select(_func.count()).select_from(_QuoteModel).where(
+            _QuoteModel.rfq_id == rfq_id,
+            _QuoteModel.quote_status.in_(["submitted", "accepted"])
+        )
+    )
+    if (_sq_res.scalar() or 0) >= settings.RFQ_MAX_QUOTES:
+        raise ValueError("Quote limit reached")
+
+    # Check for existing unlock
+    existing_result = await db.execute(
+        select(RFQUnlock).where(
+            RFQUnlock.rfq_id == rfq_id,
+            RFQUnlock.provider_id == provider_id,
+            RFQUnlock.unlock_status.in_([UnlockStatus.UNLOCKED, UnlockStatus.PAYMENT_PENDING]),
+        )
+    )
+    if existing_result.scalar_one_or_none():
+        raise ValueError("RFQ already unlocked for this provider")
+
+    # Create unlock record
+    unlock = RFQUnlock(
+        rfq_id=rfq_id,
+        provider_id=provider_id,
+        unlocked_by_user_id=user.id,
+        unlock_status=UnlockStatus.PAYMENT_PENDING,
+    )
+    db.add(unlock)
+
+    await db.commit()
+    await db.refresh(unlock)
+
+    return unlock
+
+
+async def complete_rfq_unlock(
+    db: AsyncSession,
+    unlock_id: uuid.UUID,
+) -> RFQUnlock:
+    """Complete unlock after payment verification.
+
+    Called by payment webhook handler.
+
+    Args:
+        db: Database session.
+        unlock_id: Unlock record UUID.
+
+    Returns:
+        RFQUnlock: Updated unlock record.
+    """
+    unlock = await db.get(RFQUnlock, unlock_id)
+    if not unlock:
+        raise ValueError("Unlock record not found")
+
+    if unlock.unlock_status != UnlockStatus.PAYMENT_PENDING:
+        raise ValueError("Unlock not in payment pending state")
+
+    # Lock RFQ and increment quote_count
+    from sqlalchemy import text
+    await db.execute(
+        text("SELECT * FROM rfqs WHERE id = :rfq_id FOR UPDATE"),
+        {"rfq_id": str(unlock.rfq_id)},
+    )
+
+    # Re-verify conditions
+    rfq = await db.get(RFQ, unlock.rfq_id)
+    if not rfq or rfq.is_closed:
+        raise ValueError("RFQ is closed or no longer available")
+
+    from sqlalchemy import func as _func2
+    from app.models.quote import Quote as _QuoteModel2
+    _sq_res2 = await db.execute(
+        select(_func2.count()).select_from(_QuoteModel2).where(
+            _QuoteModel2.rfq_id == unlock.rfq_id,
+            _QuoteModel2.quote_status.in_(["submitted", "accepted"])
+        )
+    )
+    if (_sq_res2.scalar() or 0) >= settings.RFQ_MAX_QUOTES:
+        raise ValueError("Quote limit reached - unlock cannot be completed")
+
+    # Update unlock
+    unlock.unlock_status = UnlockStatus.UNLOCKED
+    unlock.unlocked_at = datetime.utcnow()
+
+    await db.commit()
+    await db.refresh(unlock)
+
+    return unlock
+
+
+async def can_submit_quote(
+    db: AsyncSession,
+    rfq_id: uuid.UUID,
+    provider_id: int,
+) -> tuple[bool, str]:
+    """Check if provider can submit a quote for this RFQ.
+
+    Args:
+        db: Database session.
+        rfq_id: RFQ UUID.
+        provider_id: Provider ID.
+
+    Returns:
+        tuple[bool, str]: (can_submit, reason).
+    """
+    rfq = await db.get(RFQ, rfq_id)
+    if not rfq:
+        return False, "RFQ not found"
+
+    if rfq.is_closed:
+        return False, "RFQ is closed"
+
+    # Use live SQL count instead of stale rfq.quote_count to prevent false rejections
+    from sqlalchemy import func as _csq_func
+    _live_count_res = await db.execute(
+        select(_csq_func.count()).select_from(Quote).where(
+            Quote.rfq_id == rfq_id,
+            Quote.quote_status.in_([QuoteStatus.SUBMITTED, QuoteStatus.ACCEPTED]),
+        )
+    )
+    _live_quote_count = _live_count_res.scalar() or 0
+    if _live_quote_count >= settings.RFQ_MAX_QUOTES:
+        return False, "Quote limit reached"
+
+    # Check for valid unlock
+    unlock_result = await db.execute(
+        select(RFQUnlock).where(
+            RFQUnlock.rfq_id == rfq_id,
+            RFQUnlock.provider_id == provider_id,
+            RFQUnlock.unlock_status == UnlockStatus.UNLOCKED,
+        )
+    )
+    unlock = unlock_result.scalar_one_or_none()
+    if not unlock:
+        return False, "RFQ not unlocked for this provider"
+
+    # Check if already submitted a quote
+    existing_result = await db.execute(
+        select(Quote).where(
+            Quote.rfq_id == rfq_id,
+            Quote.provider_id == provider_id,
+            Quote.quote_status.in_([QuoteStatus.SUBMITTED, QuoteStatus.ACCEPTED]),
+        )
+    )
+    if existing_result.scalar_one_or_none():
+        return False, "Quote already submitted"
+
+    return True, "OK"
+
+
+async def submit_quote(
+    db: AsyncSession,
+    data: QuoteCreateRequest,
+    rfq_id: uuid.UUID,
+    provider_id: int,
+    user: User,
+) -> Quote:
+    """Submit a quote for an RFQ.
+
+    Args:
+        db: Database session.
+        data: Quote data.
+        rfq_id: RFQ UUID.
+        provider_id: Provider ID.
+        user: Submitting user.
+
+    Returns:
+        Quote: Created quote record.
+
+    Raises:
+        ValueError: If submission not allowed.
+    """
+    can_submit, reason = await can_submit_quote(db, rfq_id, provider_id)
+    if not can_submit:
+        raise ValueError(f"Cannot submit quote: {reason}")
+
+    quote = Quote(
+        rfq_id=rfq_id,
+        provider_id=provider_id,
+        submitter_user_id=user.id,
+        quote_status=QuoteStatus.SUBMITTED,
+        rough_price_min=data.rough_price_min,
+        rough_price_max=data.rough_price_max,
+        currency=data.currency,
+        turnaround_estimate_text=data.turnaround_estimate_text,
+        assumptions_text=data.assumptions_text,
+        scope_notes=data.scope_notes,
+        submitted_at=datetime.now(timezone.utc),
+    )
+
+    db.add(quote)
+    await db.commit()
+    await db.refresh(quote)
+
+    return quote
+
+
 async def accept_quote(
     db: AsyncSession,
     quote_id: uuid.UUID,
