@@ -1739,7 +1739,7 @@ async def admin_debug_test_nda(
     # - "template_fields" for pre-filling text values
     payload = {
         "template_id": tid,
-        "test_mode": True,
+        "test_mode": False,
         "subject": f"[TEST] ProMechDirectory NDA - {data.customer_name} & {data.provider_name}",
         "message": (
             "This is a test NDA document to verify the document signing "
