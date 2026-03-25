@@ -63,8 +63,9 @@ async def cron_dispatch_rfq_batches(
     """
     from app.models.rfq import RFQ, RfqStatus, RFQDispatchBatch
     from app.services.rfq_service import dispatch_next_batch
-    from app.services.config_service import _get_runtime_config
+    from app.services.config_service import get_runtime_config as _get_runtime_config
     from app.core.config import settings
+    from app.db.session import AsyncSessionLocal
 
     try:
         cfg = await _get_runtime_config(db)
@@ -136,7 +137,8 @@ async def cron_dispatch_rfq_batches(
 
         if should_dispatch:
             try:
-                dispatched = await dispatch_next_batch(db, rfq.id)
+                async with AsyncSessionLocal() as fresh_db:
+                    dispatched = await dispatch_next_batch(fresh_db, rfq.id)
                 dispatched_rfqs.append({
                     "rfq_id": str(rfq.id),
                     "providers_emailed": len(dispatched),

@@ -199,6 +199,40 @@ async def dispatch_next_batch(
             await db.commit()
         return []
 
+    # ----------------------------------------------------------------
+    # INTERVAL GUARD: self-protecting rate-limit inside the function.
+    # Prevents re-dispatch if last batch was within the configured
+    # interval, regardless of which caller triggered this function.
+    # This is belt-and-suspenders on top of scheduler interval checks.
+    # ----------------------------------------------------------------
+    try:
+        _cfg = await _get_runtime_config(db)
+        _interval_hours = float(_cfg.get('RFQ_BATCH_INTERVAL_HOURS', settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS))
+    except Exception:
+        _interval_hours = float(settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS)
+
+    if _interval_hours > 0:
+        _last_batch_res = await db.execute(
+            select(RFQDispatchBatch)
+            .where(RFQDispatchBatch.rfq_id == rfq_id)
+            .order_by(RFQDispatchBatch.batch_number.desc())
+            .limit(1)
+        )
+        _last_batch = _last_batch_res.scalar_one_or_none()
+        if _last_batch is not None and _last_batch.dispatched_at is not None:
+            _ld = _last_batch.dispatched_at
+            if _ld.tzinfo is None:
+                _ld = _ld.replace(tzinfo=timezone.utc)
+            _elapsed = datetime.now(timezone.utc) - _ld
+            _interval_delta = timedelta(hours=_interval_hours)
+            if _elapsed < _interval_delta:
+                _remaining_min = (_interval_delta - _elapsed).total_seconds() / 60
+                logger.info(
+                    "dispatch_next_batch: rfq=%s interval guard - %.1f min remaining, skipping",
+                    rfq_id, _remaining_min,
+                )
+                return []
+
     # Read batch size from admin config (default 5)
     try:
         cfg = await _get_runtime_config(db)
