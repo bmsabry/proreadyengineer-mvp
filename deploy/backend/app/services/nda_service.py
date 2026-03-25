@@ -219,10 +219,10 @@ async def create_customer_nda(
     last  = (customer_user.last_name  or "").strip()
     customer_name    = f"{first} {last}".strip() or customer_user.email
     customer_company = getattr(rfq, "business_name", None) or customer_name
-    effective_date   = _human_date(datetime.utcnow())
+    from datetime import date as _date; effective_date = _date.today().strftime("%m/%d/%Y")
 
     # Fetch actual placeholder names from template (must match exactly)
-    customer_placeholder_name, _provider_placeholder_name = await _fetch_template_placeholder_ids(db)
+    customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
     # Build ALL 12 template_fields. Provider fields use placeholder values
     # because the provider has not been assigned yet at customer NDA creation time.
@@ -247,12 +247,20 @@ async def create_customer_nda(
         "test_mode": False,
         "subject": f"NDA for Engineering RFQ #{rfq_id}",
         "message": "Please review and sign the Non-Disclosure Agreement to proceed with your RFQ.",
-        "recipients": [{
-            "id":               "1",
-            "name":             customer_name,
-            "email":            customer_user.email,
-            "placeholder_name": customer_placeholder_name,
-        }],
+        "recipients": [
+            {
+                "id":               "1",
+                "name":             customer_name,
+                "email":            customer_user.email,
+                "placeholder_name": customer_placeholder_name,
+            },
+            {
+                "id":               "2",
+                "name":             "TBD Provider",
+                "email":            "nda-provider@proreadyengineer.com",
+                "placeholder_name": provider_placeholder_name,
+            },
+        ],
         "template_fields": template_fields,
     }
 
