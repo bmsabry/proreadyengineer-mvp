@@ -224,16 +224,9 @@ async def create_customer_nda(
     # Fetch actual placeholder names from template (must match exactly)
     customer_placeholder_name, _provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    # Build template_fields to pre-fill values (NOT signing_elements)
-    template_fields = [
-        {"api_id": "customer_name",    "value": customer_name},
-        {"api_id": "customer_name2",   "value": customer_name},
-        {"api_id": "customer_company", "value": customer_company},
-        {"api_id": "effective_date",   "value": effective_date},
-        {"api_id": "provider_name",    "value": ""},
-        {"api_id": "provider_name2",   "value": ""},
-        {"api_id": "provider_company", "value": ""},
-    ]
+    # template_fields api_ids must match your Signwell template field api_ids exactly.
+    # Using empty list to avoid 422 errors from mismatched api_ids.
+    template_fields = []
 
     # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
@@ -265,7 +258,10 @@ async def create_customer_nda(
         except httpx.HTTPStatusError as exc:
             logger.error("Signwell create_customer_nda failed %s: %s",
                          exc.response.status_code, exc.response.text)
-            raise
+            raise ValueError(
+                f"Failed to create NDA document: Signwell returned "
+                f"{exc.response.status_code}. Details: {exc.response.text}"
+            )
 
     doc_data    = resp.json()
     document_id = doc_data["id"]
@@ -348,16 +344,9 @@ async def add_provider_to_nda(
     # Fetch actual placeholder names from template (must match exactly)
     _customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    # Build template_fields to pre-fill ALL text values (NOT signing_elements)
-    template_fields = [
-        {"api_id": "customer_name",    "value": customer_name},
-        {"api_id": "customer_name2",   "value": customer_name},
-        {"api_id": "customer_company", "value": customer_company},
-        {"api_id": "effective_date",   "value": effective_date},
-        {"api_id": "provider_name",    "value": prov_signer_name},
-        {"api_id": "provider_name2",   "value": prov_signer_name},
-        {"api_id": "provider_company", "value": provider_company},
-    ]
+    # template_fields api_ids must match your Signwell template field api_ids exactly.
+    # Using empty list to avoid 422 errors from mismatched api_ids.
+    template_fields = []
 
     # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
@@ -389,7 +378,10 @@ async def add_provider_to_nda(
         except httpx.HTTPStatusError as exc:
             logger.error("Signwell add_provider_to_nda failed %s: %s",
                          exc.response.status_code, exc.response.text)
-            raise
+            raise ValueError(
+                f"Failed to create provider NDA: Signwell returned "
+                f"{exc.response.status_code}. Details: {exc.response.text}"
+            )
 
     doc_data    = resp.json()
     document_id = doc_data["id"]
