@@ -924,7 +924,20 @@ async def nda_initiate(
             "message": "Existing NDA document found",
         }
 
-    result = await create_customer_nda(rfq_id, current_user, db)
+    try:
+        result = await create_customer_nda(rfq_id, current_user, rfq, db)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        import logging as _log2
+        _log2.getLogger(__name__).error("create_customer_nda failed rfq=%s: %s", rfq_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create NDA document: {str(exc)}",
+        )
 
     # Update RFQ status from awaiting_nda_payment -> awaiting_customer_signature
     if current_rfq_status == "awaiting_nda_payment":
