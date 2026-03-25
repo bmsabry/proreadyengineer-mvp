@@ -224,11 +224,6 @@ async def create_customer_nda(
     # Fetch actual placeholder names from template (must match exactly)
     customer_placeholder_name, _provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    # template_fields api_ids must match your Signwell template field api_ids exactly.
-    # Using empty list to avoid 422 errors from mismatched api_ids.
-    template_fields = []
-
-    # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
             "template_id": tid,
         "test_mode": False,
@@ -242,7 +237,6 @@ async def create_customer_nda(
             "send_email":       False,
             "embedded_signing": True,
         }],
-        "template_fields": template_fields,
     }
 
     logger.info("[SIGNWELL] create_customer_nda payload: %s", json.dumps(payload, default=str)[:1000])
@@ -344,11 +338,6 @@ async def add_provider_to_nda(
     # Fetch actual placeholder names from template (must match exactly)
     _customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    # template_fields api_ids must match your Signwell template field api_ids exactly.
-    # Using empty list to avoid 422 errors from mismatched api_ids.
-    template_fields = []
-
-    # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
             "template_id": tid,
         "test_mode":   False,
@@ -362,7 +351,6 @@ async def add_provider_to_nda(
             "send_email":       False,
             "embedded_signing": True,
         }],
-        "template_fields": template_fields,
     }
 
     logger.info("[SIGNWELL] add_provider_to_nda payload: %s", json.dumps(payload, default=str)[:1000])
