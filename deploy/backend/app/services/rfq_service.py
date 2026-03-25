@@ -172,7 +172,17 @@ async def dispatch_next_batch(
         rfq_id = uuid.UUID(rfq_id)
 
     rfq = await db.get(RFQ, rfq_id)
-    if not rfq or rfq.is_closed or rfq.quote_count >= settings.RFQ_MAX_QUOTES:
+    if not rfq:
+        return []
+    if rfq.is_closed:
+        return []
+    if rfq.quote_count >= settings.RFQ_MAX_QUOTES:
+        # FIX: Close RFQ when quote limit is reached, in case it slipped through
+        if not rfq.is_closed:
+            rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED
+            rfq.is_closed = True
+            rfq.closed_at = datetime.utcnow()
+            await db.commit()
         return []
 
     # Read batch size from admin config (default 5)
@@ -240,6 +250,17 @@ async def dispatch_next_batch(
             elif isinstance(emails, str) and emails:
                 email_target = emails
 
+        # FIX: Idempotency - skip if provider was already dispatched for this RFQ
+        existing_chk = await db.execute(
+            select(RFQDispatch).where(
+                RFQDispatch.rfq_id == rfq_id,
+                RFQDispatch.provider_id == match.provider_id,
+            ).limit(1)
+        )
+        if existing_chk.scalars().first() is not None:
+            match.is_dispatched = True
+            continue
+
         dispatch = RFQDispatch(
             rfq_id=rfq_id,
             provider_id=match.provider_id,
@@ -286,6 +307,28 @@ async def dispatch_next_batch(
 
     rfq.rfq_status = RfqStatus.OPEN_FOR_UNLOCK
     await db.commit()
+
+    # FIX: Close RFQ immediately if no more undispatched matches remain
+    remaining_result = await db.execute(
+        select(func.count()).where(
+            RFQMatch.rfq_id == rfq_id,
+            RFQMatch.is_dispatched == False,
+        )
+    )
+    remaining_count = remaining_result.scalar() or 0
+    if remaining_count == 0:
+        # All firms have been contacted - close the RFQ dispatch
+        await db.refresh(rfq)
+        if not rfq.is_closed:
+            rfq.rfq_status = RfqStatus.CLOSED_NO_SELECTION
+            rfq.is_closed = True
+            rfq.closed_at = datetime.utcnow()
+            await db.commit()
+            logger.info(
+                "dispatch_next_batch: all %d matches dispatched for RFQ %s, closing.",
+                batch_size, rfq_id,
+            )
+
     return dispatched
 
 
