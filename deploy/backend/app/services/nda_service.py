@@ -224,16 +224,21 @@ async def create_customer_nda(
     # Fetch actual placeholder names from template (must match exactly)
     customer_placeholder_name, _provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    # Build template_fields to pre-fill customer-side values ONLY.
-    # Do NOT include provider fields here - provider has not been assigned yet.
-    # Sending empty provider fields causes Signwell 422 validation errors.
+    # Build ALL 12 template_fields. Provider fields use placeholder values
+    # because the provider has not been assigned yet at customer NDA creation time.
     template_fields = [
         {"api_id": "customer_name",        "value": customer_name},
         {"api_id": "customer_name2",       "value": customer_name},
         {"api_id": "customer_company",     "value": customer_company},
         {"api_id": "customer_entity_type", "value": "Individual"},
+        {"api_id": "provider_name",        "value": "TBD Provider"},
+        {"api_id": "provider_name2",       "value": "TBD Provider"},
+        {"api_id": "provider_company",     "value": "ProMechDirectory"},
+        {"api_id": "provider_entity_type", "value": "Company"},
         {"api_id": "effective_date",       "value": effective_date},
         {"api_id": "governing_state",      "value": "Ohio"},
+        {"api_id": "customer_signature",   "value": ""},
+        {"api_id": "provider_signature",   "value": ""},
     ]
 
     # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
@@ -247,8 +252,6 @@ async def create_customer_nda(
             "name":             customer_name,
             "email":            customer_user.email,
             "placeholder_name": customer_placeholder_name,
-            "send_email":       False,
-            "embedded_signing": True,
         }],
         "template_fields": template_fields,
     }
@@ -372,8 +375,6 @@ async def add_provider_to_nda(
             "name":             prov_signer_name,
             "email":            provider_user.email,
             "placeholder_name": provider_placeholder_name,
-            "send_email":       False,
-            "embedded_signing": True,
         }],
         "template_fields": template_fields,
     }
