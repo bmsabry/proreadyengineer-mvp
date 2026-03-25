@@ -1848,19 +1848,23 @@ async def admin_debug_test_nda_status(
         }
 
     doc_status = doc.get("status", "unknown")
-    signers = (doc.get("signees") or doc.get("signers") or [])
+    signers = (doc.get("recipients") or doc.get("signees") or doc.get("signers") or [])
     customer_signed, customer_signed_at = False, None
     provider_signed, provider_signed_at = False, None
 
     if len(signers) >= 1:
         s = signers[0]
-        customer_signed = s.get("status") == "signed" or bool(s.get("signed_at"))
+        customer_signed = s.get("status") in ("signed", "completed") or bool(s.get("signed_at"))
         customer_signed_at = s.get("signed_at")
     if len(signers) >= 2:
         s = signers[1]
-        provider_signed = s.get("status") == "signed" or bool(s.get("signed_at"))
+        provider_signed = s.get("status") in ("signed", "completed") or bool(s.get("signed_at"))
         provider_signed_at = s.get("signed_at")
 
+    # Fallback: if Signwell reports document as completed but signer parsing found no data
+    if doc_status in ("completed", "signed") and not signers:
+        customer_signed = True
+        provider_signed = True
     fully_signed = customer_signed and provider_signed
     s3_saved = False
     s3_download_url: Optional[str] = None
