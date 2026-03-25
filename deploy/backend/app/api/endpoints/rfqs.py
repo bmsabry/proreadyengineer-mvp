@@ -909,7 +909,11 @@ async def nda_initiate(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
 
     # Must belong to current user
-    if str(rfq.customer_user_id) != str(current_user.id):
+    # If RFQ was submitted anonymously, the user paying for NDA claims ownership
+    if rfq.customer_user_id is None:
+        rfq.customer_user_id = current_user.id
+        await db.commit()
+    elif str(rfq.customer_user_id) != str(current_user.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
 
     # Must require NDA
@@ -985,7 +989,11 @@ async def get_nda_signing_url(
     if not rfq:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
 
-    if str(rfq.customer_user_id) != str(current_user.id):
+    # If RFQ was submitted anonymously, the user paying for NDA claims ownership
+    if rfq.customer_user_id is None:
+        rfq.customer_user_id = current_user.id
+        await db.commit()
+    elif str(rfq.customer_user_id) != str(current_user.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
 
     signing_url = await get_customer_signing_url(rfq_id, db)
@@ -1016,7 +1024,11 @@ async def nda_confirm_signed(
     if not rfq:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
 
-    if str(rfq.customer_user_id) != str(current_user.id):
+    # If RFQ was submitted anonymously, the user paying for NDA claims ownership
+    if rfq.customer_user_id is None:
+        rfq.customer_user_id = current_user.id
+        await db.commit()
+    elif str(rfq.customer_user_id) != str(current_user.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
 
     try:
@@ -1050,7 +1062,11 @@ async def get_nda_status(
     if not rfq:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
 
-    if str(rfq.customer_user_id) != str(current_user.id):
+    # If RFQ was submitted anonymously, the user paying for NDA claims ownership
+    if rfq.customer_user_id is None:
+        rfq.customer_user_id = current_user.id
+        await db.commit()
+    elif str(rfq.customer_user_id) != str(current_user.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
 
     result = await db.execute(
