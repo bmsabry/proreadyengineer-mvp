@@ -1862,7 +1862,7 @@ async def admin_debug_test_nda_status(
         provider_signed_at = s.get("signed_at")
 
     # Fallback: if Signwell reports document as completed but signer parsing found no data
-    if doc_status in ("completed", "signed") and not signers:
+    if doc_status in ("completed", "signed") and not fully_signed:
         customer_signed = True
         provider_signed = True
     fully_signed = customer_signed and provider_signed
