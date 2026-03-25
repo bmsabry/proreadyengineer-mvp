@@ -255,15 +255,25 @@ async def complete_file_upload(
     return {"file_id": str(rfq_file.id), "status": "uploaded"}
 
 
-@router.post("/rfqs/{rfq_id}/nda/checkout", response_model=PaymentIntentResponse)
+@router.post("/rfqs/{rfq_id}/nda/checkout")
 async def nda_checkout(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Create payment intent for NDA fee."""
+    """Create Stripe Checkout Session for $5 NDA fee.
+
+    Returns {checkout_url, payment_attempt_id} for frontend redirect.
+    After payment, Stripe redirects to /nda/{rfq_id}/sign?paid=true
+    where the frontend calls /nda/initiate to get the Signwell signing URL.
+    """
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
     from sqlalchemy import select
     from app.models.rfq import RFQ
+    from app.services.payment_service import create_stripe_checkout_session
+    from app.core.config import settings as _settings
+    import uuid as _uuid
 
     result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
     rfq = result.scalar_one_or_none()
@@ -274,14 +284,34 @@ async def nda_checkout(
     if not rfq.nda_required:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="NDA not required for this RFQ")
 
-    intent = await create_payment_intent(
-        db, "nda_fee", 500, "usd", current_user, rfq_id  # $5.00
+    frontend_url = getattr(_settings, "FRONTEND_URL", "https://promechdirectory.onrender.com")
+    success_url = f"{frontend_url}/nda/{rfq_id}/sign?paid=true&session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{frontend_url}/nda/{rfq_id}/sign?cancelled=true"
+
+    try:
+        rfq_uuid = _uuid.UUID(rfq_id)
+    except (ValueError, AttributeError):
+        rfq_uuid = rfq_id
+
+    _log.info(f"Creating NDA Stripe checkout for rfq={rfq_id} user={current_user.id}")
+
+    session_data = await create_stripe_checkout_session(
+        db=db,
+        purpose="nda_fee",
+        amount=500,  # $5.00
+        currency="usd",
+        user=current_user,
+        related_entity_type="rfq",
+        related_id=rfq_uuid,
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={"rfq_id": rfq_id},
     )
 
-    return PaymentIntentResponse(
-        client_secret=intent["client_secret"],
-        payment_intent_id=intent["id"],
-    )
+    return {
+        "checkout_url": session_data["checkout_url"],
+        "payment_attempt_id": session_data.get("payment_attempt_id", ""),
+    }
 
 
 @router.get("/rfqs/{rfq_id}/status", response_model=RFQStatusResponse)

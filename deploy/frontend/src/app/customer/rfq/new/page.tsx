@@ -98,7 +98,7 @@ function CreateRFQForm() {
 
     // Always redirect — RFQ is created regardless of submit status
     if (formData.nda_required) {
-      router.push(`/customer/rfq/${rfqId}/nda`);
+      router.push(`/nda/${rfqId}/sign`);
     } else {
       router.push(`/customer/rfq/${rfqId}/tracking`);
     }
