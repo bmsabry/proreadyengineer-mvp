@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { AdminRFQDispatchTracking, AdminDispatchProvider } from '@/types';
-import { CheckCircle2, XCircle, Clock, ArrowLeft } from 'lucide-react';
+import { CheckCircle2, XCircle, Clock, ArrowLeft, Trophy } from 'lucide-react';
 
 export default function AdminRFQDetailPage() {
   const params = useParams();
@@ -299,6 +299,7 @@ export default function AdminRFQDetailPage() {
                       <th className="px-4 py-2 text-left">Email</th>
                       <th className="px-4 py-2 text-center w-24">Status</th>
                       <th className="px-4 py-2 text-center w-16">Quoted</th>
+                      <th className="px-4 py-2 text-center w-20">Accepted</th>
                       <th className="px-4 py-2 text-left w-44">Emailed At</th>
                     </tr>
                   </thead>
@@ -340,6 +341,13 @@ export default function AdminRFQDetailPage() {
                         <td className="px-4 py-3 text-center">
                           {p.submitted_quote ? (
                             <CheckCircle2 className="h-4 w-4 text-green-500 mx-auto" />
+                          ) : (
+                            <span className="text-gray-200 text-xs">--</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {p.is_accepted ? (
+                            <Trophy className="h-4 w-4 text-yellow-500 mx-auto" />
                           ) : (
                             <span className="text-gray-200 text-xs">--</span>
                           )}

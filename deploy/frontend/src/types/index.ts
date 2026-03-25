@@ -531,6 +531,7 @@ export interface AdminDispatchProvider {
   email_target: string | null;
   teaser_email_sent_at: string | null;
   submitted_quote: boolean;
+  is_accepted?: boolean;
 }
 
 export interface AdminRFQDispatchTracking {

@@ -319,6 +319,7 @@ async def admin_rfq_dispatch_tracking(
             "email_target": dispatch.email_target if dispatch else None,
             "teaser_email_sent_at": dispatch.teaser_email_sent_at.isoformat() if dispatch and dispatch.teaser_email_sent_at else None,
             "submitted_quote": match.provider_id in quoted_providers,
+            "is_accepted": match.provider_id == rfq.selected_provider_id,
         })
 
     return {
