@@ -100,6 +100,19 @@ services:
       - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
         sync: false
 
+  # Cron Job: RFQ Batch Dispatch (every 15 minutes)
+  # Calls the internal FastAPI endpoint to trigger next batch dispatch for open RFQs
+  - type: cron
+    name: proreadyengineer-rfq-cron
+    env: python
+    plan: starter
+    schedule: "*/15 * * * *"
+    buildCommand: pip install requests
+    startCommand: python -c "import requests,os; r=requests.post(os.environ.get('API_URL','https://proreadyengineer-api.onrender.com')+'/internal/cron/dispatch-rfq-batches',timeout=120); print('status:',r.status_code,'body:',r.text[:500])"
+    envVars:
+      - key: API_URL
+        value: https://proreadyengineer-api.onrender.com
+
 databases:
   - name: proreadyengineer-db
     plan: Basic-256mb
