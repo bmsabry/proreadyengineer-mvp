@@ -957,6 +957,48 @@ async def get_nda_signing_url(
     return {"signing_url": signing_url}
 
 
+@router.post("/rfqs/{rfq_id}/nda/confirm-signed")
+async def nda_confirm_signed(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Confirm customer NDA signing without relying on webhook.
+
+    Called by the frontend immediately after the Signwell iframe signals
+    completion. Acts as the primary fulfillment path; the webhook is a backup.
+
+    - If customer_signed_at already in DB: advances RFQ and returns.
+    - If not yet recorded: polls Signwell API directly to check and heal.
+    - Always idempotent and safe to call multiple times.
+    """
+    from sqlalchemy import select
+    from app.models.rfq import RFQ
+    from app.services.nda_service import confirm_customer_signed_from_signwell
+
+    result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
+    rfq = result.scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
+
+    if str(rfq.customer_user_id) != str(current_user.id):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
+
+    try:
+        result_data = await confirm_customer_signed_from_signwell(rfq_id, db)
+        current_status = rfq.rfq_status.value if hasattr(rfq.rfq_status, "value") else str(rfq.rfq_status)
+        return {
+            **result_data,
+            "rfq_status": current_status,
+        }
+    except Exception as exc:
+        _log.error(f"confirm_signed error rfq={rfq_id}: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error confirming signature: {str(exc)}"
+        )
+
+
 @router.get("/rfqs/{rfq_id}/nda/status")
 async def get_nda_status(
     rfq_id: str,

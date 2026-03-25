@@ -291,6 +291,9 @@ const rfqs = {
 
   ndaStatus: (rfqId: string) =>
     apiClient.get<{ nda_status: string; signing_url?: string; fully_signed_at?: string; nda_required?: boolean }>(`/rfqs/${rfqId}/nda/status`),
+
+  ndaConfirmSigned: (rfqId: string) =>
+    apiClient.post<{ confirmed: boolean; nda_status?: string; rfq_status?: string; healed?: boolean; message?: string; reason?: string }>(`/rfqs/${rfqId}/nda/confirm-signed`),
   
   getStatus: (rfqId: string) => 
     apiClient.get<{ rfq_status: string; quote_count: number }>(`/rfqs/${rfqId}/status`),
