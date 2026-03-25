@@ -224,7 +224,9 @@ async def create_customer_nda(
     # Fetch actual placeholder names from template (must match exactly)
     customer_placeholder_name, _provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    # Build template_fields to pre-fill values (NOT signing_elements)
+    # Build template_fields to pre-fill customer-side values ONLY.
+    # Do NOT include provider fields here - provider has not been assigned yet.
+    # Sending empty provider fields causes Signwell 422 validation errors.
     template_fields = [
         {"api_id": "customer_name",        "value": customer_name},
         {"api_id": "customer_name2",       "value": customer_name},
@@ -232,12 +234,6 @@ async def create_customer_nda(
         {"api_id": "customer_entity_type", "value": "Individual"},
         {"api_id": "effective_date",       "value": effective_date},
         {"api_id": "governing_state",      "value": "Ohio"},
-        {"api_id": "provider_name",        "value": ""},
-        {"api_id": "provider_name2",       "value": ""},
-        {"api_id": "provider_company",     "value": ""},
-        {"api_id": "provider_entity_type", "value": ""},
-        {"api_id": "customer_signature",   "value": ""},
-        {"api_id": "provider_signature",   "value": ""},
     ]
 
     # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
