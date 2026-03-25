@@ -896,7 +896,7 @@ async def nda_initiate(
 
     # Check NDA payment has been completed (status must be past awaiting_nda_payment)
     current_rfq_status = rfq.rfq_status.value if hasattr(rfq.rfq_status, "value") else str(rfq.rfq_status)
-    if current_rfq_status not in ("awaiting_customer_signature", "draft", "submitted"):
+    if current_rfq_status not in ("awaiting_nda_payment", "awaiting_customer_signature", "draft", "submitted"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"NDA cannot be initiated in RFQ status: {current_rfq_status}"
@@ -925,6 +925,12 @@ async def nda_initiate(
         }
 
     result = await create_customer_nda(rfq_id, current_user, db)
+
+    # Update RFQ status from awaiting_nda_payment -> awaiting_customer_signature
+    if current_rfq_status == "awaiting_nda_payment":
+        rfq.rfq_status = "awaiting_customer_signature"
+        await db.commit()
+
     return result
 
 
