@@ -324,6 +324,9 @@ const providerRFQ = {
 
   submitQuote: (rfqId: string, data: CreateQuoteRequest) =>
     apiClient.post<Quote>(`/provider/rfqs/${rfqId}/quote`, data),
+
+  initiateProviderNda: (rfqId: string) =>
+    apiClient.post<{ signing_url?: string; message?: string }>(`/provider/rfqs/${rfqId}/nda`),
 };
 
 

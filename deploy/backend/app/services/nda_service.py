@@ -580,7 +580,7 @@ async def confirm_customer_signed_from_signwell(rfq_id, db: AsyncSession) -> dic
     }
 
 async def _maybe_open_rfq_for_dispatch(rfq_id, db: AsyncSession) -> None:
-    """Advance RFQ to OPEN_FOR_DISPATCH once NDA signing is complete."""
+    """Advance RFQ to OPEN_FOR_DISPATCH once NDA signing is complete, then run AI search + dispatch."""
     rfq = (await db.execute(select(RFQ).where(RFQ.id == rfq_id))).scalar_one_or_none()
     if not rfq:
         return
@@ -589,3 +589,34 @@ async def _maybe_open_rfq_for_dispatch(rfq_id, db: AsyncSession) -> None:
         rfq.rfq_status = "open_for_dispatch"
         await db.commit()
         logger.info("RFQ %s moved to OPEN_FOR_DISPATCH after NDA completion", rfq_id)
+
+        # Run AI search to find provider matches, then dispatch first batch of teaser emails
+        try:
+            from app.services.search_service import search_providers
+            from app.services.rfq_service import dispatch_next_batch
+            from app.models.rfq import RFQMatch
+
+            query = rfq.project_description or ""
+            if rfq.business_name:
+                query = f"{rfq.business_name}: {query}"
+
+            logger.info("RFQ %s NDA complete - running AI search", rfq_id)
+            match_results, _pipeline_info = await search_providers(query, top_n=100)
+
+            for rank_idx, result in enumerate(match_results, 1):
+                match = RFQMatch(
+                    rfq_id=rfq_id,
+                    provider_id=result.provider_id,
+                    rank_position=rank_idx,
+                    composite_score=float(result.composite_score or 0),
+                    specialty_score=float(result.specialty_score or 0),
+                    capabilities_score=float(result.capabilities_score or 0),
+                    tier_score=float(result.tier_score or 0),
+                    scoring_inputs=result.explanation or {},
+                )
+                db.add(match)
+            await db.commit()
+            logger.info("RFQ %s: stored %d matches after NDA, dispatching first batch", rfq_id, len(match_results))
+            await dispatch_next_batch(db, rfq_id)
+        except Exception as exc:
+            logger.error("RFQ %s: search/dispatch after NDA failed: %s", rfq_id, exc, exc_info=True)

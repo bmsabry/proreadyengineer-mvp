@@ -25,6 +25,7 @@ interface UnlockStatus {
   urgency?: string;
   tollgate_phases?: string[];
   nda_required?: boolean;
+  provider_nda_signed?: boolean;
   business_name?: string;
   project_description_preview?: string;
   project_description?: string;
@@ -462,6 +463,9 @@ function ProviderRFQPageInner() {
   const [existingQuote, setExistingQuote] = useState<Quote | null>(null);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ndaSigningUrl, setNdaSigningUrl] = useState<string | null>(null);
+  const [ndaSigning, setNdaSigning] = useState(false);
+  const [ndaPolling, setNdaPolling] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -528,7 +532,64 @@ function ProviderRFQPageInner() {
     if (result === 'cancelled') toast.info('Payment cancelled. You can unlock anytime.');
   }, [searchParams, rfqId, loadStatus]);
 
-  useEffect(() => { if (status?.unlocked) { loadFiles(); loadExistingQuote(); } }, [status?.unlocked, loadFiles, loadExistingQuote]);
+  useEffect(() => {
+    if (status?.unlocked) {
+      if (status.nda_required && !status.provider_nda_signed) {
+        // Need provider NDA before showing files
+        startProviderNdaSigning();
+      } else {
+        loadFiles();
+        loadExistingQuote();
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.unlocked, status?.provider_nda_signed]);
+
+  const startProviderNdaSigning = async () => {
+    if (ndaSigning) return;
+    setNdaSigning(true);
+    try {
+      const res = await api.providerRFQ.initiateProviderNda(rfqId);
+      const data = res.data as { signing_url?: string; message?: string };
+      if (data?.signing_url) {
+        setNdaSigningUrl(data.signing_url);
+      } else if (data?.message) {
+        // NDA already signed or not required
+        toast.success('NDA confirmed. Loading project files...');
+        await loadStatus();
+      }
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      toast.error(err?.response?.data?.detail || 'Failed to initiate NDA signing. Please refresh.');
+    } finally {
+      setNdaSigning(false);
+    }
+  };
+
+  const pollProviderNdaStatus = async () => {
+    if (ndaPolling) return;
+    setNdaPolling(true);
+    let attempts = 0;
+    const maxAttempts = 40; // 2 minutes at 3s intervals
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        await loadStatus();
+        if (status?.provider_nda_signed) {
+          clearInterval(interval);
+          setNdaPolling(false);
+          setNdaSigningUrl(null);
+          toast.success('NDA signed! Loading project files...');
+          loadFiles();
+          loadExistingQuote();
+        }
+      } catch { /* ignore poll errors */ }
+      if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        setNdaPolling(false);
+      }
+    }, 3000);
+  };
 
   const handleUnlock = async () => {
     setCheckingOut(true);
@@ -634,7 +695,49 @@ function ProviderRFQPageInner() {
             <LockedCard status={status} onUnlock={handleUnlock} checkingOut={checkingOut} />
           )}
 
-          {status.unlocked && (
+          {status.unlocked && status.nda_required && !status.provider_nda_signed && (
+            <Card className="border-amber-200 bg-amber-50">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-amber-800">
+                  <ShieldAlert className="h-5 w-5"/>Non-Disclosure Agreement Required
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {!ndaSigningUrl ? (
+                  <div className="text-center py-6">
+                    <ShieldAlert className="h-12 w-12 text-amber-500 mx-auto mb-4"/>
+                    <h3 className="text-lg font-semibold text-amber-800 mb-2">Sign the NDA to Access Project Files</h3>
+                    <p className="text-amber-700 mb-4">This project requires a Non-Disclosure Agreement. Please sign to view full details and submit a quote.</p>
+                    <Button
+                      onClick={startProviderNdaSigning}
+                      disabled={ndaSigning}
+                      className="bg-amber-600 hover:bg-amber-700 text-white"
+                    >
+                      {ndaSigning ? 'Preparing NDA...' : 'Sign NDA Now'}
+                    </Button>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-sm text-amber-700 mb-3">Complete signing below, then your access to project files will be granted automatically.</p>
+                    <iframe
+                      src={ndaSigningUrl}
+                      className="w-full border border-amber-300 rounded-lg"
+                      style={{height: '600px'}}
+                      title="Sign NDA"
+                      onLoad={() => pollProviderNdaStatus()}
+                    />
+                    <div className="mt-3 flex justify-center">
+                      <Button variant="outline" onClick={pollProviderNdaStatus} disabled={ndaPolling}>
+                        {ndaPolling ? 'Checking signature status...' : 'I have signed - Check Status'}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {status.unlocked && (!status.nda_required || status.provider_nda_signed) && (
             <>
               {status.project_description && (
                 <Card>

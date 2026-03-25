@@ -795,9 +795,31 @@ async def get_unlock_status(
     unlock = result.scalar_one_or_none()
 
     if unlock:
-        return {"unlocked": True, "project_description": rfq.project_description, **base_info}
+        # Check provider NDA signing status when NDA is required
+        provider_nda_signed = False
+        if rfq.nda_required:
+            from app.models.nda import RFQNDA
+            nda_result = await db.execute(
+                select(RFQNDA).where(
+                    RFQNDA.rfq_id == rfq_id,
+                    RFQNDA.provider_id == membership.provider_id,
+                )
+            )
+            provider_nda = nda_result.scalar_one_or_none()
+            if provider_nda and provider_nda.provider_signed_at is not None:
+                provider_nda_signed = True
+        else:
+            # NDA not required - treat as signed
+            provider_nda_signed = True
+
+        return {
+            "unlocked": True,
+            "project_description": rfq.project_description,
+            "provider_nda_signed": provider_nda_signed,
+            **base_info
+        }
     else:
-        return {"unlocked": False, **base_info}
+        return {"unlocked": False, "provider_nda_signed": False, **base_info}
 
 @router.get("/provider/rfqs/{rfq_id}/files")
 async def get_rfq_files(
