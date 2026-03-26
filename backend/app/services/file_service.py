@@ -144,6 +144,35 @@ def delete_file(key: str) -> bool:
         return False
 
 
+
+
+def upload_bytes_to_s3(key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+    """Upload raw bytes directly to S3.
+
+    Args:
+        key: S3 object key (path in bucket).
+        data: File bytes to upload.
+        content_type: MIME type of file.
+
+    Returns:
+        str: The S3 key that was uploaded.
+
+    Raises:
+        RuntimeError: If upload fails.
+    """
+    s3 = _get_s3_client()
+    try:
+        s3.put_object(
+            Bucket=settings.S3_BUCKET_NAME,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+        return key
+    except ClientError as e:
+        raise RuntimeError(f"Failed to upload file to S3: {e}")
+
+
 def check_file_exists(key: str) -> bool:
     """Check if a file exists in S3.
 

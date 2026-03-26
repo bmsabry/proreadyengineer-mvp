@@ -468,10 +468,27 @@ async def extract_and_describe(
     if not ai_query:
         ai_query = extracted_text.strip()
 
+    # Upload document to S3 so it can be linked to an RFQ later
+    s3_key = None
+    try:
+        import uuid as _uuid_mod
+        from app.services.file_service import upload_bytes_to_s3
+        ext_lower = ext.lower() if ext else "bin"
+        mime_map = {"pdf": "application/pdf", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                   "doc": "application/msword", "txt": "text/plain", "md": "text/markdown"}
+        content_type = mime_map.get(ext_lower, "application/octet-stream")
+        s3_key = f"rfq-documents/{_uuid_mod.uuid4()}/{filename}"
+        upload_bytes_to_s3(s3_key, content, content_type)
+        logger.info(f"[DOC_UPLOAD] Document uploaded to S3: {s3_key}")
+    except Exception as s3_err:
+        logger.warning(f"[DOC_UPLOAD] Failed to upload document to S3 (non-fatal): {s3_err}")
+        s3_key = None
+
     return {
         "query": ai_query,
         "extracted_text_preview": extracted_text[:500],
         "filename": filename,
+        "s3_key": s3_key,
     }
 
 

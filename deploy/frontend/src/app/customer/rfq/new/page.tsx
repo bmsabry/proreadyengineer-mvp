@@ -31,6 +31,16 @@ function CreateRFQForm() {
   const searchParams = useSearchParams();
   const prefilledQuery = searchParams.get('q') || '';
 
+  // Retrieve S3 key of document uploaded during search (if any)
+  const [docS3Key] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const key = sessionStorage.getItem('docSearchS3Key');
+      if (key) sessionStorage.removeItem('docSearchS3Key'); // consume it once
+      return key;
+    }
+    return null;
+  });
+
   const [formData, setFormData] = useState({
     customer_email: '',
     business_name: '',
@@ -72,7 +82,10 @@ function CreateRFQForm() {
 
     // Step 1: Create the RFQ draft
     try {
-      const response = await api.rfqs.create(formData);
+      const response = await api.rfqs.create({
+        ...formData,
+        ...(docS3Key ? { document_s3_key: docS3Key } : {}),
+      });
       rfqId = response.data.id;
     } catch (error: any) {
       const msg = error.response?.data?.detail || 'Failed to create RFQ. Please check your details and try again.';

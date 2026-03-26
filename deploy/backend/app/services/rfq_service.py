@@ -67,6 +67,35 @@ async def create_rfq(
     await db.commit()
     await db.refresh(rfq)
 
+    # If a document was uploaded during search, link it as an RFQFile
+    doc_key = getattr(data, "document_s3_key", None)
+    if doc_key:
+        try:
+            import os as _os
+            filename = doc_key.split("/")[-1] if "/" in doc_key else doc_key
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
+            mime_map = {
+                "pdf": "application/pdf",
+                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "doc": "application/msword",
+                "txt": "text/plain",
+                "md": "text/markdown",
+            }
+            mime = mime_map.get(ext, "application/octet-stream")
+            rfq_file = RFQFile(
+                rfq_id=rfq.id,
+                s3_key=doc_key,
+                original_filename=filename,
+                mime_type=mime,
+                file_size_bytes=0,  # Size unknown at this point
+                uploaded_by_user_id=user.id if user else None,
+            )
+            db.add(rfq_file)
+            await db.commit()
+            logger.info(f"[RFQ] Linked search document to RFQ {rfq.id}: {doc_key}")
+        except Exception as e:
+            logger.warning(f"[RFQ] Failed to link document to RFQ (non-fatal): {e}")
+
     return rfq
 
 
