@@ -795,7 +795,18 @@ async def get_unlock_status(
     unlock = result.scalar_one_or_none()
 
     if unlock:
-        # Check provider NDA signing status when NDA is required
+        # Check if this provider's quote was accepted
+        from app.models.quote import Quote as QuoteModel
+        quote_result = await db.execute(
+            select(QuoteModel).where(
+                QuoteModel.rfq_id == rfq_id,
+                QuoteModel.provider_id == membership.provider_id,
+                QuoteModel.quote_status == "accepted",
+            )
+        )
+        quote_accepted = quote_result.scalar_one_or_none() is not None
+
+        # Check provider NDA signing status (only relevant after quote acceptance)
         provider_nda_signed = False
         if rfq.nda_required:
             from app.models.nda import RFQNDA
@@ -816,10 +827,11 @@ async def get_unlock_status(
             "unlocked": True,
             "project_description": rfq.project_description,
             "provider_nda_signed": provider_nda_signed,
+            "quote_accepted": quote_accepted,
             **base_info
         }
     else:
-        return {"unlocked": False, "provider_nda_signed": False, **base_info}
+        return {"unlocked": False, "provider_nda_signed": False, "quote_accepted": False, **base_info}
 
 @router.get("/provider/rfqs/{rfq_id}/files")
 async def get_rfq_files(
@@ -827,35 +839,30 @@ async def get_rfq_files(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Get download URLs for RFQ files (subscription + unlock required)."""
+    """Get download URLs for RFQ files.
+
+    Access rules:
+    - Provider must have paid the $10 unlock fee.
+    - If NDA not required: files are accessible immediately after unlock.
+    - If NDA required: files are only accessible after customer accepts provider quote
+      AND the NDA is fully signed by both parties.
+    """
     from sqlalchemy import select
-    from app.models.rfq import RFQUnlock, RFQFile
-    from app.models.provider import ProviderMembership, ProviderSubscription
-    from app.models.payment import SubscriptionStatusEnum
+    from app.models.rfq import RFQUnlock, RFQFile, RFQ as _RFQModel
+    from app.models.provider import ProviderMembership
+    from app.models.nda import RFQNDA
+    from app.models.quote import Quote as QuoteModel
     from app.services.file_service import generate_download_url
 
+    # Must have provider membership
     result = await db.execute(
         select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
     )
     membership = result.scalar_one_or_none()
-
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
 
-    # Check active subscription (required to access documents)
-    result = await db.execute(
-        select(ProviderSubscription).where(
-            ProviderSubscription.provider_id == membership.provider_id,
-            ProviderSubscription.status == SubscriptionStatusEnum.active,
-        )
-    )
-    if not result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="SUBSCRIPTION_REQUIRED: An active provider subscription ($10/month) is required to access project documents."
-        )
-
-    # Check unlock
+    # Must have paid the unlock fee
     result = await db.execute(
         select(RFQUnlock).where(
             RFQUnlock.rfq_id == rfq_id,
@@ -866,12 +873,30 @@ async def get_rfq_files(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RFQ not unlocked")
 
-    # Check RFQ NDA requirement
-    from app.models.rfq import RFQ as _RFQModel
-    from app.models.nda import RFQNDA
-    rfq_for_nda = (await db.execute(select(_RFQModel).where(_RFQModel.id == rfq_id))).scalar_one_or_none()
-    if rfq_for_nda and rfq_for_nda.nda_required:
-        # Require fully signed NDA for this specific provider
+    # Load the RFQ to check NDA requirement
+    rfq = (await db.execute(select(_RFQModel).where(_RFQModel.id == rfq_id))).scalar_one_or_none()
+    if not rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+
+    # If NDA is required, gate documents behind quote acceptance + fully signed NDA
+    if rfq.nda_required:
+        # Check if provider's quote was accepted
+        quote_result = await db.execute(
+            select(QuoteModel).where(
+                QuoteModel.rfq_id == rfq_id,
+                QuoteModel.provider_id == membership.provider_id,
+                QuoteModel.quote_status == "accepted",
+            )
+        )
+        quote_accepted = quote_result.scalar_one_or_none() is not None
+
+        if not quote_accepted:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="DOCS_AFTER_ACCEPTANCE: Project documents are available after the customer accepts your quote."
+            )
+
+        # Quote was accepted - require fully signed NDA
         nda_result = await db.execute(
             select(RFQNDA).where(
                 RFQNDA.rfq_id == rfq_id,
@@ -882,10 +907,10 @@ async def get_rfq_files(
         if not nda_result.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="NDA_REQUIRED: Please sign the Non-Disclosure Agreement sent to your email before accessing project files."
+                detail="NDA_REQUIRED: Please complete the NDA signing process before accessing project files."
             )
 
-    # Get files
+    # All checks passed - return files
     result = await db.execute(select(RFQFile).where(RFQFile.rfq_id == rfq_id))
     files = result.scalars().all()
 

@@ -26,6 +26,7 @@ interface UnlockStatus {
   tollgate_phases?: string[];
   nda_required?: boolean;
   provider_nda_signed?: boolean;
+  quote_accepted?: boolean;
   business_name?: string;
   project_description_preview?: string;
   project_description?: string;
@@ -533,17 +534,22 @@ function ProviderRFQPageInner() {
 
   useEffect(() => {
     if (status?.unlocked) {
-      if (status.nda_required && !status.provider_nda_signed) {
-        // NDA email sent - poll until provider signs
+      // Always load existing quote status
+      loadExistingQuote();
+      // Load files if: no NDA required, OR (NDA required AND quote accepted AND NDA signed)
+      const canAccessFiles = !status.nda_required ||
+        (status.quote_accepted && status.provider_nda_signed);
+      if (canAccessFiles) {
+        loadFiles();
+      }
+      // Poll for NDA signing only when: NDA required AND quote accepted AND NDA not yet signed
+      if (status.nda_required && status.quote_accepted && !status.provider_nda_signed) {
         setNdaEmailPending(true);
         startNdaPoll();
-      } else {
-        loadFiles();
-        loadExistingQuote();
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.unlocked, status?.provider_nda_signed]);
+  }, [status?.unlocked, status?.provider_nda_signed, status?.quote_accepted]);
 
   const startNdaPoll = useCallback(() => {
     const interval = setInterval(async () => {
@@ -666,41 +672,14 @@ function ProviderRFQPageInner() {
             <LockedCard status={status} onUnlock={handleUnlock} checkingOut={checkingOut} />
           )}
 
-          {status.nda_required && !status.provider_nda_signed && (
-            <Card className="mb-6 border-amber-200 bg-amber-50">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-3">
-                  <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="font-semibold text-amber-900 mb-1">NDA Signature Required</h3>
-                    <p className="text-sm text-amber-800 mb-3">
-                      A Non-Disclosure Agreement is required for this project. Signing instructions have been sent to your email address. Please check your inbox and sign the NDA to access project files.
-                    </p>
-                    <p className="text-xs text-amber-700">
-                      After signing, this page will automatically refresh to show project files.
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-3 border-amber-400 text-amber-800 hover:bg-amber-100"
-                      onClick={() => loadStatus()}
-                    >
-                      <RefreshCw className="h-3 w-3 mr-1" />
-                      Check Signing Status
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {status.unlocked && (!status.nda_required || status.provider_nda_signed) && (
+          {status.unlocked && (
             <>
+              {/* Always show full project description after payment */}
               {status.project_description && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-blue-600"/>Full Project Description
+                      <FileText className="h-5 w-5 text-blue-600" />Full Project Description
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -709,17 +688,64 @@ function ProviderRFQPageInner() {
                 </Card>
               )}
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Download className="h-5 w-5 text-blue-600"/>Project Files
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <FilesSection files={files} loading={filesLoading} />
-                </CardContent>
-              </Card>
+              {/* NDA required + quote accepted + NDA not yet signed: show email pending */}
+              {status.nda_required && status.quote_accepted && !status.provider_nda_signed && (
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardContent className="pt-6">
+                    <div className="flex items-start gap-3">
+                      <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="font-semibold text-amber-900 mb-1">NDA Signature Required</h3>
+                        <p className="text-sm text-amber-800 mb-3">
+                          Your quote was accepted! A Non-Disclosure Agreement has been sent to your email address. Please sign it to access project documents.
+                        </p>
+                        <p className="text-xs text-amber-700">After signing, this page will automatically refresh to show project files.</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-3 border-amber-400 text-amber-800 hover:bg-amber-100"
+                          onClick={() => loadStatus()}
+                        >
+                          <RefreshCw className="h-3 w-3 mr-1" />Check Signing Status
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
+              {/* Files section: show when no NDA required OR (quote accepted AND NDA signed) */}
+              {(!status.nda_required || (status.quote_accepted && status.provider_nda_signed)) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Download className="h-5 w-5 text-blue-600" />Project Files
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <FilesSection files={files} loading={filesLoading} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* NDA required but quote NOT yet accepted: show documents notice */}
+              {status.nda_required && !status.quote_accepted && (
+                <Card className="border-blue-100 bg-blue-50">
+                  <CardContent className="pt-5">
+                    <div className="flex items-start gap-3">
+                      <ShieldAlert className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="font-semibold text-blue-900 mb-1">Project Documents</h3>
+                        <p className="text-sm text-blue-700">
+                          This project requires an NDA. Uploaded documents will be available to you after the customer accepts your quote and both parties sign the Non-Disclosure Agreement.
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Quote section: always visible after unlock */}
               {quotesLoading ? (
                 <Card>
                   <CardContent className="pt-6 text-center">
@@ -750,7 +776,7 @@ function ProviderRFQPageInner() {
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
-                      <Send className="h-5 w-5 text-green-600"/>Submit Your Quote
+                      <Send className="h-5 w-5 text-green-600" />Submit Your Quote
                     </CardTitle>
                     <CardDescription>Only the first 5 quotes are shown to the customer. Submit early.</CardDescription>
                   </CardHeader>
@@ -761,7 +787,7 @@ function ProviderRFQPageInner() {
               ) : (
                 <Card className="border-green-200 bg-green-50">
                   <CardContent className="pt-6 text-center">
-                    <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3"/>
+                    <CheckCircle className="h-12 w-12 text-green-500 mx-auto mb-3" />
                     <h3 className="font-semibold text-green-900 text-lg mb-2">Quote Submitted!</h3>
                     <p className="text-green-700 text-sm">Your quote has been sent to the customer. You will be notified if you are selected.</p>
                   </CardContent>
