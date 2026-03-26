@@ -113,11 +113,6 @@ async def submit_rfq(
         if rfq.rfq_status != RfqStatus.DRAFT:
             raise ValueError("RFQ is not in draft status")
 
-        if rfq.nda_required:
-            rfq.rfq_status = RfqStatus.AWAITING_NDA_PAYMENT
-            await db.commit()
-            return
-
         rfq.rfq_status = RfqStatus.OPEN_FOR_DISPATCH
         rfq.submitted_at = datetime.now(timezone.utc)
 
@@ -825,6 +820,61 @@ async def accept_quote(
         except Exception as e:
             import logging as _logging
             _logging.getLogger(__name__).error(f"Failed to send quote selected email to customer: {e}")
+
+    # Trigger post-acceptance NDA if required
+    if rfq.nda_required:
+        try:
+            # Find a user account linked to the selected provider
+            from app.models.provider import ProviderMembership
+            from app.services.nda_service import create_post_acceptance_nda
+
+            prov_membership_result = await db.execute(
+                select(ProviderMembership).where(
+                    ProviderMembership.provider_id == rfq.selected_provider_id
+                ).limit(1)
+            )
+            prov_membership = prov_membership_result.scalar_one_or_none()
+
+            if prov_membership:
+                provider_user_result = await db.execute(
+                    select(User).where(User.id == prov_membership.user_id)
+                )
+                provider_user = provider_user_result.scalar_one_or_none()
+
+                provider_result = await db.execute(
+                    select(Provider).where(Provider.id == rfq.selected_provider_id)
+                )
+                selected_provider = provider_result.scalar_one_or_none()
+
+                if provider_user and selected_provider:
+                    await create_post_acceptance_nda(
+                        rfq_id=rfq.id,
+                        customer_user=customer,
+                        provider=selected_provider,
+                        provider_user=provider_user,
+                        rfq=rfq,
+                        db=db,
+                    )
+                    logger.info(
+                        "Post-acceptance NDA created for RFQ %s with provider %s",
+                        rfq.id, rfq.selected_provider_id,
+                    )
+                else:
+                    logger.warning(
+                        "Could not create NDA for RFQ %s: provider_user=%s, provider=%s",
+                        rfq.id, provider_user, selected_provider,
+                    )
+            else:
+                logger.warning(
+                    "Could not create NDA for RFQ %s: no provider membership found for provider %s",
+                    rfq.id, rfq.selected_provider_id,
+                )
+        except Exception as nda_exc:
+            # NDA creation failure should NOT block quote acceptance
+            logger.error(
+                "Failed to create post-acceptance NDA for RFQ %s: %s",
+                rfq.id, nda_exc, exc_info=True,
+            )
 
     return provider_contact
 

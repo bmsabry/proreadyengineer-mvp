@@ -555,47 +555,127 @@ async def _check_and_heal_customer_signed(customer_nda: RFQNDA, db: AsyncSession
 
 
 async def _maybe_open_rfq_for_dispatch(rfq_id, db: AsyncSession) -> None:
-    """Advance RFQ to OPEN_FOR_DISPATCH once NDA signing is complete, then run AI search + dispatch."""
-    rfq = (await db.execute(select(RFQ).where(RFQ.id == rfq_id))).scalar_one_or_none()
-    if not rfq:
-        return
-    current = rfq.rfq_status.value if hasattr(rfq.rfq_status, "value") else str(rfq.rfq_status)
-    if current in ("awaiting_customer_signature", "awaiting_nda_payment"):
-        rfq.rfq_status = "open_for_dispatch"
-        await db.commit()
-        logger.info("RFQ %s moved to OPEN_FOR_DISPATCH after NDA completion", rfq_id)
+    """Legacy: No-op placeholder. Dispatch now happens at submit_rfq time."""
+    # NOTE: In the new workflow, AI search + dispatch happens when the RFQ is first submitted.
+    # This function is kept for backward compatibility with webhook handlers but does nothing.
+    logger.info("_maybe_open_rfq_for_dispatch called for RFQ %s (no-op in new workflow)", rfq_id)
 
-        # Run AI search to find provider matches, then dispatch first batch of teaser emails
+
+
+
+async def create_post_acceptance_nda(
+    rfq_id,
+    customer_user: User,
+    provider: "Provider",
+    provider_user: User,
+    rfq: "RFQ",
+    db: AsyncSession,
+) -> dict:
+    """Create a post-acceptance NDA with BOTH customer and provider as real signers.
+
+    Called after a customer accepts a provider quote.
+    Both parties receive signing emails from Signwell (no iframe required).
+    Returns {document_id, nda_id}.
+    """
+    h   = await _headers(db)
+    tid = await _get_template_id(db)
+
+    # Customer info
+    first = (customer_user.first_name or "").strip()
+    last  = (customer_user.last_name  or "").strip()
+    customer_name    = f"{first} {last}".strip() or customer_user.email
+    customer_company = getattr(rfq, "business_name", None) or customer_name
+
+    # Provider info
+    provider_name    = getattr(provider, "firm_name", None) or getattr(provider, "name", None) or "Provider"
+    prov_first = (provider_user.first_name or "").strip()
+    prov_last  = (provider_user.last_name  or "").strip()
+    prov_signer_name = f"{prov_first} {prov_last}".strip() or provider_user.email
+
+    from datetime import date as _date
+    effective_date = _date.today().strftime("%m/%d/%Y")
+
+    # Fetch template placeholder names
+    customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
+
+    template_fields = [
+        {"api_id": "customer_name",        "value": customer_name},
+        {"api_id": "customer_name2",       "value": customer_name},
+        {"api_id": "customer_company",     "value": customer_company},
+        {"api_id": "customer_entity_type", "value": "Individual"},
+        {"api_id": "provider_name",        "value": prov_signer_name},
+        {"api_id": "provider_name2",       "value": prov_signer_name},
+        {"api_id": "provider_company",     "value": provider_name},
+        {"api_id": "provider_entity_type", "value": "Company"},
+        {"api_id": "effective_date",       "value": effective_date},
+        {"api_id": "governing_state",      "value": "Ohio"},
+        {"api_id": "customer_signature",   "value": ""},
+        {"api_id": "provider_signature",   "value": ""},
+    ]
+
+    # Both parties as real signers - Signwell will email both
+    payload = {
+        "template_id": tid,
+        "test_mode": False,
+        "subject": f"NDA for Engineering Project - Action Required",
+        "message": (
+            "Your quote has been accepted. Please sign this Non-Disclosure Agreement "
+            "to proceed with the project. Both parties must sign before project files are shared."
+        ),
+        "recipients": [
+            {
+                "id":               "1",
+                "name":             customer_name,
+                "email":            customer_user.email,
+                "placeholder_name": customer_placeholder_name,
+            },
+            {
+                "id":               "2",
+                "name":             prov_signer_name,
+                "email":            provider_user.email,
+                "placeholder_name": provider_placeholder_name,
+            },
+        ],
+        "template_fields": template_fields,
+    }
+
+    logger.info(
+        "[SIGNWELL] create_post_acceptance_nda payload for RFQ %s: customer=%s provider=%s",
+        rfq_id, customer_user.email, provider_user.email,
+    )
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{SIGNWELL_BASE_URL}/document_templates/documents",
+            json=payload,
+            headers=h,
+        )
         try:
-            from app.services.search_service import search_providers
-            from app.services.rfq_service import dispatch_next_batch
-            from app.models.rfq import RFQMatch
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "Signwell create_post_acceptance_nda failed %s: %s",
+                exc.response.status_code, exc.response.text,
+            )
+            raise
 
-            query = rfq.project_description or ""
-            if rfq.business_name:
-                query = f"{rfq.business_name}: {query}"
+    doc_data    = resp.json()
+    document_id = doc_data["id"]
+    logger.info("Created post-acceptance NDA doc %s for RFQ %s", document_id, rfq_id)
 
-            logger.info("RFQ %s NDA complete - running AI search", rfq_id)
-            match_results, _pipeline_info = await search_providers(query, top_n=100)
-
-            for rank_idx, result in enumerate(match_results, 1):
-                match = RFQMatch(
-                    rfq_id=rfq_id,
-                    provider_id=result.provider_id,
-                    rank_position=rank_idx,
-                    composite_score=float(result.composite_score or 0),
-                    specialty_score=float(result.specialty_score or 0),
-                    capabilities_score=float(result.capabilities_score or 0),
-                    tier_score=float(result.tier_score or 0),
-                    scoring_inputs=result.explanation or {},
-                )
-                db.add(match)
-            await db.commit()
-            logger.info("RFQ %s: stored %d matches after NDA, dispatching first batch", rfq_id, len(match_results))
-            await dispatch_next_batch(db, rfq_id)
-        except Exception as exc:
-            logger.error("RFQ %s: search/dispatch after NDA failed: %s", rfq_id, exc, exc_info=True)
-
+    # Persist NDA record linked to this specific provider
+    nda = RFQNDA(
+        rfq_id=rfq_id,
+        provider_id=provider.id,
+        customer_user_id=customer_user.id,
+        signrequest_document_id=document_id,
+        signrequest_template_id=tid,
+        nda_status="customer_signature_pending",
+    )
+    db.add(nda)
+    await db.commit()
+    await db.refresh(nda)
+    return {"document_id": document_id, "nda_id": str(nda.id)}
 
 async def confirm_customer_signed_from_signwell(rfq_id, db: AsyncSession) -> dict:
     """Primary path (not webhook) to confirm customer NDA signing.

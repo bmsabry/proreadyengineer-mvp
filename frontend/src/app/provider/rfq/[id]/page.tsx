@@ -463,9 +463,8 @@ function ProviderRFQPageInner() {
   const [existingQuote, setExistingQuote] = useState<Quote | null>(null);
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ndaSigningUrl, setNdaSigningUrl] = useState<string | null>(null);
-  const [ndaSigning, setNdaSigning] = useState(false);
   const [ndaPolling, setNdaPolling] = useState(false);
+  const [ndaEmailPending, setNdaEmailPending] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
@@ -535,8 +534,9 @@ function ProviderRFQPageInner() {
   useEffect(() => {
     if (status?.unlocked) {
       if (status.nda_required && !status.provider_nda_signed) {
-        // Need provider NDA before showing files
-        startProviderNdaSigning();
+        // NDA email sent - poll until provider signs
+        setNdaEmailPending(true);
+        startNdaPoll();
       } else {
         loadFiles();
         loadExistingQuote();
@@ -545,51 +545,22 @@ function ProviderRFQPageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.unlocked, status?.provider_nda_signed]);
 
-  const startProviderNdaSigning = async () => {
-    if (ndaSigning) return;
-    setNdaSigning(true);
-    try {
-      const res = await api.providerRFQ.initiateProviderNda(rfqId);
-      const data = res.data as { signing_url?: string; message?: string };
-      if (data?.signing_url) {
-        setNdaSigningUrl(data.signing_url);
-      } else if (data?.message) {
-        // NDA already signed or not required
-        toast.success('NDA confirmed. Loading project files...');
-        await loadStatus();
-      }
-    } catch (e: unknown) {
-      const err = e as { response?: { data?: { detail?: string } } };
-      toast.error(err?.response?.data?.detail || 'Failed to initiate NDA signing. Please refresh.');
-    } finally {
-      setNdaSigning(false);
-    }
-  };
-
-  const pollProviderNdaStatus = async () => {
-    if (ndaPolling) return;
-    setNdaPolling(true);
-    let attempts = 0;
-    const maxAttempts = 40; // 2 minutes at 3s intervals
+  const startNdaPoll = useCallback(() => {
     const interval = setInterval(async () => {
-      attempts++;
       try {
-        await loadStatus();
-        if (status?.provider_nda_signed) {
+        const res = await api.providerRFQ.getUnlockStatus(rfqId);
+        const s = res.data as UnlockStatus;
+        setStatus(s);
+        if (s?.provider_nda_signed) {
           clearInterval(interval);
-          setNdaPolling(false);
-          setNdaSigningUrl(null);
-          toast.success('NDA signed! Loading project files...');
+          setNdaEmailPending(false);
           loadFiles();
           loadExistingQuote();
         }
-      } catch { /* ignore poll errors */ }
-      if (attempts >= maxAttempts) {
-        clearInterval(interval);
-        setNdaPolling(false);
-      }
-    }, 3000);
-  };
+      } catch { /* ignore */ }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [rfqId, loadFiles, loadExistingQuote]);
 
   const handleUnlock = async () => {
     setCheckingOut(true);
@@ -695,44 +666,30 @@ function ProviderRFQPageInner() {
             <LockedCard status={status} onUnlock={handleUnlock} checkingOut={checkingOut} />
           )}
 
-          {status.unlocked && status.nda_required && !status.provider_nda_signed && (
-            <Card className="border-amber-200 bg-amber-50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-amber-800">
-                  <ShieldAlert className="h-5 w-5"/>Non-Disclosure Agreement Required
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {!ndaSigningUrl ? (
-                  <div className="text-center py-6">
-                    <ShieldAlert className="h-12 w-12 text-amber-500 mx-auto mb-4"/>
-                    <h3 className="text-lg font-semibold text-amber-800 mb-2">Sign the NDA to Access Project Files</h3>
-                    <p className="text-amber-700 mb-4">This project requires a Non-Disclosure Agreement. Please sign to view full details and submit a quote.</p>
+          {status.nda_required && !status.provider_nda_signed && (
+            <Card className="mb-6 border-amber-200 bg-amber-50">
+              <CardContent className="pt-6">
+                <div className="flex items-start gap-3">
+                  <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h3 className="font-semibold text-amber-900 mb-1">NDA Signature Required</h3>
+                    <p className="text-sm text-amber-800 mb-3">
+                      A Non-Disclosure Agreement is required for this project. Signing instructions have been sent to your email address. Please check your inbox and sign the NDA to access project files.
+                    </p>
+                    <p className="text-xs text-amber-700">
+                      After signing, this page will automatically refresh to show project files.
+                    </p>
                     <Button
-                      onClick={startProviderNdaSigning}
-                      disabled={ndaSigning}
-                      className="bg-amber-600 hover:bg-amber-700 text-white"
+                      variant="outline"
+                      size="sm"
+                      className="mt-3 border-amber-400 text-amber-800 hover:bg-amber-100"
+                      onClick={() => loadStatus()}
                     >
-                      {ndaSigning ? 'Preparing NDA...' : 'Sign NDA Now'}
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Check Signing Status
                     </Button>
                   </div>
-                ) : (
-                  <div>
-                    <p className="text-sm text-amber-700 mb-3">Complete signing below, then your access to project files will be granted automatically.</p>
-                    <iframe
-                      src={ndaSigningUrl}
-                      className="w-full border border-amber-300 rounded-lg"
-                      style={{height: '600px'}}
-                      title="Sign NDA"
-                      onLoad={() => pollProviderNdaStatus()}
-                    />
-                    <div className="mt-3 flex justify-center">
-                      <Button variant="outline" onClick={pollProviderNdaStatus} disabled={ndaPolling}>
-                        {ndaPolling ? 'Checking signature status...' : 'I have signed - Check Status'}
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                </div>
               </CardContent>
             </Card>
           )}

@@ -866,6 +866,25 @@ async def get_rfq_files(
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RFQ not unlocked")
 
+    # Check RFQ NDA requirement
+    from app.models.rfq import RFQ as _RFQModel
+    from app.models.nda import RFQNDA
+    rfq_for_nda = (await db.execute(select(_RFQModel).where(_RFQModel.id == rfq_id))).scalar_one_or_none()
+    if rfq_for_nda and rfq_for_nda.nda_required:
+        # Require fully signed NDA for this specific provider
+        nda_result = await db.execute(
+            select(RFQNDA).where(
+                RFQNDA.rfq_id == rfq_id,
+                RFQNDA.provider_id == membership.provider_id,
+                RFQNDA.nda_status == "fully_signed",
+            )
+        )
+        if not nda_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="NDA_REQUIRED: Please sign the Non-Disclosure Agreement sent to your email before accessing project files."
+            )
+
     # Get files
     result = await db.execute(select(RFQFile).where(RFQFile.rfq_id == rfq_id))
     files = result.scalars().all()

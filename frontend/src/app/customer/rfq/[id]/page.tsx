@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { formatDate, getRFQStatusBadgeColor, formatCurrency } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy, Download } from 'lucide-react';
+import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy, Download , ShieldAlert } from 'lucide-react';
 
 export default function RFQDetailPage() {
   const { id } = useParams();
@@ -21,6 +21,7 @@ export default function RFQDetailPage() {
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [downloadingQuoteId, setDownloadingQuoteId] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [ndaFullySigned, setNdaFullySigned] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -82,6 +83,22 @@ export default function RFQDetailPage() {
       setDownloadingQuoteId(null);
     }
   };
+
+  // Check NDA signed status when provider selected
+  useEffect(() => {
+    if (isProviderSelected && rfq?.nda_required) {
+      api.rfqs.ndaStatus(id as string)
+        .then((res) => {
+          const data = res.data as { nda_status?: string; fully_signed_at?: string };
+          if (data.nda_status === 'fully_signed' || data.fully_signed_at) {
+            setNdaFullySigned(true);
+          }
+        })
+        .catch(() => {});
+    } else if (isProviderSelected) {
+      setNdaFullySigned(true);
+    }
+  }, [isProviderSelected, rfq?.nda_required, id]);
 
   if (authLoading || isLoading) {
     return (
@@ -145,6 +162,20 @@ export default function RFQDetailPage() {
             {(acceptedProvider as any).primary_specialty && (
               <p className="text-sm text-gray-500 mb-3">{(acceptedProvider as any).primary_specialty}</p>
             )}
+            {rfq.nda_required && !ndaFullySigned ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-md p-4 mt-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <ShieldAlert className="h-4 w-4 text-amber-600" />
+                  <span className="font-medium text-amber-900 text-sm">NDA Signing In Progress</span>
+                </div>
+                <p className="text-sm text-amber-800">
+                  A Non-Disclosure Agreement has been sent to both you and the selected
+                  provider. Contact details will be revealed once both parties have signed.
+                </p>
+                <p className="text-xs text-amber-700 mt-2">Check your email for signing instructions from Signwell.</p>
+              </div>
+            ) : (
+            <>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {(acceptedProvider as any).email && (
                 <div className="flex items-center gap-2 text-sm">
@@ -182,6 +213,7 @@ export default function RFQDetailPage() {
             {!(acceptedProvider as any).email && !(acceptedProvider as any).phone && !(acceptedProvider as any).website && (
               <p className="text-sm text-gray-500 italic">Contact information not available. A confirmation email has been sent to you and the provider.</p>
             )}
+            </>
             {acceptedQuote && (acceptedQuote.document_download_url || acceptedQuote.document_s3_key) && (
               <div className="mt-4 pt-4 border-t border-green-100">
                 <Button
