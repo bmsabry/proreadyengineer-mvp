@@ -828,16 +828,29 @@ async def accept_quote(
             from app.models.provider import ProviderMembership
             from app.services.nda_service import create_post_acceptance_nda
 
+            # Join with User to filter out removed/inactive accounts
+            # Removed users have email starting with 'removed_' and is_active=False
+            # Without this filter, the old scrambled account membership would be returned
             prov_membership_result = await db.execute(
-                select(ProviderMembership).where(
-                    ProviderMembership.provider_id == rfq.selected_provider_id
-                ).limit(1)
+                select(ProviderMembership)
+                .join(User, User.id == ProviderMembership.user_id)
+                .where(
+                    ProviderMembership.provider_id == rfq.selected_provider_id,
+                    ProviderMembership.status == "active",
+                    User.is_active == True,
+                    ~User.email.like("removed_%"),
+                )
+                .order_by(ProviderMembership.created_at.desc())
+                .limit(1)
             )
             prov_membership = prov_membership_result.scalar_one_or_none()
 
             if prov_membership:
                 provider_user_result = await db.execute(
-                    select(User).where(User.id == prov_membership.user_id)
+                    select(User).where(
+                        User.id == prov_membership.user_id,
+                        User.is_active == True,
+                    )
                 )
                 provider_user = provider_user_result.scalar_one_or_none()
 
