@@ -86,7 +86,8 @@ export default function RFQDetailPage() {
 
   // Check NDA signed status when provider selected
   useEffect(() => {
-    if (isProviderSelected && rfq?.nda_required) {
+    const providerSelected = rfq?.rfq_status === 'customer_selected_provider';
+    if (providerSelected && rfq?.nda_required) {
       api.rfqs.ndaStatus(id as string)
         .then((res) => {
           const data = res.data as { nda_status?: string; fully_signed_at?: string };
@@ -95,10 +96,10 @@ export default function RFQDetailPage() {
           }
         })
         .catch(() => {});
-    } else if (isProviderSelected) {
+    } else if (providerSelected) {
       setNdaFullySigned(true);
     }
-  }, [isProviderSelected, rfq?.nda_required, id]);
+  }, [rfq?.rfq_status, rfq?.nda_required, id]);
 
   if (authLoading || isLoading) {
     return (
@@ -214,6 +215,7 @@ export default function RFQDetailPage() {
               <p className="text-sm text-gray-500 italic">Contact information not available. A confirmation email has been sent to you and the provider.</p>
             )}
             </>
+            )}
             {acceptedQuote && (acceptedQuote.document_download_url || acceptedQuote.document_s3_key) && (
               <div className="mt-4 pt-4 border-t border-green-100">
                 <Button
