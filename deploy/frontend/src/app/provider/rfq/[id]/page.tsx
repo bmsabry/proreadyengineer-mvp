@@ -483,8 +483,15 @@ function ProviderRFQPageInner() {
     setFilesLoading(true);
     try {
       const res = await api.providerRFQ.getFiles(rfqId);
-      const data = res.data;
-      setFiles(Array.isArray(data) ? data : []);
+      const data = res.data as { files?: Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number }> } | Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number }>;
+      // Backend returns { files: [...] } wrapper object, or may return array directly
+      const rawFiles = Array.isArray(data) ? data : ((data as { files?: unknown[] })?.files || []);
+      setFiles((rawFiles as Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number }>).map((f) => ({
+        id: f.file_id || f.id || '',
+        original_filename: f.filename || f.original_filename || 'document',
+        presigned_url: f.download_url || f.presigned_url,
+        file_size_bytes: f.file_size_bytes,
+      })));
     } catch {
       // files may be temporarily unavailable
     } finally { setFilesLoading(false); }

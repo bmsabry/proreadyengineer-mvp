@@ -32,11 +32,11 @@ function CreateRFQForm() {
   const prefilledQuery = searchParams.get('q') || '';
 
   // Retrieve S3 key of document uploaded during search (if any)
+  // Important: do NOT remove from sessionStorage here - auth redirect would wipe it.
+  // We remove it only after successful RFQ creation below.
   const [docS3Key] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
-      const key = sessionStorage.getItem('docSearchS3Key');
-      if (key) sessionStorage.removeItem('docSearchS3Key'); // consume it once
-      return key;
+      return sessionStorage.getItem('docSearchS3Key'); // read without consuming
     }
     return null;
   });
@@ -87,6 +87,8 @@ function CreateRFQForm() {
         ...(docS3Key ? { document_s3_key: docS3Key } : {}),
       });
       rfqId = response.data.id;
+      // Now safe to consume the S3 key from sessionStorage
+      if (docS3Key) sessionStorage.removeItem('docSearchS3Key');
     } catch (error: any) {
       const msg = error.response?.data?.detail || 'Failed to create RFQ. Please check your details and try again.';
       toast.error(msg);
