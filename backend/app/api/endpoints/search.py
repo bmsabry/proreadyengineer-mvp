@@ -469,6 +469,7 @@ async def extract_and_describe(
         ai_query = extracted_text.strip()
 
     # Upload document to S3 so it can be linked to an RFQ later
+    s3_error_msg: str = ""
     # Uses runtime DB config for AWS credentials (not static env vars)
     s3_key = None
     try:
@@ -502,7 +503,8 @@ async def extract_and_describe(
         )
         logger.info(f"[DOC_UPLOAD] Document uploaded to S3: {s3_key} (bucket={bucket_name})")
     except Exception as s3_err:
-        logger.warning(f"[DOC_UPLOAD] Failed to upload document to S3 (non-fatal): {s3_err}")
+        s3_error_msg = str(s3_err)
+        logger.warning(f"[DOC_UPLOAD] Failed to upload document to S3: {s3_error_msg}")
         s3_key = None
 
     return {
@@ -511,6 +513,7 @@ async def extract_and_describe(
         "extracted_text_preview": extracted_text[:500],
         "filename": filename,
         "s3_key": s3_key,
+        "s3_error": s3_error_msg if s3_key is None else None,
     }
 
 

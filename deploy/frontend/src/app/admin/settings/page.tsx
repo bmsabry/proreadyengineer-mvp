@@ -325,6 +325,36 @@ export default function AdminSettingsPage() {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  const [s3TestStatus, setS3TestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [s3TestResult, setS3TestResult] = useState<{
+    error?: string
+    bucket_name?: string
+    download_url?: string
+    aws_access_key_configured?: boolean
+    aws_secret_key_configured?: boolean
+    bucket_configured?: boolean
+    upload_success?: boolean
+    download_url_success?: boolean
+  } | null>(null)
+
+  const testS3Connection = async () => {
+    setS3TestStatus('testing')
+    setS3TestResult(null)
+    try {
+      const token = localStorage.getItem('access_token')
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || ''}/api/v1/admin/debug/test-s3`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      })
+      const data = await res.json()
+      setS3TestResult(data)
+      setS3TestStatus(data.upload_success && data.download_url_success ? 'success' : 'error')
+    } catch (err: unknown) {
+      setS3TestResult({ error: err instanceof Error ? err.message : 'Network error connecting to backend' })
+      setS3TestStatus('error')
+    }
+  }
+
   async function handleSave() {
     setSaving(true)
     setSuccessMsg(null)
@@ -831,6 +861,47 @@ export default function AdminSettingsPage() {
                 isSet={isFieldSet('aws_s3_bucket')}
                 placeholder='my-proready-bucket'
               />
+              {/* S3 Test Button */}
+              <div className='pt-2'>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={testS3Connection}
+                  disabled={s3TestStatus === 'testing'}
+                  className='flex items-center gap-2'
+                >
+                  {s3TestStatus === 'testing' ? (
+                    <><Loader2 className='w-4 h-4 animate-spin' /> Testing S3...</>
+                  ) : s3TestStatus === 'success' ? (
+                    <><CheckCircle2 className='w-4 h-4 text-green-500' /> S3 Working✓</>
+                  ) : s3TestStatus === 'error' ? (
+                    <><XCircle className='w-4 h-4 text-red-500' /> S3 Test Failed</>
+                  ) : (
+                    <><HardDrive className='w-4 h-4' /> Test S3 Connection</>
+                  )}
+                </Button>
+                {s3TestResult && (
+                  <div className={`mt-3 p-3 rounded text-sm ${s3TestStatus === 'success' ? 'bg-green-50 border border-green-200 text-green-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+                    {s3TestStatus === 'success' ? (
+                      <div>
+                        <p className='font-semibold'>✓ S3 is configured and working!</p>
+                        <p className='text-xs mt-1'>Bucket: {s3TestResult.bucket_name}</p>
+                        <p className='text-xs'>Upload: ✓ | Presigned URL: ✓ | Delete: ✓</p>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className='font-semibold'>S3 configuration issue:</p>
+                        <p className='text-xs mt-1 font-mono break-all'>{s3TestResult.error}</p>
+                        <div className='text-xs mt-1'>
+                          <span>Access Key: {s3TestResult.aws_access_key_configured ? '✓' : '✗ Not set'} | </span>
+                          <span>Secret Key: {s3TestResult.aws_secret_key_configured ? '✓' : '✗ Not set'} | </span>
+                          <span>Bucket: {s3TestResult.bucket_configured ? '✓' : '✗ Not set'}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

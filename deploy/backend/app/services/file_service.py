@@ -173,6 +173,116 @@ def upload_bytes_to_s3(key: str, data: bytes, content_type: str = "application/o
         raise RuntimeError(f"Failed to upload file to S3: {e}")
 
 
+def generate_download_url_from_config(
+    key: str,
+    config: dict,
+    expire_seconds: int = 3600,
+) -> str:
+    """Generate S3 presigned GET URL using runtime DB config (not static env vars).
+
+    Use this instead of generate_download_url() when AWS credentials come from
+    admin settings stored in the database.
+
+    Args:
+        key: S3 object key.
+        config: Runtime config dict from get_runtime_config(db).
+        expire_seconds: URL expiration time in seconds.
+
+    Returns:
+        str: Presigned URL.
+
+    Raises:
+        RuntimeError: If URL generation fails or S3 not configured.
+    """
+    if key.startswith("text:"):
+        raise ValueError("Inline text files do not have presigned URLs")
+
+    aws_access_key = config.get("AWS_ACCESS_KEY_ID") or ""
+    aws_secret_key = config.get("AWS_SECRET_ACCESS_KEY") or ""
+    aws_region = config.get("AWS_REGION") or "us-east-1"
+    bucket_name = config.get("AWS_S3_BUCKET") or settings.S3_BUCKET_NAME or ""
+
+    if not aws_access_key or not aws_secret_key or not bucket_name:
+        raise RuntimeError(
+            f"AWS S3 not configured (key_set={bool(aws_access_key)}, bucket={bucket_name!r}). "
+            "Please configure AWS credentials in Admin Settings > AWS S3 Storage."
+        )
+
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
+        region_name=aws_region,
+        config=Config(signature_version="s3v4"),
+    )
+
+    try:
+        filename = key.split("/")[-1]
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={
+                "Bucket": bucket_name,
+                "Key": key,
+                "ResponseContentDisposition": f'attachment; filename="{filename}"',
+            },
+            ExpiresIn=expire_seconds,
+        )
+        return url
+    except ClientError as e:
+        raise RuntimeError(f"Failed to generate presigned download URL: {e}")
+
+
+def upload_bytes_to_s3_from_config(
+    key: str,
+    data: bytes,
+    config: dict,
+    content_type: str = "application/octet-stream",
+) -> str:
+    """Upload raw bytes to S3 using runtime DB config credentials.
+
+    Args:
+        key: S3 object key (path in bucket).
+        data: File bytes to upload.
+        config: Runtime config dict from get_runtime_config(db).
+        content_type: MIME type of file.
+
+    Returns:
+        str: The S3 key that was uploaded.
+
+    Raises:
+        RuntimeError: If upload fails or S3 not configured.
+    """
+    aws_access_key = config.get("AWS_ACCESS_KEY_ID") or ""
+    aws_secret_key = config.get("AWS_SECRET_ACCESS_KEY") or ""
+    aws_region = config.get("AWS_REGION") or "us-east-1"
+    bucket_name = config.get("AWS_S3_BUCKET") or settings.S3_BUCKET_NAME or ""
+
+    if not aws_access_key or not aws_secret_key or not bucket_name:
+        raise RuntimeError(
+            f"AWS S3 not configured (key_set={bool(aws_access_key)}, bucket={bucket_name!r}). "
+            "Please configure AWS credentials in Admin Settings > AWS S3 Storage."
+        )
+
+    s3 = boto3.client(
+        "s3",
+        aws_access_key_id=aws_access_key,
+        aws_secret_access_key=aws_secret_key,
+        region_name=aws_region,
+        config=Config(signature_version="s3v4"),
+    )
+
+    try:
+        s3.put_object(
+            Bucket=bucket_name,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+        return key
+    except ClientError as e:
+        raise RuntimeError(f"Failed to upload to S3: {e}")
+
+
 def check_file_exists(key: str) -> bool:
     """Check if a file exists in S3.
 

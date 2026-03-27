@@ -2747,3 +2747,97 @@ async def admin_extract_rfq_dispatches(
         ]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Extract failed: {str(exc)}")
+
+@router.post("/admin/debug/test-s3")
+async def admin_debug_test_s3(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Admin: Test S3 upload and download using runtime DB configuration.
+
+    Uploads a small test file, generates a presigned URL, then deletes it.
+    Returns detailed success/failure information to diagnose S3 configuration issues.
+    """
+    if "admin" not in (current_user.roles or []):
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    from app.services.config_service import get_runtime_config
+    import boto3 as _boto3
+    from botocore.config import Config as _BotoConfig
+    from botocore.exceptions import ClientError as _ClientError
+    import uuid as _uuid
+
+    config = await get_runtime_config(db)
+
+    aws_access_key = config.get("AWS_ACCESS_KEY_ID") or ""
+    aws_secret_key = config.get("AWS_SECRET_ACCESS_KEY") or ""
+    aws_region = config.get("AWS_REGION") or "us-east-1"
+    bucket_name = config.get("AWS_S3_BUCKET") or ""
+
+    result = {
+        "aws_access_key_configured": bool(aws_access_key),
+        "aws_secret_key_configured": bool(aws_secret_key),
+        "aws_region": aws_region,
+        "bucket_name": bucket_name,
+        "bucket_configured": bool(bucket_name),
+        "upload_success": False,
+        "download_url_success": False,
+        "delete_success": False,
+        "error": None,
+        "download_url": None,
+        "test_key": None,
+    }
+
+    if not aws_access_key or not aws_secret_key or not bucket_name:
+        result["error"] = (
+            "AWS S3 is not fully configured. "
+            f"Missing: {'Access Key ' if not aws_access_key else ''}"
+            f"{'Secret Key ' if not aws_secret_key else ''}"
+            f"{'Bucket Name' if not bucket_name else ''}. "
+            "Please configure these in Admin Settings > AWS S3 Storage."
+        )
+        return result
+
+    test_key = f"s3-test/{_uuid.uuid4()}/test.txt"
+    result["test_key"] = test_key
+    test_data = b"ProReadyEngineer S3 test file. Safe to delete."
+
+    try:
+        s3 = _boto3.client(
+            "s3",
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            region_name=aws_region,
+            config=_BotoConfig(signature_version="s3v4"),
+        )
+
+        # Test 1: Upload
+        s3.put_object(
+            Bucket=bucket_name,
+            Key=test_key,
+            Body=test_data,
+            ContentType="text/plain",
+        )
+        result["upload_success"] = True
+
+        # Test 2: Generate presigned download URL
+        download_url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": bucket_name, "Key": test_key},
+            ExpiresIn=300,
+        )
+        result["download_url_success"] = True
+        result["download_url"] = download_url
+
+        # Test 3: Delete test file
+        s3.delete_object(Bucket=bucket_name, Key=test_key)
+        result["delete_success"] = True
+
+    except _ClientError as ce:
+        error_code = ce.response.get("Error", {}).get("Code", "Unknown")
+        error_msg = ce.response.get("Error", {}).get("Message", str(ce))
+        result["error"] = f"AWS Error [{error_code}]: {error_msg}"
+    except Exception as e:
+        result["error"] = f"Unexpected error: {str(e)}"
+
+    return result

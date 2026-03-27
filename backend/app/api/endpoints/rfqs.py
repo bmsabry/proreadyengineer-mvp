@@ -186,6 +186,10 @@ async def get_rfq(
     # Build response with files + presigned download URLs
     rfq_data = RFQResponse.model_validate(rfq).model_dump()
 
+    # Load runtime config for S3 presigned URL generation
+    from app.services.config_service import get_runtime_config
+    s3_config = await get_runtime_config(db)
+
     # Attach files with presigned download URLs
     file_responses = []
     for f in (rfq.files or []):
@@ -198,9 +202,9 @@ async def get_rfq(
             "extracted_text": getattr(f, "extracted_text", None),
             "download_url": None,
         }
-        if f.s3_key:
+        if f.s3_key and not f.s3_key.startswith("text:"):
             try:
-                file_dict["download_url"] = generate_download_url(f.s3_key, expire_seconds=3600)
+                file_dict["download_url"] = generate_download_url_from_config(f.s3_key, s3_config, expire_seconds=3600)
             except Exception:
                 pass
         file_responses.append(file_dict)
@@ -911,6 +915,9 @@ async def get_rfq_files(
             )
 
     # All checks passed - return files
+    from app.services.config_service import get_runtime_config
+    s3_config = await get_runtime_config(db)
+
     result = await db.execute(select(RFQFile).where(RFQFile.rfq_id == rfq_id))
     files = result.scalars().all()
 
@@ -925,7 +932,7 @@ async def get_rfq_files(
         # text:inline is a special marker meaning the document text is stored in extracted_text column
         if f.s3_key and not f.s3_key.startswith("text:"):
             try:
-                entry["download_url"] = generate_download_url(f.s3_key, 3600)
+                entry["download_url"] = generate_download_url_from_config(f.s3_key, s3_config, 3600)
             except Exception:
                 pass
         # For inline text files (no S3): serve the stored extracted_text directly
