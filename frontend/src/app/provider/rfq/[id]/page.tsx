@@ -358,8 +358,6 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
   };
 
   const handleSubmit = async () => {
-    if (!assumptions.trim()) { toast.error('Please list your technical assumptions.'); return; }
-    if (!turnaround.trim()) { toast.error('Please provide a turnaround estimate.'); return; }
     setSubmitting(true);
     try {
       await api.providerRFQ.submitQuote(rfqId, {
