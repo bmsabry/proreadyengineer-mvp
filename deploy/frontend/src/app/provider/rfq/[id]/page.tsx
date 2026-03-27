@@ -153,7 +153,7 @@ function FilesSection({ files, loading, rfqId }: { files: RFQFile[]; loading: bo
           ) : (
             <Button variant="ghost" size="sm" onClick={async () => {
               try {
-                const token = localStorage.getItem('accessToken');
+                const token = localStorage.getItem('access_token');
                 const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/provider/rfqs/${rfqId}/files/${f.id}/download`, {
                   headers: { Authorization: `Bearer ${token}` }
                 });
