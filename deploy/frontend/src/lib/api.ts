@@ -380,7 +380,7 @@ const quotes = {
     const formData = new FormData();
     formData.append('file', file);
     const token = getStoredToken();
-    const headers: Record<string, string> = { 'Content-Type': 'multipart/form-data' };
+    const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await apiClient.post<QuoteDocExtractResponse>(
       `/provider/rfqs/${rfqId}/quote/extract-document`,
