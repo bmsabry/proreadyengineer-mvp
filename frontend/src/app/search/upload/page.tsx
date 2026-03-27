@@ -97,6 +97,7 @@ export default function UploadPage() {
       const data = await response.json();
       sessionStorage.setItem('docSearchQuery', data.query);
       if (data.s3_key) sessionStorage.setItem('docSearchS3Key', data.s3_key);
+      if (data.extracted_text) sessionStorage.setItem('docSearchExtractedText', data.extracted_text);
       router.push('/search');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to analyze document';

@@ -507,6 +507,7 @@ async def extract_and_describe(
 
     return {
         "query": ai_query,
+        "extracted_text": extracted_text,
         "extracted_text_preview": extracted_text[:500],
         "filename": filename,
         "s3_key": s3_key,

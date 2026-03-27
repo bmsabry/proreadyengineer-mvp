@@ -96,6 +96,25 @@ async def create_rfq(
         except Exception as e:
             logger.warning(f"[RFQ] Failed to link document to RFQ (non-fatal): {e}")
 
+    # Fallback: if no S3 key but extracted text provided, store as text RFQFile
+    extracted_text = getattr(data, "document_extracted_text", None)
+    if not doc_key and extracted_text:
+        try:
+            rfq.extracted_text = extracted_text
+            rfq_file = RFQFile(
+                rfq_id=rfq.id,
+                s3_key=None,
+                original_filename="project_document.txt",
+                mime_type="text/plain",
+                file_size_bytes=len(extracted_text.encode("utf-8")),
+                uploaded_by_user_id=user.id if user else None,
+            )
+            db.add(rfq_file)
+            await db.commit()
+            logger.info(f"[RFQ] Stored extracted text as text RFQFile for RFQ {rfq.id}")
+        except Exception as e:
+            logger.warning(f"[RFQ] Failed to store extracted text (non-fatal): {e}")
+
     return rfq
 
 

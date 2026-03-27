@@ -32,6 +32,7 @@ class RFQCreateRequest(BaseSchema):
     tollgate_phases: list[str] = Field(default_factory=list)  # TG0, TG1, TG3, TG4, TG6, All, Don't Know
     nda_required: bool = False
     document_s3_key: Optional[str] = Field(None, description="S3 key of document uploaded during search, to be linked as RFQ attachment")
+    document_extracted_text: Optional[str] = Field(None, description="Extracted text from uploaded document when S3 is not available")
 
 
 class RFQUpdateRequest(BaseSchema):

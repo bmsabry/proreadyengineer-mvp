@@ -914,16 +914,29 @@ async def get_rfq_files(
     result = await db.execute(select(RFQFile).where(RFQFile.rfq_id == rfq_id))
     files = result.scalars().all()
 
-    return {
-        "files": [
-            {
-                "file_id": str(f.id),
-                "filename": f.original_filename,
-                "download_url": generate_download_url(f.s3_key, 3600),
-            }
-            for f in files
-        ]
-    }
+    # Load RFQ for extracted_text fallback (for text-only files)
+    rfq_for_text = (await db.execute(select(_RFQModel).where(_RFQModel.id == rfq_id))).scalar_one_or_none()
+    rfq_extracted_text = getattr(rfq_for_text, "extracted_text", None) if rfq_for_text else None
+
+    file_list = []
+    for f in files:
+        entry = {
+            "file_id": str(f.id),
+            "filename": f.original_filename,
+            "download_url": None,
+            "inline_text": None,
+        }
+        if f.s3_key:
+            try:
+                entry["download_url"] = generate_download_url(f.s3_key, 3600)
+            except Exception:
+                pass
+        elif f.mime_type == "text/plain" and rfq_extracted_text:
+            # No S3 key - serve extracted text as inline content
+            entry["inline_text"] = rfq_extracted_text
+        file_list.append(entry)
+
+    return {"files": file_list}
 
 
 

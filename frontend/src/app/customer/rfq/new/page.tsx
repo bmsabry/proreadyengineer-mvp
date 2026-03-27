@@ -40,6 +40,12 @@ function CreateRFQForm() {
     }
     return null;
   });
+  const [docExtractedText] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('docSearchExtractedText');
+    }
+    return null;
+  });
 
   const [formData, setFormData] = useState({
     customer_email: '',
@@ -85,10 +91,12 @@ function CreateRFQForm() {
       const response = await api.rfqs.create({
         ...formData,
         ...(docS3Key ? { document_s3_key: docS3Key } : {}),
+        ...(docExtractedText ? { document_extracted_text: docExtractedText } : {}),
       });
       rfqId = response.data.id;
       // Now safe to consume the S3 key from sessionStorage
       if (docS3Key) sessionStorage.removeItem('docSearchS3Key');
+      sessionStorage.removeItem('docSearchExtractedText');
     } catch (error: any) {
       const msg = error.response?.data?.detail || 'Failed to create RFQ. Please check your details and try again.';
       toast.error(msg);

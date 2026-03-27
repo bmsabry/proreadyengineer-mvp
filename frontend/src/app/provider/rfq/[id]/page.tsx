@@ -39,6 +39,7 @@ interface RFQFile {
   original_filename: string;
   presigned_url?: string;
   file_size_bytes?: number;
+  inline_text?: string;
 }
 
 const urgencyVariant = (u?: string): 'destructive' | 'default' | 'secondary' => {
@@ -135,11 +136,21 @@ function FilesSection({ files, loading }: { files: RFQFile[]; loading: boolean }
             <span>{f.original_filename}</span>
             {f.file_size_bytes && <span className="text-gray-400 text-xs">({fmtBytes(f.file_size_bytes)})</span>}
           </div>
-          {f.presigned_url && (
+          {f.presigned_url ? (
             <a href={f.presigned_url} target="_blank" rel="noreferrer">
               <Button variant="ghost" size="sm"><Download className="h-4 w-4 mr-1"/>Download</Button>
             </a>
-          )}
+          ) : f.inline_text ? (
+            <Button variant="ghost" size="sm" onClick={() => {
+              const blob = new Blob([f.inline_text!], { type: 'text/plain' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = f.original_filename || 'project_document.txt';
+              a.click();
+              URL.revokeObjectURL(url);
+            }}><Download className="h-4 w-4 mr-1"/>Download</Button>
+          ) : null}
         </li>
       ))}
     </ul>
@@ -483,14 +494,15 @@ function ProviderRFQPageInner() {
     setFilesLoading(true);
     try {
       const res = await api.providerRFQ.getFiles(rfqId);
-      const data = res.data as { files?: Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number }> } | Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number }>;
+      const data = res.data as { files?: Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number; inline_text?: string }> } | Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number; inline_text?: string }>;
       // Backend returns { files: [...] } wrapper object, or may return array directly
       const rawFiles = Array.isArray(data) ? data : ((data as { files?: unknown[] })?.files || []);
-      setFiles((rawFiles as Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number }>).map((f) => ({
+      setFiles((rawFiles as Array<{ file_id?: string; id?: string; filename?: string; original_filename?: string; download_url?: string; presigned_url?: string; file_size_bytes?: number; inline_text?: string }>).map((f) => ({
         id: f.file_id || f.id || '',
         original_filename: f.filename || f.original_filename || 'document',
         presigned_url: f.download_url || f.presigned_url,
         file_size_bytes: f.file_size_bytes,
+        inline_text: f.inline_text,
       })));
     } catch {
       // files may be temporarily unavailable
