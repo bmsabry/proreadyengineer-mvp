@@ -380,7 +380,11 @@ const quotes = {
     const formData = new FormData();
     formData.append('file', file);
     const token = getStoredToken();
-    const headers: Record<string, string> = {};
+    // Must delete Content-Type so Axios auto-sets multipart/form-data with correct boundary.
+    // The apiClient default Content-Type: application/json would otherwise override FormData detection.
+    const headers: Record<string, string | undefined> = {
+      'Content-Type': undefined,
+    };
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const response = await apiClient.post<QuoteDocExtractResponse>(
       `/provider/rfqs/${rfqId}/quote/extract-document`,
