@@ -84,9 +84,10 @@ async def extract_quote_document(
 
     # LLM extraction
     cfg = await get_runtime_config(db)
-    llm_api_key = cfg.get("OPENAI_API_KEY", "")
-    llm_api_base = cfg.get("OPENAI_API_BASE", "https://api.openai.com/v1")
-    llm_model = cfg.get("OPENAI_LLM_MODEL", "gpt-4o-mini")
+    # Use LLM3 (Document Collapse LLM) with fallback to LLM2 (Firm Ranking LLM)
+    llm_api_key = cfg.get("DOC_LLM_API_KEY") or cfg.get("OPENAI_API_KEY", "")
+    llm_api_base = cfg.get("DOC_LLM_API_BASE") or cfg.get("OPENAI_API_BASE", "https://api.openai.com/v1")
+    llm_model = cfg.get("DOC_LLM_MODEL") or cfg.get("OPENAI_LLM_MODEL", "gpt-4o-mini")
 
     extracted = {}
     raw_extraction = ""
