@@ -2751,7 +2751,7 @@ async def admin_extract_rfq_dispatches(
 @router.post("/admin/debug/test-s3")
 async def admin_debug_test_s3(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_role(["admin"])),
 ):
     """Admin: Test S3 upload and download using runtime DB configuration.
 
