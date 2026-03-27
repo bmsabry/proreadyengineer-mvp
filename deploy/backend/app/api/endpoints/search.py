@@ -469,17 +469,38 @@ async def extract_and_describe(
         ai_query = extracted_text.strip()
 
     # Upload document to S3 so it can be linked to an RFQ later
+    # Uses runtime DB config for AWS credentials (not static env vars)
     s3_key = None
     try:
         import uuid as _uuid_mod
-        from app.services.file_service import upload_bytes_to_s3
+        import boto3 as _boto3
+        from botocore.config import Config as _BotoConfig
         ext_lower = ext.lower() if ext else "bin"
         mime_map = {"pdf": "application/pdf", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                    "doc": "application/msword", "txt": "text/plain", "md": "text/markdown"}
         content_type = mime_map.get(ext_lower, "application/octet-stream")
+        # Read AWS credentials from runtime DB config (same source as admin settings)
+        aws_access_key = config.get("AWS_ACCESS_KEY_ID") or ""
+        aws_secret_key = config.get("AWS_SECRET_ACCESS_KEY") or ""
+        aws_region = config.get("AWS_REGION") or "us-east-1"
+        bucket_name = config.get("AWS_S3_BUCKET") or settings.S3_BUCKET_NAME or ""
+        if not aws_access_key or not aws_secret_key or not bucket_name:
+            raise ValueError(f"AWS S3 not configured in admin settings (key_set={bool(aws_access_key)}, bucket={bucket_name})")
+        s3_client = _boto3.client(
+            "s3",
+            aws_access_key_id=aws_access_key,
+            aws_secret_access_key=aws_secret_key,
+            region_name=aws_region,
+            config=_BotoConfig(signature_version="s3v4"),
+        )
         s3_key = f"rfq-documents/{_uuid_mod.uuid4()}/{filename}"
-        upload_bytes_to_s3(s3_key, content, content_type)
-        logger.info(f"[DOC_UPLOAD] Document uploaded to S3: {s3_key}")
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=s3_key,
+            Body=content,
+            ContentType=content_type,
+        )
+        logger.info(f"[DOC_UPLOAD] Document uploaded to S3: {s3_key} (bucket={bucket_name})")
     except Exception as s3_err:
         logger.warning(f"[DOC_UPLOAD] Failed to upload document to S3 (non-fatal): {s3_err}")
         s3_key = None
