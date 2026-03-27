@@ -336,8 +336,14 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
       setExtractedDocFilename(result.original_filename);
       toast.success('Fields pre-filled from your document. Please review before submitting.');
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } } };
-      toast.error(e?.response?.data?.detail || 'Failed to extract fields from document. Please fill in manually.');
+      const rawDetailEx = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      let extractErrMsg = 'Failed to extract fields from document. Please fill in manually.';
+      if (typeof rawDetailEx === 'string') {
+        extractErrMsg = rawDetailEx;
+      } else if (Array.isArray(rawDetailEx)) {
+        extractErrMsg = (rawDetailEx as Array<{ msg?: string }>).map(d => d.msg || 'Error').join('; ');
+      }
+      toast.error(extractErrMsg);
       setSelectedFile(null);
     } finally {
       setExtracting(false);
@@ -368,8 +374,19 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
       toast.success('Quote submitted successfully!');
       onSuccess();
     } catch (e: unknown) {
-      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-      toast.error(detail || 'Failed to submit quote.');
+      const rawDetail = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      let errMsg = 'Failed to submit quote.';
+      if (typeof rawDetail === 'string') {
+        errMsg = rawDetail;
+      } else if (Array.isArray(rawDetail)) {
+        errMsg = (rawDetail as Array<{ msg?: string; loc?: unknown[] }>)
+          .map(d => {
+            const field = Array.isArray(d.loc) ? d.loc.filter(l => l !== 'body').join('.') : '';
+            return field ? `${field}: ${d.msg || 'invalid'}` : (d.msg || 'Validation error');
+          })
+          .join('; ');
+      }
+      toast.error(errMsg);
     } finally { setSubmitting(false); }
   };
 
