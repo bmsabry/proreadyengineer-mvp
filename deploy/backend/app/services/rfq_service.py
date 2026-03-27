@@ -96,17 +96,28 @@ async def create_rfq(
         except Exception as e:
             logger.warning(f"[RFQ] Failed to link document to RFQ (non-fatal): {e}")
 
-    # Note: If document_extracted_text is provided but no S3 key exists,
-    # the text is already in project_description (pre-filled from search).
-    # We just mark has_documents=True so providers know a document was uploaded.
+    # If document_extracted_text is provided but no S3 key exists,
+    # create an RFQFile record with the text stored inline so providers can download it.
     extracted_text = getattr(data, "document_extracted_text", None)
     if not doc_key and extracted_text:
         try:
             rfq.has_documents = True
+            # Create an RFQFile record to store the extracted text
+            # s3_key='text:inline' is a special marker meaning no real S3 object exists
+            text_file = RFQFile(
+                rfq_id=rfq.id,
+                s3_key="text:inline",
+                original_filename="project_document.txt",
+                mime_type="text/plain",
+                file_size_bytes=len(extracted_text.encode("utf-8")),
+                extracted_text=extracted_text,
+                uploaded_by_user_id=user.id if user else None,
+            )
+            db.add(text_file)
             await db.commit()
-            logger.info(f"[RFQ] Marked RFQ {rfq.id} as having documents (text-only, no S3)")
+            logger.info(f"[RFQ] Created inline text RFQFile for RFQ {rfq.id} ({len(extracted_text)} chars)")
         except Exception as e:
-            logger.warning(f"[RFQ] Failed to mark has_documents (non-fatal): {e}")
+            logger.warning(f"[RFQ] Failed to create inline text file for RFQ (non-fatal): {e}")
 
     return rfq
 

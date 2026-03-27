@@ -914,10 +914,6 @@ async def get_rfq_files(
     result = await db.execute(select(RFQFile).where(RFQFile.rfq_id == rfq_id))
     files = result.scalars().all()
 
-    # Load RFQ for extracted_text fallback (for text-only files)
-    rfq_for_text = (await db.execute(select(_RFQModel).where(_RFQModel.id == rfq_id))).scalar_one_or_none()
-    rfq_extracted_text = getattr(rfq_for_text, "extracted_text", None) if rfq_for_text else None
-
     file_list = []
     for f in files:
         entry = {
@@ -926,15 +922,29 @@ async def get_rfq_files(
             "download_url": None,
             "inline_text": None,
         }
-        if f.s3_key:
+        # text:inline is a special marker meaning the document text is stored in extracted_text column
+        if f.s3_key and not f.s3_key.startswith("text:"):
             try:
                 entry["download_url"] = generate_download_url(f.s3_key, 3600)
             except Exception:
                 pass
-        elif f.mime_type == "text/plain" and rfq_extracted_text:
-            # No S3 key - serve extracted text as inline content
-            entry["inline_text"] = rfq_extracted_text
+        # For inline text files (no S3): serve the stored extracted_text directly
+        if f.s3_key.startswith("text:") or (f.mime_type == "text/plain" and not f.s3_key):
+            if f.extracted_text:
+                entry["inline_text"] = f.extracted_text
         file_list.append(entry)
+
+    # Fallback for legacy RFQs: if no RFQFile records exist but RFQ has_documents=True,
+    # synthesize a virtual file from the project_description so providers see something.
+    if not file_list and rfq.has_documents:
+        fallback_text = rfq.project_description or ""
+        if fallback_text.strip():
+            file_list.append({
+                "file_id": "virtual-doc",
+                "filename": "project_document.txt",
+                "download_url": None,
+                "inline_text": fallback_text,
+            })
 
     return {"files": file_list}
 
