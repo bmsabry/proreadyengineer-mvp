@@ -933,8 +933,8 @@ async def get_rfq_files(
         if f.s3_key and not f.s3_key.startswith("text:"):
             try:
                 entry["download_url"] = generate_download_url_from_config(f.s3_key, s3_config, 3600)
-            except Exception:
-                pass
+            except Exception as e:
+                entry["download_error"] = str(e)
         # For inline text files (no S3): serve the stored extracted_text directly
         if f.s3_key.startswith("text:") or (f.mime_type == "text/plain" and not f.s3_key):
             if f.extracted_text:
@@ -954,6 +954,61 @@ async def get_rfq_files(
             })
 
     return {"files": file_list}
+
+
+@router.get("/provider/rfqs/{rfq_id}/files/{file_id}/download")
+async def get_rfq_file_download_url(
+    rfq_id: str,
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Get a fresh presigned download URL for a specific RFQ file."""
+    from sqlalchemy import select
+    from app.models.rfq import RFQUnlock, RFQFile, RFQ as _RFQModel3
+    from app.models.provider import ProviderMembership
+    from app.services.file_service import generate_download_url_from_config
+    from app.services.config_service import get_runtime_config
+
+    result = await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
+    )
+    membership = result.scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
+
+    result = await db.execute(
+        select(RFQUnlock).where(
+            RFQUnlock.rfq_id == rfq_id,
+            RFQUnlock.provider_id == membership.provider_id,
+            RFQUnlock.unlock_status == "unlocked"
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="RFQ not unlocked")
+
+    result = await db.execute(
+        select(RFQFile).where(RFQFile.rfq_id == rfq_id, RFQFile.id == file_id)
+    )
+    file = result.scalar_one_or_none()
+    if not file:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if file.s3_key and file.s3_key.startswith("text:"):
+        if file.extracted_text:
+            return {"inline_text": file.extracted_text, "filename": file.original_filename}
+        raise HTTPException(status_code=404, detail="No content available")
+
+    s3_config = await get_runtime_config(db)
+    try:
+        url = generate_download_url_from_config(file.s3_key, s3_config, 3600)
+        return {"download_url": url, "filename": file.original_filename}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"S3 error: {str(e)}"
+        )
+
 
 
 

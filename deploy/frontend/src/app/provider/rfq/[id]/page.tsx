@@ -124,7 +124,7 @@ function LockedCard({ status, onUnlock, checkingOut }: { status: UnlockStatus; o
   );
 }
 
-function FilesSection({ files, loading }: { files: RFQFile[]; loading: boolean }) {
+function FilesSection({ files, loading, rfqId }: { files: RFQFile[]; loading: boolean; rfqId: string }) {
   if (loading) return <div className="flex items-center gap-2 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin"/>Loading files...</div>;
   if (!files.length) return <p className="text-sm text-gray-500 italic">No files attached to this project.</p>;
   return (
@@ -150,7 +150,29 @@ function FilesSection({ files, loading }: { files: RFQFile[]; loading: boolean }
               a.click();
               URL.revokeObjectURL(url);
             }}><Download className="h-4 w-4 mr-1"/>Download</Button>
-          ) : null}
+          ) : (
+            <Button variant="ghost" size="sm" onClick={async () => {
+              try {
+                const token = localStorage.getItem('accessToken');
+                const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/provider/rfqs/${rfqId}/files/${f.id}/download`, {
+                  headers: { Authorization: `Bearer ${token}` }
+                });
+                if (!res.ok) { alert('Download failed: ' + (await res.json()).detail); return; }
+                const data = await res.json();
+                if (data.download_url) {
+                  window.open(data.download_url, '_blank');
+                } else if (data.inline_text) {
+                  const blob = new Blob([data.inline_text], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = data.filename || f.original_filename || 'document.txt';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }
+              } catch (e) { alert('Download error'); }
+            }}><Download className="h-4 w-4 mr-1"/>Download</Button>
+          )}
         </li>
       ))}
     </ul>
@@ -742,7 +764,7 @@ function ProviderRFQPageInner() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <FilesSection files={files} loading={filesLoading} />
+                    <FilesSection files={files} loading={filesLoading} rfqId={rfqId} />
                   </CardContent>
                 </Card>
               )}

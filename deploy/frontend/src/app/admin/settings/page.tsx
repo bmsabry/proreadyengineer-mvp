@@ -392,6 +392,8 @@ export default function AdminSettingsPage() {
       message = err instanceof Error ? err.message : String(err)
     }
     setErrorMsg(`Failed to save configuration: ${message}`)
+  } finally {
+    setSaving(false)
   }
   }
 
