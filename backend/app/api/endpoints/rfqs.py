@@ -823,6 +823,18 @@ async def get_unlock_status(
             provider_nda = nda_result.scalar_one_or_none()
             if provider_nda and provider_nda.provider_signed_at is not None:
                 provider_nda_signed = True
+            # If still not signed, poll Signwell directly (self-healing fallback)
+            if not provider_nda_signed and provider_nda:
+                try:
+                    from app.services.nda_service import _heal_nda_if_complete
+                    healed = await _heal_nda_if_complete(provider_nda, db)
+                    if healed:
+                        provider_nda_signed = True
+                except Exception as _heal_exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "NDA self-heal failed in unlock_status: %s", _heal_exc
+                    )
         else:
             # NDA not required - treat as signed
             provider_nda_signed = True

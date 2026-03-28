@@ -429,8 +429,10 @@ async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSessi
     # Signwell sends: {"event": "...", "data": {"id": "...", "document": {...}}}
     # or: {"document": {"id": "..."}, ...}
     data = payload.get("data", {})
+    # Signwell standard payload: {"event":"...","data":{"object":{"id":"DOC_ID",...},...}}
     document_id = (
-        payload.get("document", {}).get("id")
+        data.get("object", {}).get("id")      # Standard Signwell format: data.object.id
+        or payload.get("document", {}).get("id")
         or data.get("document", {}).get("id")
         or data.get("id")
         or payload.get("id")
