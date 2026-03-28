@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}New Quote Received{% endblock %}
+
+{% block content %}
+<h2>New Quote Received for Your RFQ</h2>
+<p>Hello {{ customer_name }},</p>
+<p>Good news! <strong>{{ provider_name }}</strong> has submitted a quote for your engineering project request.</p>
+<div style="background: white; padding: 15px; border-left: 4px solid #2563eb; margin: 20px 0;">
+    <p><strong>Price Range:</strong> {{ price_range }}</p>
+    <p><strong>Estimated Turnaround:</strong> {{ turnaround }}</p>
+</div>
+<p>Log in to your account to review this quote alongside any others you receive. Remember, quotes are rough, non-binding, order-of-magnitude estimates &mdash; a refined final estimate will follow direct engagement with your selected provider.</p>
+<p style="text-align: center; margin-top: 30px;">
+    <a href="{{ view_quotes_url }}" class="button">View All Quotes</a>
+</p>
+<p style="font-size: 12px; color: #6b7280;">Only the first five quotes will be accepted for this RFQ. Select the provider that best fits your needs to begin direct engagement.</p>
+{% endblock %}

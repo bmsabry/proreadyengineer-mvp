@@ -426,13 +426,21 @@ async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSessi
     """Process Signwell webhook events.
     Handles document_signer_completed and document_completed.
     """
+    # Signwell sends: {"event": "...", "data": {"id": "...", "document": {...}}}
+    # or: {"document": {"id": "..."}, ...}
+    data = payload.get("data", {})
     document_id = (
         payload.get("document", {}).get("id")
-        or payload.get("data", {}).get("document", {}).get("id")
+        or data.get("document", {}).get("id")
+        or data.get("id")
         or payload.get("id")
     )
     if not document_id:
-        logger.warning("Signwell webhook missing document id, keys: %s", list(payload.keys()))
+        logger.warning(
+            "Signwell webhook missing document id, keys: %s, data_keys: %s",
+            list(payload.keys()),
+            list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+        )
         return
 
     result = await db.execute(

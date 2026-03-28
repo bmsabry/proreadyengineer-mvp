@@ -66,24 +66,28 @@ async def extract_quote_document(
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Failed to extract text: {e}")
 
-    # Upload to S3
+    # Upload to S3 using runtime DB config
     s3_key = generate_unique_key("quote-documents", filename)
+    # LLM extraction - get config first (also needed for S3)
+    cfg = await get_runtime_config(db)
+    aws_key = cfg.get("AWS_ACCESS_KEY_ID") or getattr(settings, "AWS_ACCESS_KEY_ID", "")
+    aws_secret = cfg.get("AWS_SECRET_ACCESS_KEY") or getattr(settings, "AWS_SECRET_ACCESS_KEY", "")
+    aws_region = cfg.get("AWS_REGION") or getattr(settings, "AWS_REGION", "us-east-1")
+    s3_bucket = cfg.get("S3_BUCKET_NAME") or cfg.get("AWS_S3_BUCKET") or getattr(settings, "S3_BUCKET_NAME", "")
     try:
         s3 = boto3.client(
             "s3",
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
-            region_name=settings.AWS_REGION,
+            aws_access_key_id=aws_key,
+            aws_secret_access_key=aws_secret,
+            region_name=aws_region,
             config=BotoConfig(signature_version="s3v4"),
         )
         mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        s3.put_object(Bucket=settings.S3_BUCKET_NAME, Key=s3_key, Body=file_bytes, ContentType=mime_type)
+        s3.put_object(Bucket=s3_bucket, Key=s3_key, Body=file_bytes, ContentType=mime_type)
     except Exception as e:
         logger.warning(f"S3 upload failed (continuing): {e}")
         s3_key = ""
 
-    # LLM extraction
-    cfg = await get_runtime_config(db)
     # Use LLM3 (Document Collapse LLM) with fallback to LLM2 (Firm Ranking LLM)
     llm_api_key = cfg.get("DOC_LLM_API_KEY") or cfg.get("OPENAI_API_KEY", "")
     llm_api_base = cfg.get("DOC_LLM_API_BASE") or cfg.get("OPENAI_API_BASE", "https://api.openai.com/v1")

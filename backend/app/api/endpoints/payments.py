@@ -87,9 +87,11 @@ async def signwell_webhook(
         payload = {}
 
     event_type = (
-        payload.get("event_type")
+        payload.get("event")
+        or payload.get("event_type")
         or payload.get("type")
         or payload.get("data", {}).get("event_type")
+        or payload.get("data", {}).get("event")
         or ""
     )
     _log.info("Signwell webhook received: event_type=%s", event_type)
