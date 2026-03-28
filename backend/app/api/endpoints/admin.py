@@ -1899,12 +1899,26 @@ async def admin_trigger_post_acceptance_nda(
     # Trigger NDA creation
     try:
         from app.services.nda_service import create_post_acceptance_nda
+        # Build string arguments matching create_post_acceptance_nda signature
+        _cust_first = (customer_user.first_name or '').strip()
+        _cust_last  = (customer_user.last_name  or '').strip()
+        _cust_name  = f'{_cust_first} {_cust_last}'.strip() or customer_user.email
+        _prov_first = (provider_user.first_name or '').strip()
+        _prov_last  = (provider_user.last_name  or '').strip()
+        _prov_name  = f'{_prov_first} {_prov_last}'.strip() or provider_user.email
+        _prov_co    = getattr(selected_provider, 'firm_name', None) or getattr(selected_provider, 'name', None) or 'Provider'
+        _biz_name   = (rfq.business_name or rfq.contact_name or '').strip()
+
         result = await create_post_acceptance_nda(
             rfq_id=rfq.id,
-            customer_user=customer_user,
-            provider=selected_provider,
-            provider_user=provider_user,
-            rfq=rfq,
+            customer_user_id=customer_user.id,
+            customer_name=_cust_name,
+            customer_email=customer_user.email,
+            business_name=_biz_name,
+            provider_id=selected_provider.id,
+            provider_signer_name=_prov_name,
+            provider_email=provider_user.email,
+            provider_company=_prov_co,
             db=db,
         )
         return {

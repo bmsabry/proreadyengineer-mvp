@@ -783,6 +783,8 @@ async def accept_quote(
     _rfq_id              = rfq.id
     _nda_required        = rfq.nda_required
     _selected_provider_id = quote.provider_id
+    _customer_email_addr = rfq.customer_email        # pre-extract: used after commit
+    _contact_name        = rfq.contact_name or ""    # pre-extract: used after commit
 
     # Verify customer owns this RFQ
     # If submitted anonymously, the user accepting the quote claims ownership
@@ -872,18 +874,18 @@ async def accept_quote(
         # Send confirmation email to customer
         try:
             await send_email(
-                to=rfq.customer_email,
+                to=_customer_email_addr,
                 template="customer_quote_selected",
                 subject="You have selected a provider - Next Steps",
                 context={
-                    "customer_name": rfq.contact_name or "Customer",
+                    "customer_name": _contact_name or "Customer",
                     "provider_name": p.firm_name,
                     "provider_email": provider_email or "(contact via platform)",
                     "provider_phone": p.phone or "Not provided",
                     "provider_website": p.website or "Not provided",
                     "provider_city": p.city or "",
                     "provider_state": p.state or "",
-                    "rfq_url": f"{settings.FRONTEND_URL}/customer/rfq/{rfq.id}",
+                    "rfq_url": f"{settings.FRONTEND_URL}/customer/rfq/{_rfq_id}",
                 },
                 db=db,
             )
@@ -960,7 +962,7 @@ async def accept_quote(
                 else:
                     logger.warning(
                         "Could not create NDA for RFQ %s: provider_user=%s, provider=%s",
-                        rfq.id, provider_user, selected_provider,
+                        _rfq_id, provider_user, selected_provider,
                     )
             else:
                 logger.warning(
@@ -971,7 +973,7 @@ async def accept_quote(
             # NDA creation failure should NOT block quote acceptance
             logger.error(
                 "Failed to create post-acceptance NDA for RFQ %s: %s",
-                rfq.id, nda_exc, exc_info=True,
+                _rfq_id, nda_exc, exc_info=True,
             )
             provider_contact["nda_error"] = str(nda_exc)
             provider_contact["nda_triggered"] = False
