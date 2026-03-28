@@ -390,7 +390,7 @@ async def dispatch_next_batch(
             rfq_id=rfq_id,
             provider_id=match.provider_id,
             batch_id=batch.id,
-            dispatch_status=DispatchStatus.SENT if email_target else DispatchStatus.FAILED,
+            dispatch_status=DispatchStatus.SENT if email_target else DispatchStatus.BOUNCED,
             email_target=email_target,
             teaser_email_sent_at=datetime.utcnow() if email_target else None,
         )
@@ -919,7 +919,6 @@ async def accept_quote(
                 .where(
                     ProviderMembership.provider_id == _selected_provider_id,
                     ProviderMembership.status == "active",
-                    User.is_active == True,
                     ~User.email.like("removed_%"),
                 )
                 .order_by(ProviderMembership.created_at.desc())
@@ -936,8 +935,7 @@ async def accept_quote(
                 provider_user_result = await db.execute(
                     select(User).where(
                         User.id == prov_membership.user_id,
-                        User.is_active == True,
-                    )
+                        )
                 )
                 provider_user = provider_user_result.scalar_one_or_none()
 

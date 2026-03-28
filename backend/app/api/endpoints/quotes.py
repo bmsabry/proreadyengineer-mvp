@@ -247,7 +247,7 @@ async def submit_provider_quote(
                 )
                 full_quote = q_result.scalar_one_or_none()
                 if full_quote and full_quote.rfq and full_quote.rfq.customer_email:
-                    await send_quote_notification(db=notify_db, recipient_email=full_quote.rfq.customer_email, quote=full_quote)
+                    await send_quote_notification(customer_email=full_quote.rfq.customer_email, quote=full_quote, db=notify_db)
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"Quote notification email failed: {e}")
