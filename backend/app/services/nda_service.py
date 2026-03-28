@@ -565,62 +565,103 @@ async def _maybe_open_rfq_for_dispatch(rfq_id, db: AsyncSession) -> None:
 
 async def create_post_acceptance_nda(
     rfq_id,
-    customer_user: User,
-    provider: "Provider",
-    provider_user: User,
-    rfq: "RFQ",
+    customer_user_id,
+    customer_name: str,
+    customer_email: str,
+    business_name: str,
+    provider_id,
+    provider_signer_name: str,
+    provider_email: str,
+    provider_company: str,
     db: AsyncSession,
 ) -> dict:
     """Create a post-acceptance NDA with BOTH customer and provider as real signers.
 
-    Called after a customer accepts a provider quote.
+    Accepts plain string values (NOT ORM objects) to avoid expired-object errors
+    after db.commit() calls in the caller. Mirrors the admin test endpoint exactly.
     Both parties receive signing emails from Signwell (no iframe required).
     Returns {document_id, nda_id}.
     """
-    # Idempotency: check if NDA already exists for this RFQ + provider
     from sqlalchemy import select as _sel
+
+    # Idempotency: check if NDA already exists for this RFQ + provider
     existing = (await db.execute(
         _sel(RFQNDA).where(
             RFQNDA.rfq_id == rfq_id,
-            RFQNDA.provider_id == provider.id,
+            RFQNDA.provider_id == provider_id,
         )
     )).scalar_one_or_none()
     if existing:
         logger.info(
             "[SIGNWELL] Post-acceptance NDA already exists for RFQ %s provider %s (status=%s) - skipping",
-            rfq_id, provider.id, existing.nda_status,
+            rfq_id, provider_id, existing.nda_status,
         )
         return {"document_id": existing.signrequest_document_id, "nda_id": str(existing.id)}
 
-    h   = await _headers(db)
-    tid = await _get_template_id(db)
-
-    # Customer info
-    first = (customer_user.first_name or "").strip()
-    last  = (customer_user.last_name  or "").strip()
-    customer_name    = f"{first} {last}".strip() or customer_user.email
-    customer_company = getattr(rfq, "business_name", None) or customer_name
-
-    # Provider info
-    provider_name    = getattr(provider, "firm_name", None) or getattr(provider, "name", None) or "Provider"
-    prov_first = (provider_user.first_name or "").strip()
-    prov_last  = (provider_user.last_name  or "").strip()
-    prov_signer_name = f"{prov_first} {prov_last}".strip() or provider_user.email
+    # Step 1: Get Signwell credentials (exactly like admin test)
+    try:
+        h   = await _headers(db)
+        tid = await _get_template_id(db)
+    except Exception as exc:
+        logger.error("[SIGNWELL] create_post_acceptance_nda: credentials error: %s", exc)
+        raise RuntimeError(f"Signwell not configured: {exc}") from exc
 
     from datetime import date as _date
     effective_date = _date.today().strftime("%m/%d/%Y")
 
-    # Fetch template placeholder names
-    customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
+    # Step 2: Fetch template to get placeholder names (exactly like admin test)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            tmpl_resp = await client.get(
+                f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h
+            )
+            tmpl_resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.error("[SIGNWELL] Template fetch failed %s: %s", exc.response.status_code, exc.response.text)
+        raise RuntimeError(
+            f"Failed to fetch Signwell template {exc.response.status_code}: {exc.response.text}"
+        ) from exc
+    except Exception as exc:
+        logger.error("[SIGNWELL] Template fetch error: %s", exc)
+        raise RuntimeError(f"Template fetch failed: {exc}") from exc
 
+    tmpl_data = tmpl_resp.json()
+
+    # Extract placeholder names exactly like admin test
+    tmpl_placeholders = (
+        tmpl_data.get("placeholder_signers") or
+        tmpl_data.get("template_signers") or
+        tmpl_data.get("placeholders") or
+        tmpl_data.get("roles") or
+        tmpl_data.get("recipients") or
+        []
+    )
+
+    def get_ph_name(p):
+        return (
+            p.get("name") or p.get("placeholder_name") or
+            p.get("role") or p.get("title") or None
+        )
+
+    if len(tmpl_placeholders) >= 2:
+        customer_placeholder_name = get_ph_name(tmpl_placeholders[0]) or "Customer"
+        provider_placeholder_name = get_ph_name(tmpl_placeholders[1]) or "Provider"
+    elif len(tmpl_placeholders) == 1:
+        customer_placeholder_name = get_ph_name(tmpl_placeholders[0]) or "Customer"
+        provider_placeholder_name = "Provider"
+    else:
+        customer_placeholder_name = "Customer"
+        provider_placeholder_name = "Provider"
+
+    # Step 3: Build 12 template_fields (exactly like admin test)
     template_fields = [
         {"api_id": "customer_name",        "value": customer_name},
         {"api_id": "customer_name2",       "value": customer_name},
-        {"api_id": "customer_company",     "value": customer_company},
+        {"api_id": "customer_company",     "value": business_name or customer_name},
         {"api_id": "customer_entity_type", "value": "Individual"},
-        {"api_id": "provider_name",        "value": prov_signer_name},
-        {"api_id": "provider_name2",       "value": prov_signer_name},
-        {"api_id": "provider_company",     "value": provider_name},
+        {"api_id": "provider_name",        "value": provider_signer_name},
+        {"api_id": "provider_name2",       "value": provider_signer_name},
+        {"api_id": "provider_company",     "value": provider_company},
         {"api_id": "provider_entity_type", "value": "Company"},
         {"api_id": "effective_date",       "value": effective_date},
         {"api_id": "governing_state",      "value": "Ohio"},
@@ -628,26 +669,26 @@ async def create_post_acceptance_nda(
         {"api_id": "provider_signature",   "value": ""},
     ]
 
-    # Both parties as real signers - Signwell will email both
+    # Step 4: Build payload (exactly like admin test)
     payload = {
         "template_id": tid,
         "test_mode": False,
-        "subject": f"NDA for Engineering Project - Action Required",
+        "subject": "NDA for Engineering Project - Action Required",
         "message": (
             "Your quote has been accepted. Please sign this Non-Disclosure Agreement "
             "to proceed with the project. Both parties must sign before project files are shared."
         ),
         "recipients": [
             {
-                "id":               "1",
-                "name":             customer_name,
-                "email":            customer_user.email,
+                "id": "1",
+                "name": customer_name,
+                "email": customer_email,
                 "placeholder_name": customer_placeholder_name,
             },
             {
-                "id":               "2",
-                "name":             prov_signer_name,
-                "email":            provider_user.email,
+                "id": "2",
+                "name": provider_signer_name,
+                "email": provider_email,
                 "placeholder_name": provider_placeholder_name,
             },
         ],
@@ -655,34 +696,41 @@ async def create_post_acceptance_nda(
     }
 
     logger.info(
-        "[SIGNWELL] create_post_acceptance_nda payload for RFQ %s: customer=%s provider=%s",
-        rfq_id, customer_user.email, provider_user.email,
+        "[SIGNWELL] create_post_acceptance_nda: RFQ=%s customer=%s provider=%s placeholders=(%s, %s)",
+        rfq_id, customer_email, provider_email,
+        customer_placeholder_name, provider_placeholder_name,
     )
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{SIGNWELL_BASE_URL}/document_templates/documents",
-            json=payload,
-            headers=h,
-        )
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            logger.error(
-                "Signwell create_post_acceptance_nda failed %s: %s",
-                exc.response.status_code, exc.response.text,
+    # Step 5: Create document from template (exactly like admin test)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{SIGNWELL_BASE_URL}/document_templates/documents",
+                json=payload,
+                headers=h,
             )
-            raise
+            resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            "[SIGNWELL] create_post_acceptance_nda failed %s: %s",
+            exc.response.status_code, exc.response.text,
+        )
+        raise RuntimeError(
+            f"Signwell document creation failed {exc.response.status_code}: {exc.response.text}"
+        ) from exc
+    except Exception as exc:
+        logger.error("[SIGNWELL] create_post_acceptance_nda unexpected error: %s", exc)
+        raise RuntimeError(f"Document creation failed: {exc}") from exc
 
     doc_data    = resp.json()
     document_id = doc_data["id"]
-    logger.info("Created post-acceptance NDA doc %s for RFQ %s", document_id, rfq_id)
+    logger.info("[SIGNWELL] Created post-acceptance NDA doc %s for RFQ %s", document_id, rfq_id)
 
-    # Persist NDA record linked to this specific provider
+    # Step 6: Persist NDA record
     nda = RFQNDA(
         rfq_id=rfq_id,
-        provider_id=provider.id,
-        customer_user_id=customer_user.id,
+        provider_id=provider_id,
+        customer_user_id=customer_user_id,
         signrequest_document_id=document_id,
         signrequest_template_id=tid,
         nda_status="customer_signature_pending",
@@ -691,6 +739,7 @@ async def create_post_acceptance_nda(
     await db.commit()
     await db.refresh(nda)
     return {"document_id": document_id, "nda_id": str(nda.id)}
+
 
 async def confirm_customer_signed_from_signwell(rfq_id, db: AsyncSession) -> dict:
     """Primary path (not webhook) to confirm customer NDA signing.

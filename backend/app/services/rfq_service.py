@@ -771,6 +771,17 @@ async def accept_quote(
 
     rfq = quote.rfq
 
+    # CRITICAL: Extract all needed strings NOW, before any await db.commit().
+    # After db.commit(), SQLAlchemy expires all ORM objects (expire_on_commit=True).
+    # Accessing attributes on expired objects in async context raises MissingGreenlet.
+    _cust_first = (customer.first_name or '').strip()
+    _cust_last  = (customer.last_name  or '').strip()
+    _customer_name  = f'{_cust_first} {_cust_last}'.strip() or customer.email
+    _customer_email = customer.email
+    _customer_id    = customer.id
+    _business_name  = (rfq.business_name or rfq.contact_name or '').strip()
+    _rfq_id         = rfq.id
+
     # Verify customer owns this RFQ
     # If submitted anonymously, the user accepting the quote claims ownership
     if rfq.customer_user_id is None:
@@ -917,20 +928,33 @@ async def accept_quote(
                 selected_provider = provider_result.scalar_one_or_none()
 
                 if provider_user and selected_provider:
-                    await create_post_acceptance_nda(
-                        rfq_id=rfq.id,
-                        customer_user=customer,
-                        provider=selected_provider,
-                        provider_user=provider_user,
-                        rfq=rfq,
-                        db=db,
-                    )
-                    logger.info(
-                        "Post-acceptance NDA created for RFQ %s with provider %s",
-                        rfq.id, rfq.selected_provider_id,
-                    )
-                    provider_contact["nda_triggered"] = True
-                    provider_contact["nda_error"] = None
+                        # Resolve provider strings from freshly-loaded objects (safe - not expired)
+                        _prov_first = (provider_user.first_name or '').strip()
+                        _prov_last  = (provider_user.last_name  or '').strip()
+                        _prov_signer = f'{_prov_first} {_prov_last}'.strip() or provider_user.email
+                        _prov_co = (
+                            getattr(selected_provider, 'firm_name', None) or
+                            getattr(selected_provider, 'name', None) or
+                            'Provider'
+                        )
+                        await create_post_acceptance_nda(
+                            rfq_id=_rfq_id,
+                            customer_user_id=_customer_id,
+                            customer_name=_customer_name,
+                            customer_email=_customer_email,
+                            business_name=_business_name,
+                            provider_id=selected_provider.id,
+                            provider_signer_name=_prov_signer,
+                            provider_email=provider_user.email,
+                            provider_company=_prov_co,
+                            db=db,
+                        )
+                        logger.info(
+                            "Post-acceptance NDA created for RFQ %s provider %s",
+                            _rfq_id, selected_provider.id,
+                        )
+                        provider_contact["nda_triggered"] = True
+                        provider_contact["nda_error"] = None
                 else:
                     logger.warning(
                         "Could not create NDA for RFQ %s: provider_user=%s, provider=%s",
