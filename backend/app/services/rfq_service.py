@@ -780,7 +780,9 @@ async def accept_quote(
     _customer_email = customer.email
     _customer_id    = customer.id
     _business_name  = (rfq.business_name or rfq.contact_name or '').strip()
-    _rfq_id         = rfq.id
+    _rfq_id              = rfq.id
+    _nda_required        = rfq.nda_required
+    _selected_provider_id = quote.provider_id
 
     # Verify customer owns this RFQ
     # If submitted anonymously, the user accepting the quote claims ownership
@@ -890,7 +892,7 @@ async def accept_quote(
             _logging.getLogger(__name__).error(f"Failed to send quote selected email to customer: {e}")
 
     # Trigger post-acceptance NDA if required
-    if rfq.nda_required:
+    if _nda_required:
         try:
             # Find a user account linked to the selected provider
             from app.models.provider import ProviderMembership
@@ -903,7 +905,7 @@ async def accept_quote(
                 select(ProviderMembership)
                 .join(User, User.id == ProviderMembership.user_id)
                 .where(
-                    ProviderMembership.provider_id == rfq.selected_provider_id,
+                    ProviderMembership.provider_id == _selected_provider_id,
                     ProviderMembership.status == "active",
                     User.is_active == True,
                     ~User.email.like("removed_%"),
@@ -923,7 +925,7 @@ async def accept_quote(
                 provider_user = provider_user_result.scalar_one_or_none()
 
                 provider_result = await db.execute(
-                    select(Provider).where(Provider.id == rfq.selected_provider_id)
+                    select(Provider).where(Provider.id == _selected_provider_id)
                 )
                 selected_provider = provider_result.scalar_one_or_none()
 
@@ -963,7 +965,7 @@ async def accept_quote(
             else:
                 logger.warning(
                     "Could not create NDA for RFQ %s: no provider membership found for provider %s",
-                    rfq.id, rfq.selected_provider_id,
+                    _rfq_id, _selected_provider_id,
                 )
         except Exception as nda_exc:
             # NDA creation failure should NOT block quote acceptance
