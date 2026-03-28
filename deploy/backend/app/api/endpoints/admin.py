@@ -220,7 +220,23 @@ async def admin_override_rfq_status(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="RFQ not found")
 
     old_status = rfq.rfq_status
+    old_is_closed = rfq.is_closed
     rfq.rfq_status = data.new_status
+
+    # For terminal statuses, always set is_closed=True so the dispatch scheduler
+    # never picks up this RFQ again and sends more emails.
+    _TERMINAL_STATUSES = {
+        "cancelled", "closed_no_selection", "quote_limit_reached",
+        "customer_selected_provider",
+    }
+    _new_status_str = data.new_status if isinstance(data.new_status, str) else str(data.new_status)
+    if _new_status_str in _TERMINAL_STATUSES:
+        rfq.is_closed = True
+        rfq.closed_at = rfq.closed_at or datetime.utcnow()
+        logger.info(
+            "admin_override_rfq_status: rfq=%s set is_closed=True for terminal status %s",
+            rfq_id, _new_status_str,
+        )
 
     # Create audit log
     audit = AuditLog(
@@ -229,15 +245,15 @@ async def admin_override_rfq_status(
         entity_type="rfq",
         entity_id=rfq_id,
         action="status_override",
-        before_state={"status": old_status.value if old_status else None},
-        after_state={"status": data.new_status},
+        before_state={"status": old_status.value if hasattr(old_status, 'value') else old_status, "is_closed": old_is_closed},
+        after_state={"status": data.new_status, "is_closed": rfq.is_closed},
         metadata={"reason": data.reason},
         created_at=datetime.utcnow(),
     )
     db.add(audit)
     await db.commit()
 
-    return {"message": f"RFQ status changed to {data.new_status}", "rfq_id": rfq_id}
+    return {"message": f"RFQ status changed to {data.new_status}", "rfq_id": rfq_id, "is_closed": rfq.is_closed}
 
 
 @router.get("/admin/rfqs/{rfq_id}/dispatch-tracking")

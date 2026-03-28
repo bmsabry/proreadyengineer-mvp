@@ -237,6 +237,29 @@ async def dispatch_next_batch(
         return []
     if rfq.is_closed:
         return []
+
+    # Guard: only dispatch for RFQs in a valid dispatchable state.
+    # This prevents emails being sent for cancelled, draft, NDA-pending, or any
+    # other non-dispatchable RFQ, even if is_closed was not set correctly.
+    _DISPATCHABLE_STATUSES = {
+        RfqStatus.OPEN_FOR_DISPATCH,
+        RfqStatus.DISPATCHING,
+        RfqStatus.OPEN_FOR_UNLOCK,
+    }
+    _cur_status = rfq.rfq_status
+    # Handle both enum and string storage
+    if isinstance(_cur_status, str):
+        try:
+            _cur_status = RfqStatus(_cur_status)
+        except ValueError:
+            _cur_status = None
+    if _cur_status not in _DISPATCHABLE_STATUSES:
+        logger.warning(
+            "dispatch_next_batch: BLOCKED rfq=%s status=%s not in dispatchable set - no emails sent",
+            rfq_id, rfq.rfq_status,
+        )
+        return []
+
     if rfq.quote_count >= settings.RFQ_MAX_QUOTES:
         # Close RFQ when quote limit is reached in case it slipped through
         if not rfq.is_closed:
@@ -258,27 +281,38 @@ async def dispatch_next_batch(
     except Exception:
         _interval_hours = float(settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS)
 
-    if _interval_hours > 0:
-        _last_batch_res = await db.execute(
-            select(RFQDispatchBatch)
-            .where(RFQDispatchBatch.rfq_id == rfq_id)
-            .order_by(RFQDispatchBatch.batch_number.desc())
-            .limit(1)
+    # Enforce minimum interval floor - NEVER allow interval=0 to bypass the guard.
+    # interval=0 in DB would otherwise let every scheduler poll fire a new batch,
+    # flooding providers with emails every 5 minutes.
+    _MIN_INTERVAL_HOURS = 0.25  # 15 minutes absolute minimum
+    if _interval_hours < _MIN_INTERVAL_HOURS:
+        logger.warning(
+            "dispatch_next_batch: rfq=%s configured interval %.2fh is below minimum %.2fh - enforcing floor",
+            rfq_id, _interval_hours, _MIN_INTERVAL_HOURS,
         )
-        _last_batch = _last_batch_res.scalar_one_or_none()
-        if _last_batch is not None and _last_batch.dispatched_at is not None:
-            _ld = _last_batch.dispatched_at
-            if _ld.tzinfo is None:
-                _ld = _ld.replace(tzinfo=timezone.utc)
-            _elapsed = datetime.now(timezone.utc) - _ld
-            _interval_delta = timedelta(hours=_interval_hours)
-            if _elapsed < _interval_delta:
-                _remaining_min = (_interval_delta - _elapsed).total_seconds() / 60
-                logger.info(
-                    "dispatch_next_batch: rfq=%s interval guard - %.1f min remaining, skipping",
-                    rfq_id, _remaining_min,
-                )
-                return []
+        _interval_hours = _MIN_INTERVAL_HOURS
+
+    # Always check the interval (interval is guaranteed >= 0.25h due to floor above)
+    _last_batch_res = await db.execute(
+        select(RFQDispatchBatch)
+        .where(RFQDispatchBatch.rfq_id == rfq_id)
+        .order_by(RFQDispatchBatch.batch_number.desc())
+        .limit(1)
+    )
+    _last_batch = _last_batch_res.scalar_one_or_none()
+    if _last_batch is not None and _last_batch.dispatched_at is not None:
+        _ld = _last_batch.dispatched_at
+        if _ld.tzinfo is None:
+            _ld = _ld.replace(tzinfo=timezone.utc)
+        _elapsed = datetime.now(timezone.utc) - _ld
+        _interval_delta = timedelta(hours=_interval_hours)
+        if _elapsed < _interval_delta:
+            _remaining_min = (_interval_delta - _elapsed).total_seconds() / 60
+            logger.info(
+                "dispatch_next_batch: rfq=%s interval guard - %.1f min remaining, skipping",
+                rfq_id, _remaining_min,
+            )
+            return []
 
     # Read batch size from admin config (default 5)
     try:

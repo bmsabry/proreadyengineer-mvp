@@ -32,140 +32,30 @@ from app.api.endpoints.internal import router as internal_router
 logger = logging.getLogger(__name__)
 
 
-async def _scheduler_dispatch_job():
-    """Called by APScheduler every 5 min poll. Uses fresh sessions to avoid stale-object issues."""
-    from app.db.session import AsyncSessionLocal
-    from app.models.rfq import RFQ, RfqStatus, RFQDispatchBatch
-    from app.services.rfq_service import dispatch_next_batch
-    from app.services.config_service import get_runtime_config as _get_runtime_config
-    from sqlalchemy import select
-    import uuid as _uuid
-
-    logger.info("[scheduler] RFQ batch dispatch poll starting")
-
-    # --- Phase 1: read config and collect open RFQ IDs (one session, read-only) ---
-    rfqs_to_check = []  # list of (rfq_id, last_dispatched_at, quote_count)
-    interval_hours = float(settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS)
-
-    async with AsyncSessionLocal() as db:
-        try:
-            cfg = await _get_runtime_config(db)
-            interval_hours = float(cfg.get("RFQ_BATCH_INTERVAL_HOURS",
-                                           settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS))
-        except Exception as e:
-            logger.warning("[scheduler] config read failed, using default interval: %s", e)
-
-        try:
-            result = await db.execute(
-                select(RFQ).where(
-                    RFQ.is_closed == False,
-                    RFQ.rfq_status.in_([
-                        RfqStatus.OPEN_FOR_DISPATCH,
-                        RfqStatus.OPEN_FOR_UNLOCK,
-                        RfqStatus.DISPATCHING,
-                    ])
-                )
-            )
-            rfqs = result.scalars().all()
-            logger.info("[scheduler] found %d open RFQs", len(rfqs))
-        except Exception as e:
-            logger.error("[scheduler] failed to query RFQs: %s", e)
-            return
-
-        for rfq in rfqs:
-            if rfq.quote_count >= 5:
-                logger.info("[scheduler] rfq=%s already has %d quotes, skipping", rfq.id, rfq.quote_count)
-                continue
-            try:
-                last_batch_result = await db.execute(
-                    select(RFQDispatchBatch)
-                    .where(RFQDispatchBatch.rfq_id == rfq.id)
-                    .order_by(RFQDispatchBatch.batch_number.desc())
-                    .limit(1)
-                )
-                last_batch = last_batch_result.scalar_one_or_none()
-                last_dispatched_at = last_batch.dispatched_at if last_batch else None
-                # Snapshot the values we need - don't hold ORM objects across sessions
-                rfqs_to_check.append((
-                    str(rfq.id),
-                    last_dispatched_at,
-                    rfq.quote_count,
-                ))
-            except Exception as e:
-                logger.error("[scheduler] error reading rfq=%s batch info: %s", rfq.id, e)
-
-    # --- Phase 2: for each eligible RFQ, open a FRESH session and dispatch ---
-    interval_delta = timedelta(hours=interval_hours)
-    now = datetime.now(timezone.utc)
-    logger.info("[scheduler] interval=%.2fh, checking %d RFQs", interval_hours, len(rfqs_to_check))
-
-    for rfq_id_str, last_dispatched_at, quote_count in rfqs_to_check:
-        try:
-            should_dispatch = False
-            if last_dispatched_at is None:
-                should_dispatch = True
-                logger.info("[scheduler] rfq=%s no previous batch -> dispatch", rfq_id_str)
-            else:
-                ld = last_dispatched_at
-                if ld.tzinfo is None:
-                    ld = ld.replace(tzinfo=timezone.utc)
-                elapsed = now - ld
-                elapsed_h = elapsed.total_seconds() / 3600
-                if elapsed >= interval_delta:
-                    should_dispatch = True
-                    logger.info("[scheduler] rfq=%s elapsed=%.2fh >= interval=%.2fh -> dispatching",
-                                rfq_id_str, elapsed_h, interval_hours)
-                else:
-                    remaining_min = (interval_delta - elapsed).total_seconds() / 60
-                    logger.info("[scheduler] rfq=%s elapsed=%.2fh, %.1f min remaining until next batch",
-                                rfq_id_str, elapsed_h, remaining_min)
-
-            if should_dispatch:
-                async with AsyncSessionLocal() as fresh_db:
-                    rfq_uuid = _uuid.UUID(rfq_id_str)
-                    dispatched = await dispatch_next_batch(fresh_db, rfq_uuid)
-                    logger.info("[scheduler] rfq=%s dispatched %d providers in new batch",
-                                rfq_id_str, len(dispatched))
-        except Exception as e:
-            logger.error("[scheduler] error dispatching rfq=%s: %s", rfq_id_str, e, exc_info=True)
-
-    logger.info("[scheduler] poll complete")
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    # Startup
     print(f"Starting {settings.PROJECT_NAME} v{settings.VERSION}")
     print(f"Environment: {settings.ENVIRONMENT}")
 
-    # Start in-process scheduler for RFQ batch dispatch.
-    # Polls every 5 minutes. Actual dispatch respects the admin-configured interval.
-    # This replaces Celery beat (fork-unsafe) and Render Cron Job (secret/network issues).
-    scheduler = None
-    try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(
-            _scheduler_dispatch_job,
-            "interval",
-            minutes=5,
-            id="rfq_batch_dispatch",
-            replace_existing=True,
-            # first run happens after 5 minutes naturally
-        )
-        scheduler.start()
-        logger.info("[scheduler] APScheduler started - RFQ batch dispatch every 5 min poll")
-        print("[scheduler] APScheduler started OK")
-    except Exception as e:
-        logger.error("[scheduler] Failed to start APScheduler: %s", e)
-        print(f"[scheduler] WARNING: APScheduler failed to start: {e}")
+    # -----------------------------------------------------------------------
+    # RFQ BATCH DISPATCH is handled EXCLUSIVELY by the Render Cron Job
+    # (proreadyengineer-rfq-cron) which POSTs to:
+    #   /api/v1/internal/cron/dispatch-rfq-batches  every 15 minutes
+    #
+    # DO NOT re-enable APScheduler or any in-process scheduler here.
+    # Running two concurrent dispatch triggers (APScheduler + Render Cron)
+    # creates race conditions that cause:
+    #   - Emails sent to providers of CANCELLED RFQs
+    #   - Emails sent to providers not yet due for contact
+    #   - Duplicate batch emails to same providers
+    # Single dispatch trigger = Render Cron Job only.
+    # -----------------------------------------------------------------------
+    logger.info("[startup] Render Cron Job is sole RFQ dispatch trigger. APScheduler intentionally disabled.")
+    print("[startup] APScheduler disabled. Render Cron Job handles RFQ batch dispatch.")
 
     yield
 
-    # Shutdown
-    if scheduler and scheduler.running:
-        scheduler.shutdown(wait=False)
-        logger.info("[scheduler] APScheduler stopped")
     print("Shutting down...")
     await close_db()
 
@@ -248,9 +138,9 @@ def create_application() -> FastAPI:
     @app.get("/api/v1/build-info")
     async def build_info():
         return {
-            "build_ts": "2026-03-22T21:41:00Z",
+            "build_ts": "2026-03-28T09:30:00Z",
             "version": settings.VERSION,
-            "note": "APScheduler in-process batch dispatch active."
+            "note": "Render Cron Job handles RFQ dispatch. APScheduler disabled to prevent rogue emails."
         }
 
     return app

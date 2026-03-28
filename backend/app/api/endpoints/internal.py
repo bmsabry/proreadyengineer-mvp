@@ -73,6 +73,13 @@ async def cron_dispatch_rfq_batches(
     except Exception:
         interval_hours = float(settings.RFQ_DISPATCH_BATCH_INTERVAL_HOURS)
 
+    # Enforce minimum interval floor: 15 minutes regardless of config.
+    # Prevents interval=0 from causing every cron poll to fire a new batch.
+    _MIN_INTERVAL = 0.25
+    if interval_hours < _MIN_INTERVAL:
+        logger.warning("cron_dispatch: interval %.2fh below minimum %.2fh, enforcing floor", interval_hours, _MIN_INTERVAL)
+        interval_hours = _MIN_INTERVAL
+
     interval_delta = timedelta(hours=interval_hours)
     now = datetime.now(timezone.utc)
 
@@ -179,6 +186,20 @@ async def cron_dispatch_single_rfq(
         rfq_uuid = uuid.UUID(rfq_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid RFQ ID")
+
+    # Safety check: validate RFQ exists and is in a dispatchable state before forcing
+    from app.models.rfq import RFQ, RfqStatus
+    from sqlalchemy import select as _select
+    _rfq_result = await db.execute(_select(RFQ).where(RFQ.id == rfq_uuid))
+    _rfq = _rfq_result.scalar_one_or_none()
+    if not _rfq:
+        raise HTTPException(status_code=404, detail="RFQ not found")
+    if _rfq.is_closed:
+        raise HTTPException(status_code=400, detail=f"RFQ is closed (status={_rfq.rfq_status}) - dispatch blocked")
+    _DISPATCHABLE = {"open_for_dispatch", "dispatching", "open_for_unlock"}
+    _status_str = str(_rfq.rfq_status).lower().replace("rfqstatus.", "")
+    if _status_str not in _DISPATCHABLE:
+        raise HTTPException(status_code=400, detail=f"RFQ status '{_rfq.rfq_status}' is not dispatchable - dispatch blocked")
 
     try:
         dispatched = await dispatch_next_batch(db, rfq_uuid)
