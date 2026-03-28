@@ -1022,9 +1022,7 @@ async def accept_quote(
             import traceback as _tb
             _tb_str = _tb.format_exc()
             logger.error(
-                "[NDA_DEBUG] RFQ %s: NDA creation FAILED with exception: %s
-Traceback:
-%s",
+                "[NDA_DEBUG] RFQ %s: NDA creation FAILED with exception: %s | Traceback: %s",
                 _rfq_id, nda_exc, _tb_str,
             )
             logger.error(
