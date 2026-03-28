@@ -554,6 +554,52 @@ async def _check_and_heal_customer_signed(customer_nda: RFQNDA, db: AsyncSession
         return False
 
 
+async def _heal_nda_if_complete(nda: RFQNDA, db: AsyncSession) -> bool:
+    """Check Signwell API to see if the document is fully completed by all parties.
+    If yes, updates nda_status to 'fully_signed' and saves to DB.
+    Returns True if fully signed, False otherwise."""
+    if not nda.signrequest_document_id:
+        return False
+    if str(getattr(nda, 'nda_status', '')) == 'fully_signed':
+        return True
+    try:
+        h = await _headers(db)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{SIGNWELL_BASE_URL}/documents/{nda.signrequest_document_id}",
+                headers=h,
+            )
+            resp.raise_for_status()
+        doc = resp.json()
+        doc_status = doc.get("status", "")
+        is_complete = doc_status in ("completed", "signed")
+        if not is_complete:
+            # Check if ALL recipients have signed
+            recipients = doc.get("recipients") or doc.get("signers") or []
+            if recipients and all(
+                r.get("status") in ("completed", "signed") for r in recipients
+            ):
+                is_complete = True
+        if is_complete:
+            now = datetime.now(timezone.utc)
+            nda.nda_status = "fully_signed"
+            nda.fully_signed_at = nda.fully_signed_at or now
+            if not nda.customer_signed_at:
+                nda.customer_signed_at = now
+            if nda.provider_id and not nda.provider_signed_at:
+                nda.provider_signed_at = now
+            await db.commit()
+            logger.info(
+                "[SIGNWELL] Self-healed NDA %s to fully_signed (doc=%s status=%s)",
+                nda.id, nda.signrequest_document_id, doc_status,
+            )
+            return True
+        return False
+    except Exception as exc:
+        logger.warning("[SIGNWELL] _heal_nda_if_complete failed for NDA %s: %s", nda.id, exc)
+        return False
+
+
 async def _maybe_open_rfq_for_dispatch(rfq_id, db: AsyncSession) -> None:
     """Legacy: No-op placeholder. Dispatch now happens at submit_rfq time."""
     # NOTE: In the new workflow, AI search + dispatch happens when the RFQ is first submitted.

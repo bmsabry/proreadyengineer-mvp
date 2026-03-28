@@ -901,14 +901,29 @@ async def get_rfq_files(
             )
 
         # Quote was accepted - require fully signed NDA
-        nda_result = await db.execute(
+        # First try to find an existing NDA record and self-heal if Signwell says complete
+        nda_any_result = await db.execute(
             select(RFQNDA).where(
                 RFQNDA.rfq_id == rfq_id,
                 RFQNDA.provider_id == membership.provider_id,
-                RFQNDA.nda_status == "fully_signed",
-            )
+            ).order_by(RFQNDA.created_at.desc()).limit(1)
         )
-        if not nda_result.scalar_one_or_none():
+        provider_nda = nda_any_result.scalar_one_or_none()
+        if provider_nda:
+            current_nda_status = provider_nda.nda_status.value if hasattr(provider_nda.nda_status, "value") else str(provider_nda.nda_status)
+            if current_nda_status != "fully_signed":
+                try:
+                    from app.services.nda_service import _heal_nda_if_complete
+                    await _heal_nda_if_complete(provider_nda, db)
+                    current_nda_status = provider_nda.nda_status.value if hasattr(provider_nda.nda_status, "value") else str(provider_nda.nda_status)
+                except Exception:
+                    pass
+            if current_nda_status != "fully_signed":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="NDA_REQUIRED: Please complete the NDA signing process before accessing project files."
+                )
+        else:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="NDA_REQUIRED: Please complete the NDA signing process before accessing project files."

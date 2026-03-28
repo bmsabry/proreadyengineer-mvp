@@ -267,7 +267,8 @@ async def get_customer_quotes(
     from sqlalchemy.orm import selectinload
     from app.models.rfq import RFQ
     from app.models.quote import Quote
-    from app.services.file_service import generate_download_url
+    from app.services.file_service import generate_download_url_from_config
+    from app.services.config_service import get_runtime_config
 
     try:
         rfq_uuid = uuid.UUID(rfq_id)
@@ -288,6 +289,13 @@ async def get_customer_quotes(
         .order_by(Quote.created_at.desc())
     )
     quotes = result.scalars().all()
+
+    # Fetch S3 config once for download URL generation
+    s3_config = {}
+    try:
+        s3_config = await get_runtime_config(db)
+    except Exception:
+        pass
 
     responses = []
     for q in quotes:
@@ -311,7 +319,7 @@ async def get_customer_quotes(
         doc_download_url = None
         if is_accepted and q.document_s3_key:
             try:
-                doc_download_url = generate_download_url(q.document_s3_key, expire_seconds=3600)
+                doc_download_url = generate_download_url_from_config(q.document_s3_key, s3_config, expire_seconds=3600)
             except Exception:
                 pass
 
@@ -361,7 +369,8 @@ async def get_quote_document_download(
     from sqlalchemy import select
     from app.models.quote import Quote
     from app.models.rfq import RFQ
-    from app.services.file_service import generate_download_url
+    from app.services.file_service import generate_download_url_from_config
+    from app.services.config_service import get_runtime_config
     try:
         quote_uuid = uuid.UUID(quote_id)
     except ValueError:
@@ -381,7 +390,8 @@ async def get_quote_document_download(
     if not quote.document_s3_key:
         raise HTTPException(status_code=404, detail="No document attached to this quote")
     try:
-        url = generate_download_url(quote.document_s3_key, expire_seconds=3600)
+        s3_config = await get_runtime_config(db)
+        url = generate_download_url_from_config(quote.document_s3_key, s3_config, expire_seconds=3600)
         return {"download_url": url, "filename": quote.document_filename or "quote-document"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate download URL: {e}")
