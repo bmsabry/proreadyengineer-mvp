@@ -894,15 +894,25 @@ async def accept_quote(
             _logging.getLogger(__name__).error(f"Failed to send quote selected email to customer: {e}")
 
     # Trigger post-acceptance NDA if required
+    # DIAGNOSTIC: Log NDA requirement check
+    logger.info(
+        "[NDA_DEBUG] RFQ %s: nda_required=%s, selected_provider_id=%s",
+        _rfq_id, _nda_required, _selected_provider_id,
+    )
+    
     if _nda_required:
+        logger.info("[NDA_DEBUG] RFQ %s: NDA is required, starting creation process", _rfq_id)
         try:
             # Find a user account linked to the selected provider
             from app.models.provider import ProviderMembership
             from app.services.nda_service import create_post_acceptance_nda
 
+            logger.info(
+                "[NDA_DEBUG] RFQ %s: Looking up active membership for provider_id=%s",
+                _rfq_id, _selected_provider_id,
+            )
+
             # Join with User to filter out removed/inactive accounts
-            # Removed users have email starting with 'removed_' and is_active=False
-            # Without this filter, the old scrambled account membership would be returned
             prov_membership_result = await db.execute(
                 select(ProviderMembership)
                 .join(User, User.id == ProviderMembership.user_id)
@@ -917,6 +927,11 @@ async def accept_quote(
             )
             prov_membership = prov_membership_result.scalar_one_or_none()
 
+            logger.info(
+                "[NDA_DEBUG] RFQ %s: Membership lookup result: %s",
+                _rfq_id, prov_membership.id if prov_membership else "None",
+            )
+
             if prov_membership:
                 provider_user_result = await db.execute(
                     select(User).where(
@@ -926,10 +941,24 @@ async def accept_quote(
                 )
                 provider_user = provider_user_result.scalar_one_or_none()
 
+                logger.info(
+                    "[NDA_DEBUG] RFQ %s: Provider user loaded: %s (email=%s)",
+                    _rfq_id,
+                    provider_user.id if provider_user else "None",
+                    provider_user.email if provider_user else "None",
+                )
+
                 provider_result = await db.execute(
                     select(Provider).where(Provider.id == _selected_provider_id)
                 )
                 selected_provider = provider_result.scalar_one_or_none()
+
+                logger.info(
+                    "[NDA_DEBUG] RFQ %s: Selected provider loaded: %s (firm=%s)",
+                    _rfq_id,
+                    selected_provider.id if selected_provider else "None",
+                    selected_provider.firm_name if selected_provider else "None",
+                )
 
                 if provider_user and selected_provider:
                         # Resolve provider strings from freshly-loaded objects (safe - not expired)
@@ -941,7 +970,17 @@ async def accept_quote(
                             getattr(selected_provider, 'name', None) or
                             'Provider'
                         )
-                        await create_post_acceptance_nda(
+                        
+                        # DIAGNOSTIC: Log all arguments before calling Signwell
+                        logger.info(
+                            "[NDA_DEBUG] RFQ %s: About to call create_post_acceptance_nda with: "
+                            "customer_name=%s, customer_email=%s, business_name=%s, "
+                            "provider_id=%s, provider_signer_name=%s, provider_email=%s, provider_company=%s",
+                            _rfq_id, _customer_name, _customer_email, _business_name,
+                            selected_provider.id, _prov_signer, provider_user.email, _prov_co,
+                        )
+                        
+                        result = await create_post_acceptance_nda(
                             rfq_id=_rfq_id,
                             customer_user_id=_customer_id,
                             customer_name=_customer_name,
@@ -954,31 +993,49 @@ async def accept_quote(
                             db=db,
                         )
                         logger.info(
+                            "[NDA_DEBUG] RFQ %s: create_post_acceptance_nda returned: %s",
+                            _rfq_id, result,
+                        )
+                        logger.info(
                             "Post-acceptance NDA created for RFQ %s provider %s",
                             _rfq_id, selected_provider.id,
                         )
                         provider_contact["nda_triggered"] = True
                         provider_contact["nda_error"] = None
+                        provider_contact["nda_result"] = result
                 else:
                     logger.warning(
-                        "Could not create NDA for RFQ %s: provider_user=%s, provider=%s",
+                        "[NDA_DEBUG] RFQ %s: provider_user=%s, provider=%s - one or both missing",
                         _rfq_id, provider_user, selected_provider,
                     )
+                    provider_contact["nda_triggered"] = False
+                    provider_contact["nda_error"] = f"Missing provider_user or provider: user={provider_user}, provider={selected_provider}"
             else:
                 logger.warning(
-                    "Could not create NDA for RFQ %s: no provider membership found for provider %s",
+                    "[NDA_DEBUG] RFQ %s: No active membership found for provider %s",
                     _rfq_id, _selected_provider_id,
                 )
+                provider_contact["nda_triggered"] = False
+                provider_contact["nda_error"] = f"No active membership for provider {_selected_provider_id}"
         except Exception as nda_exc:
             # NDA creation failure should NOT block quote acceptance
+            import traceback as _tb
+            _tb_str = _tb.format_exc()
+            logger.error(
+                "[NDA_DEBUG] RFQ %s: NDA creation FAILED with exception: %s
+Traceback:
+%s",
+                _rfq_id, nda_exc, _tb_str,
+            )
             logger.error(
                 "Failed to create post-acceptance NDA for RFQ %s: %s",
                 _rfq_id, nda_exc, exc_info=True,
             )
-            provider_contact["nda_error"] = str(nda_exc)
+            provider_contact["nda_error"] = f"{type(nda_exc).__name__}: {str(nda_exc)}"
             provider_contact["nda_triggered"] = False
+            provider_contact["nda_traceback"] = _tb_str
     else:
-        # No NDA required - mark as not triggered
+        logger.info("[NDA_DEBUG] RFQ %s: NDA not required, skipping", _rfq_id)
         provider_contact["nda_triggered"] = False
         provider_contact["nda_error"] = None
 
