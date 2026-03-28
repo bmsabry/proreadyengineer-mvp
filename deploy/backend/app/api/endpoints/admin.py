@@ -1817,6 +1817,108 @@ async def admin_debug_test_nda(
         "message": f"NDA document created. Signing emails sent to {data.customer_email} and {data.provider_email}.",
     }
 
+
+
+@router.post("/admin/rfqs/{rfq_id}/send-post-nda")
+async def admin_trigger_post_acceptance_nda(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> dict:
+    """Admin: Manually trigger post-acceptance NDA for an RFQ where quote was accepted.
+
+    Use this when the automatic NDA sending failed silently after quote acceptance.
+    """
+    import uuid as _uuid
+    from app.models.rfq import RFQ
+    from app.models.quote import Quote
+    from app.models.provider import Provider, ProviderMembership
+    from app.models.user import User as _User
+    from sqlalchemy import select as _sel
+
+    try:
+        rfq_uuid = _uuid.UUID(rfq_id)
+    except ValueError:
+        return {"success": False, "error": "Invalid RFQ ID format"}
+
+    # Load RFQ
+    rfq_result = await db.execute(_sel(RFQ).where(RFQ.id == rfq_uuid))
+    rfq = rfq_result.scalar_one_or_none()
+    if not rfq:
+        return {"success": False, "error": "RFQ not found"}
+
+    if not rfq.nda_required:
+        return {"success": False, "error": "This RFQ does not require an NDA"}
+
+    if not rfq.selected_provider_id:
+        return {"success": False, "error": "No provider selected yet - quote must be accepted first"}
+
+    # Get the selected provider
+    provider_result = await db.execute(
+        _sel(Provider).where(Provider.id == rfq.selected_provider_id)
+    )
+    selected_provider = provider_result.scalar_one_or_none()
+    if not selected_provider:
+        return {"success": False, "error": f"Provider {rfq.selected_provider_id} not found"}
+
+    # Find active provider user
+    membership_result = await db.execute(
+        _sel(ProviderMembership)
+        .join(_User, _User.id == ProviderMembership.user_id)
+        .where(
+            ProviderMembership.provider_id == rfq.selected_provider_id,
+            ProviderMembership.status == "active",
+            _User.is_active == True,
+            ~_User.email.like("removed_%"),
+        )
+        .order_by(ProviderMembership.created_at.desc())
+        .limit(1)
+    )
+    membership = membership_result.scalar_one_or_none()
+    if not membership:
+        return {"success": False, "error": f"No active user found for provider {rfq.selected_provider_id}"}
+
+    provider_user_result = await db.execute(
+        _sel(_User).where(_User.id == membership.user_id)
+    )
+    provider_user = provider_user_result.scalar_one_or_none()
+    if not provider_user:
+        return {"success": False, "error": "Provider user account not found"}
+
+    # Find customer user
+    if not rfq.customer_user_id:
+        return {"success": False, "error": "RFQ has no customer user linked - anonymous RFQ"}
+
+    customer_result = await db.execute(
+        _sel(_User).where(_User.id == rfq.customer_user_id)
+    )
+    customer_user = customer_result.scalar_one_or_none()
+    if not customer_user:
+        return {"success": False, "error": "Customer user account not found"}
+
+    # Trigger NDA creation
+    try:
+        from app.services.nda_service import create_post_acceptance_nda
+        result = await create_post_acceptance_nda(
+            rfq_id=rfq.id,
+            customer_user=customer_user,
+            provider=selected_provider,
+            provider_user=provider_user,
+            rfq=rfq,
+            db=db,
+        )
+        return {
+            "success": True,
+            "message": f"NDA triggered successfully. Signing emails sent to {customer_user.email} and {provider_user.email}",
+            "document_id": result.get("document_id"),
+            "nda_id": result.get("nda_id"),
+            "customer_email": customer_user.email,
+            "provider_email": provider_user.email,
+        }
+    except Exception as exc:
+        import logging as _log
+        _log.getLogger(__name__).error(f"Admin NDA trigger failed: {exc}", exc_info=True)
+        return {"success": False, "error": str(exc)}
 @router.get("/admin/debug/test-nda/{document_id}/status")
 async def admin_debug_test_nda_status(
     document_id: str,

@@ -411,9 +411,19 @@ async def accept_quote_endpoint(
     from app.models.quote import Quote as _Quote
     result = await db.execute(_select(_Quote).where(_Quote.id == quote_uuid))
     quote = result.scalar_one_or_none()
+    # Determine message based on NDA status
+    nda_triggered = provider_contact.get("nda_triggered")
+    nda_error = provider_contact.get("nda_error")
+    if nda_triggered is True:
+        msg = "Quote accepted. Both parties will receive an NDA to sign via email."
+    elif nda_triggered is False and nda_error:
+        msg = f"Quote accepted, but NDA sending failed: {nda_error}. Please contact support."
+    else:
+        msg = "Quote accepted. Provider contact details are now revealed."
+
     return QuoteAcceptResponse(
         success=True,
-        message="Quote accepted. Provider contact details are now revealed.",
+        message=msg,
         rfq_id=quote.rfq_id,
         selected_quote_id=quote.id,
         selected_provider_id=quote.provider_id,
@@ -425,6 +435,8 @@ async def accept_quote_endpoint(
         provider_city=provider_contact.get("provider_city"),
         provider_state=provider_contact.get("provider_state"),
         provider_address=provider_contact.get("provider_address"),
+        nda_triggered=nda_triggered,
+        nda_error=nda_error,
     )
 
 

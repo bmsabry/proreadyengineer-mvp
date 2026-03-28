@@ -577,6 +577,21 @@ async def create_post_acceptance_nda(
     Both parties receive signing emails from Signwell (no iframe required).
     Returns {document_id, nda_id}.
     """
+    # Idempotency: check if NDA already exists for this RFQ + provider
+    from sqlalchemy import select as _sel
+    existing = (await db.execute(
+        _sel(RFQNDA).where(
+            RFQNDA.rfq_id == rfq_id,
+            RFQNDA.provider_id == provider.id,
+        )
+    )).scalar_one_or_none()
+    if existing:
+        logger.info(
+            "[SIGNWELL] Post-acceptance NDA already exists for RFQ %s provider %s (status=%s) - skipping",
+            rfq_id, provider.id, existing.nda_status,
+        )
+        return {"document_id": existing.signrequest_document_id, "nda_id": str(existing.id)}
+
     h   = await _headers(db)
     tid = await _get_template_id(db)
 

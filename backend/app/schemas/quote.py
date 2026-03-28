@@ -159,6 +159,9 @@ class QuoteAcceptResponse(BaseSchema):
     provider_city: Optional[str] = None
     provider_state: Optional[str] = None
     provider_address: Optional[str] = None
+    # NDA status (post-acceptance NDA flow)
+    nda_triggered: Optional[bool] = None
+    nda_error: Optional[str] = None
 
 
 class QuoteWithdrawRequest(BaseSchema):

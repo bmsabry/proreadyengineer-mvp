@@ -1198,11 +1198,11 @@ async def get_nda_status(
     elif str(rfq.customer_user_id) != str(current_user.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not your RFQ")
 
+    # Look for most recent NDA for this RFQ (post-acceptance has provider_id set, pre-acceptance has None)
     result = await db.execute(
         select(RFQNDA).where(
             RFQNDA.rfq_id == rfq_id,
-            RFQNDA.provider_id == None,  # noqa: E711
-        )
+        ).order_by(RFQNDA.created_at.desc())
     )
     nda = result.scalar_one_or_none()
 
@@ -1221,7 +1221,9 @@ async def get_nda_status(
         "nda_required": rfq.nda_required,
         "nda_status": nda.nda_status.value if hasattr(nda.nda_status, "value") else str(nda.nda_status),
         "document_id": nda.signrequest_document_id,
+        "is_post_acceptance": nda.provider_id is not None,
         "customer_signed_at": nda.customer_signed_at.isoformat() if nda.customer_signed_at else None,
+        "provider_signed_at": nda.provider_signed_at.isoformat() if nda.provider_signed_at else None,
         "fully_signed_at": nda.fully_signed_at.isoformat() if nda.fully_signed_at else None,
         "signed_pdf_available": bool(nda.signed_pdf_s3_key),
     }

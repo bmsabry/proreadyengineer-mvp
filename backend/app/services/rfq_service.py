@@ -772,8 +772,13 @@ async def accept_quote(
     rfq = quote.rfq
 
     # Verify customer owns this RFQ
-    if rfq.customer_user_id != customer.id:
-        raise PermissionError("Not authorized to accept this quote")
+    # If submitted anonymously, the user accepting the quote claims ownership
+    if rfq.customer_user_id is None:
+        rfq.customer_user_id = customer.id
+        await db.commit()
+    elif rfq.customer_user_id != customer.id:
+        if "admin" not in (customer.roles or []):
+            raise PermissionError("Not authorized to accept this quote")
 
     if rfq.is_closed and rfq.rfq_status != RfqStatus.QUOTE_LIMIT_REACHED:
         raise ValueError("RFQ is already closed")
@@ -924,6 +929,8 @@ async def accept_quote(
                         "Post-acceptance NDA created for RFQ %s with provider %s",
                         rfq.id, rfq.selected_provider_id,
                     )
+                    provider_contact["nda_triggered"] = True
+                    provider_contact["nda_error"] = None
                 else:
                     logger.warning(
                         "Could not create NDA for RFQ %s: provider_user=%s, provider=%s",
@@ -940,6 +947,12 @@ async def accept_quote(
                 "Failed to create post-acceptance NDA for RFQ %s: %s",
                 rfq.id, nda_exc, exc_info=True,
             )
+            provider_contact["nda_error"] = str(nda_exc)
+            provider_contact["nda_triggered"] = False
+    else:
+        # No NDA required - mark as not triggered
+        provider_contact["nda_triggered"] = False
+        provider_contact["nda_error"] = None
 
     return provider_contact
 
