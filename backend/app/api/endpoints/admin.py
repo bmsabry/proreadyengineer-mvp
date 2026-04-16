@@ -3087,10 +3087,20 @@ async def admin_list_providers(
 ):
     """Admin: List providers with optional search and pagination."""
     from sqlalchemy import select, func, or_
-    from app.models.provider import Provider
+    from app.models.provider import Provider, ProviderMembership
 
     offset = (page - 1) * limit
-    query = select(Provider)
+    # Subquery: get the single user email linked to each provider via membership
+    user_email_sub = (
+        select(ProviderMembership.provider_id, User.email.label("user_email"))
+        .join(User, User.id == ProviderMembership.user_id)
+        .distinct(ProviderMembership.provider_id)
+        .subquery()
+    )
+    query = (
+        select(Provider, user_email_sub.c.user_email)
+        .outerjoin(user_email_sub, Provider.id == user_email_sub.c.provider_id)
+    )
     count_query = select(func.count(Provider.id))
 
     if search:
@@ -3105,7 +3115,7 @@ async def admin_list_providers(
 
     total = (await db.execute(count_query)).scalar() or 0
     result = await db.execute(query.order_by(Provider.name).offset(offset).limit(limit))
-    providers = result.scalars().all()
+    rows = result.all()
 
     return {
         "providers": [
@@ -3118,11 +3128,11 @@ async def admin_list_providers(
                 "business_evaluation_tier": p.business_evaluation_tier,
                 "primary_specialty": p.primary_specialty,
                 "is_engineering_service": p.is_engineering_service,
-                "email_addresses": p.email_addresses,
+                "user_email": user_email,
                 "website": p.website,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
             }
-            for p in providers
+            for p, user_email in rows
         ],
         "total": total,
         "page": page,

@@ -18,7 +18,7 @@ interface AdminProvider {
   firm_name: string | null;
   city: string | null;
   state: string | null;
-  email_addresses: string | string[] | null;
+  user_email: string | null;
   business_evaluation_tier: string | null;
   primary_specialty: string | null;
   is_engineering_service: number | null;
@@ -787,7 +787,7 @@ export default function AdminProvidersPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-slate-600 text-sm">
-                      {(Array.isArray(p.email_addresses) ? p.email_addresses[0] : p.email_addresses) || '—'}
+                      {p.user_email || '—'}
                     </TableCell>
                     <TableCell>
                       {p.business_evaluation_tier ? (
