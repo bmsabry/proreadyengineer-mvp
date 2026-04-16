@@ -3087,7 +3087,7 @@ async def admin_list_providers(
 ):
     """Admin: List providers with optional search and pagination."""
     from sqlalchemy import select, func, or_
-    from app.models.provider import Provider, ProviderMembership
+    from app.models.provider import Provider
 
     offset = (page - 1) * limit
     query = select(Provider)
@@ -3107,19 +3107,6 @@ async def admin_list_providers(
     result = await db.execute(query.order_by(Provider.name).offset(offset).limit(limit))
     providers = result.scalars().all()
 
-    # Batch-lookup user emails for this page of providers only
-    provider_ids = [p.id for p in providers]
-    email_map: dict = {}
-    if provider_ids:
-        email_rows = await db.execute(
-            select(ProviderMembership.provider_id, User.email)
-            .join(User, User.id == ProviderMembership.user_id)
-            .where(ProviderMembership.provider_id.in_(provider_ids))
-        )
-        for pid, email in email_rows.all():
-            if pid not in email_map:  # keep first match only
-                email_map[pid] = email
-
     return {
         "providers": [
             {
@@ -3131,7 +3118,7 @@ async def admin_list_providers(
                 "business_evaluation_tier": p.business_evaluation_tier,
                 "primary_specialty": p.primary_specialty,
                 "is_engineering_service": p.is_engineering_service,
-                "user_email": email_map.get(p.id),
+                "user_email": (p.email_addresses[0] if isinstance(p.email_addresses, list) and p.email_addresses else p.email_addresses if isinstance(p.email_addresses, str) else None),
                 "website": p.website,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
             }
