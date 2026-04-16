@@ -787,11 +787,18 @@ async def provider_lookup(
 
     search = f"%{q}%"
 
-    # Normalized search: strip all non-alphanumeric chars so
+    # Normalized search: strip spaces, dashes, dots, and common suffixes so
     # "proreadyengineer" matches "Pro Ready Engineer LLC"
-    q_normalized = f"%{re.sub(r'[^a-z0-9]', '', q.lower())}%"
-    normalized_firm = func.regexp_replace(func.lower(Provider.firm_name), '[^a-z0-9]', '', 'g')
-    normalized_name = func.regexp_replace(func.lower(Provider.name), '[^a-z0-9]', '', 'g')
+    q_clean = re.sub(r'[^a-z0-9]', '', q.lower())
+    q_normalized = f"%{q_clean}%"
+
+    # Use chained REPLACE calls (universally supported) instead of regexp_replace
+    stripped_firm = func.replace(func.replace(func.replace(func.replace(
+        func.lower(Provider.firm_name),
+        ' ', ''), '-', ''), '.', ''), ',', '')
+    stripped_name = func.replace(func.replace(func.replace(func.replace(
+        func.lower(Provider.name),
+        ' ', ''), '-', ''), '.', ''), ',', '')
 
     result = await db.execute(
         select(Provider)
@@ -800,8 +807,8 @@ async def provider_lookup(
                 Provider.firm_name.ilike(search),
                 Provider.name.ilike(search),
                 cast(Provider.email_addresses, String).ilike(search),
-                normalized_firm.like(q_normalized),
-                normalized_name.like(q_normalized),
+                stripped_firm.like(q_normalized),
+                stripped_name.like(q_normalized),
             )
         )
         .order_by(Provider.firm_name)
