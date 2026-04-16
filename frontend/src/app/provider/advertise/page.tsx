@@ -87,81 +87,45 @@ function AdvertiseInner() {
     );
   }
 
-  // Success state
+  // Success / processing state
   if (result) {
-    const extracted = result.llm_extracted_content ?? {};
+    const isProcessing = result.ad_status === 'processing';
     return (
-      <div className="min-h-screen bg-slate-50">
-        <div className="bg-white border-b border-slate-200">
-          <div className="max-w-3xl mx-auto px-6 py-8">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
-                <CheckCircle className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-slate-900">Ad Submitted Successfully!</h1>
-                <p className="text-sm text-slate-500">{result.message}</p>
-              </div>
-            </div>
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4">
+        <div className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-sm">
+          <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-5">
+            {isProcessing
+              ? <Loader2 className="h-7 w-7 text-emerald-600 animate-spin" />
+              : <CheckCircle className="h-7 w-7 text-emerald-600" />}
           </div>
-        </div>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">
+            {isProcessing ? 'Your ad is being generated!' : 'Ad Submitted!'}
+          </h1>
+          <p className="text-slate-500 text-sm mb-6">{result.message}</p>
 
-        <div className="max-w-3xl mx-auto px-6 py-8">
-          {/* Preview card */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Eye className="h-4 w-4 text-slate-500" />
-              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Ad Preview</h2>
+          {isProcessing && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4 text-left mb-6 text-sm text-blue-800">
+              <p className="font-semibold mb-1">What happens next:</p>
+              <ol className="list-decimal list-inside space-y-1 text-blue-700">
+                <li>Our AI reads all pages of your website</li>
+                <li>LLM3 generates a professional ad card from the content</li>
+                <li>An admin reviews and approves the ad</li>
+                <li>Your ad goes live on the directory</li>
+              </ol>
+              <p className="mt-3 text-xs text-blue-500">This usually takes 1–2 minutes. You can safely close this page.</p>
             </div>
-
-            <div className="rounded-xl border border-slate-200 p-5 bg-gradient-to-br from-slate-50 to-white">
-              <h3 className="text-lg font-bold text-slate-900 mb-1">{result.title}</h3>
-              {extracted.tagline && (
-                <p className="text-sm text-violet-600 font-medium mb-3">{extracted.tagline}</p>
-              )}
-              {result.promotional_text && (
-                <p className="text-sm text-slate-600 mb-4">{result.promotional_text}</p>
-              )}
-              {extracted.specialties?.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-4">
-                  {extracted.specialties.slice(0, 8).map((s: string, i: number) => (
-                    <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-violet-100 text-violet-700">
-                      {s}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {extracted.proof_points?.length > 0 && (
-                <div className="space-y-1 mb-4">
-                  {extracted.proof_points.slice(0, 3).map((p: string, i: number) => (
-                    <div key={i} className="flex items-start gap-2">
-                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                      <span className="text-xs text-slate-600">{p}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-xs text-slate-400">
-                  {extracted.company_name || result.title}
-                </span>
-                <span className="px-3 py-1 rounded-lg bg-[#0F2B54] text-white text-xs font-medium">
-                  {extracted.cta_label || 'Learn More'}
-                </span>
-              </div>
-            </div>
-          </div>
+          )}
 
           <div className="flex gap-3">
             <Link
               href="/provider/dashboard"
-              className="flex-1 text-center py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+              className="flex-1 text-center py-2.5 rounded-xl bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#0a1f3e] transition-colors"
             >
-              Back to Dashboard
+              Go to Dashboard
             </Link>
             <button
               onClick={() => { setResult(null); setError(null); }}
-              className="flex-1 text-center py-2.5 rounded-xl bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#0a1f3e] transition-colors"
+              className="flex-1 text-center py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
             >
               Submit Another Ad
             </button>

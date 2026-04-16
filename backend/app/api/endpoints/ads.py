@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -145,23 +145,79 @@ async def _fetch_full_website_for_ad(url: str) -> str:
 # Ad Submission (new workflow)
 # ---------------------------------------------------------------------------
 
+async def _process_ad_in_background(ad_id: uuid.UUID, source_url: Optional[str],
+                                     description_text: Optional[str], page_type: str) -> None:
+    """Background task: crawl website + LLM extraction, then update ad record."""
+    from app.db.session import AsyncSessionLocal
+    from app.models.advertising import Advertisement
+    from app.models.enums import AdStatus
+
+    from app.db.session import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as bg_db:
+        try:
+            # Crawl the full website — all pages, same as admin "add firm"
+            website_text: str | None = None
+            if source_url:
+                try:
+                    website_text = await _fetch_full_website_for_ad(source_url)
+                    logger.info("Ad bg crawl done url=%s chars=%d", source_url, len(website_text or ""))
+                except Exception as exc:
+                    logger.warning("Ad bg crawl failed url=%s err=%s", source_url, exc)
+
+            if not website_text and not description_text:
+                logger.error("Ad %s has no content — marking failed", ad_id)
+                await bg_db.execute(
+                    update(Advertisement)
+                    .where(Advertisement.id == ad_id)
+                    .values(ad_status=AdStatus.INACTIVE,
+                            title="Content extraction failed — please re-submit with a description")
+                )
+                await bg_db.commit()
+                return
+
+            # LLM3 extraction — full website content → ad fields
+            extracted = await _extract_ad_content(bg_db, website_text=website_text,
+                                                   description_text=description_text, page_type=page_type)
+            headline = extracted.get("headline", "Advertisement")
+            promo_summary = extracted.get("promotional_summary") or extracted.get("value_proposition", "")
+
+            await bg_db.execute(
+                update(Advertisement)
+                .where(Advertisement.id == ad_id)
+                .values(
+                    ad_status=AdStatus.PENDING_REVIEW,
+                    title=headline[:200],
+                    promotional_text=promo_summary[:2000] if promo_summary else None,
+                    llm_extracted_content=extracted,
+                )
+            )
+            await bg_db.commit()
+            logger.info("Ad %s processing complete → pending_review", ad_id)
+
+        except Exception as exc:
+            logger.exception("Ad background processing failed ad_id=%s err=%s", ad_id, exc)
+
+
 @router.post("/ads/submit", response_model=AdSubmissionResponse)
 async def submit_ad(
     data: AdSubmissionRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
     """Submit a new advertisement for review.
 
-    Accepts website URL and/or description text. LLM3 extracts structured
-    ad content. The ad is created in ``pending_review`` status for admin
-    approval before going live.
+    Creates the ad record immediately (status=processing) and returns success
+    right away. The full website crawl + LLM3 extraction run in a background
+    task — same deep crawl as admin "add firm". Ad moves to pending_review
+    when processing completes.
     """
     from app.models.advertising import Advertisement
     from app.models.enums import AdStatus
     from app.models.provider import Provider, ProviderMembership
 
-    # Check if user is a provider (or has a provider membership)
+    # Resolve provider membership
     provider_id: int | None = None
     membership_result = await db.execute(
         select(ProviderMembership.provider_id).where(
@@ -173,12 +229,11 @@ async def submit_ad(
     if membership_row:
         provider_id = membership_row
 
-    # --- Gather content: crawl the full website (same as admin "add firm") ---
+    # Resolve source URL
     source_url = data.website_url
     if source_url and not source_url.startswith("http"):
         source_url = "https://" + source_url
 
-    # If no URL provided, check the provider's website on file
     if not source_url and provider_id:
         provider_result = await db.execute(
             select(Provider.website).where(Provider.id == provider_id)
@@ -189,70 +244,50 @@ async def submit_ad(
             if not source_url.startswith("http"):
                 source_url = "https://" + source_url
 
-    # Crawl the full website — reads all pages just like admin "add firm"
-    website_text: str | None = None
-    if source_url:
-        try:
-            website_text = await _fetch_full_website_for_ad(source_url)
-        except Exception as exc:
-            logger.warning("Ad website crawl failed url=%s err=%s", source_url, exc)
-
-    if not website_text and not data.description_text:
+    if not source_url and not data.description_text:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Could not fetch website content. Please provide a description or check the URL.",
+            detail="Please provide a website URL or a description to generate your ad.",
         )
 
-    # --- LLM3 ad generation from full website content ---
-    try:
-        extracted = await _extract_ad_content(
-            db,
-            website_text=website_text,
-            description_text=data.description_text,
-            page_type=data.page_type,
-        )
-    except Exception as exc:
-        logger.error("Ad LLM extraction failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Could not generate ad content: {exc}",
-        )
-
-    # --- Create Advertisement record ---
-    headline = extracted.get("headline", "Advertisement")
-    promo_summary = extracted.get("promotional_summary") or extracted.get("value_proposition", "")
-
+    # Create the ad record immediately with PROCESSING status
+    ad_id = uuid.uuid4()
     ad = Advertisement(
-        id=uuid.uuid4(),
+        id=ad_id,
         advertiser_user_id=current_user.id,
         provider_id=provider_id,
         page_type=data.page_type,
-        title=headline[:200],
-        promotional_text=promo_summary[:2000] if promo_summary else None,
-        outbound_url=data.outbound_url or source_url,
-        ad_status=AdStatus.PENDING_REVIEW,
-        llm_extracted_content=extracted,
+        title="Generating your ad…",
+        ad_status=AdStatus.PROCESSING,
         source_website_url=source_url,
+        outbound_url=data.outbound_url or source_url,
         uploaded_materials_s3_keys=data.uploaded_material_keys,
         click_count=0,
         impression_count=0,
     )
     db.add(ad)
 
-    # Add advertiser role to user if not present
     if "advertiser" not in (current_user.roles or []):
         current_user.roles = list(current_user.roles or []) + ["advertiser"]
 
     await db.commit()
-    await db.refresh(ad)
+
+    # Kick off crawl + LLM in background — full website read like admin "add firm"
+    background_tasks.add_task(
+        _process_ad_in_background,
+        ad_id=ad_id,
+        source_url=source_url,
+        description_text=data.description_text,
+        page_type=data.page_type,
+    )
 
     return AdSubmissionResponse(
-        ad_id=ad.id,
-        ad_status=ad.ad_status,
-        title=ad.title,
-        promotional_text=ad.promotional_text,
-        llm_extracted_content=extracted,
-        message="Your ad has been submitted for review. You will be notified once approved.",
+        ad_id=ad_id,
+        ad_status=AdStatus.PROCESSING,
+        title="Generating your ad…",
+        promotional_text=None,
+        llm_extracted_content=None,
+        message="Your ad is being generated. Our AI is reading your website now. This takes 1-2 minutes — you can close this page and check back shortly.",
     )
 
 
