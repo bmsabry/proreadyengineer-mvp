@@ -48,6 +48,80 @@ function AdvertiseInner() {
     })();
   }, [user]);
 
+  // Poll for status changes whenever we're showing the post-submit screen
+  // or whenever the provider has an ad in a non-terminal state. Updates
+  // the "Your ad is being generated" screen in place, and keeps the
+  // existing-ads list fresh so the provider sees approvals/rejections
+  // persistently until they dismiss.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const { apiClient } = await import('@/lib/api');
+        const resp = await apiClient.get('/advertiser/ads/me');
+        if (cancelled) return;
+        const ads = resp.data ?? [];
+        setMyAds(ads);
+        // If the success screen is up, reflect the latest status for that ad.
+        if (result?.ad_id) {
+          const match = ads.find((a: any) => a.id === result.ad_id);
+          if (match && match.ad_status !== result.ad_status) {
+            setResult({
+              ...result,
+              ad_status: match.ad_status,
+              admin_review_notes: match.admin_review_notes ?? null,
+              title: match.title ?? result.title,
+            });
+          }
+        }
+      } catch {}
+    };
+    // Kick off one tick, then poll every 5s.
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [user, result?.ad_id]);
+
+  // Hydrate the post-submit banner from existing ads (persistent feedback):
+  // if the provider has an ad that is pending/active/rejected and they have
+  // not dismissed it, keep showing the banner across refreshes.
+  useEffect(() => {
+    if (!user) return;
+    if (result) return;
+    if (!myAds || myAds.length === 0) return;
+    try {
+      const raw = localStorage.getItem('prw_ad_dismissed_v1');
+      const dismissed: string[] = raw ? JSON.parse(raw) : [];
+      const relevantStatuses = new Set(['processing', 'pending_review', 'active', 'rejected']);
+      // Pick the most-recently-updated ad still in a displayable state.
+      const sorted = [...myAds]
+        .filter((a: any) => relevantStatuses.has(a.ad_status) && !dismissed.includes(a.id))
+        .sort((a: any, b: any) => {
+          const ta = new Date(a.updated_at || a.reviewed_at || a.created_at || 0).getTime();
+          const tb = new Date(b.updated_at || b.reviewed_at || b.created_at || 0).getTime();
+          return tb - ta;
+        });
+      const latest = sorted[0];
+      if (latest) {
+        setResult({
+          ad_id: latest.id,
+          ad_status: latest.ad_status,
+          title: latest.title,
+          admin_review_notes: latest.admin_review_notes ?? null,
+          message: latest.ad_status === 'active'
+            ? 'Approved — an email confirmation has been sent.'
+            : latest.ad_status === 'rejected'
+              ? 'An email with the reason and next steps has been sent.'
+              : latest.ad_status === 'pending_review'
+                ? 'Generated successfully and queued for admin review.'
+                : 'Generating your ad — this usually takes 1–2 minutes.',
+        });
+      }
+    } catch {}
+  }, [user, myAds, result]);
+
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -128,20 +202,67 @@ function AdvertiseInner() {
     );
   }
 
-  // Success / processing state
+  // Success / status-feedback state (persistent until dismissed).
+  // Once an ad is submitted, we stay on this screen and poll; if the admin
+  // approves or rejects it the screen updates in place. User must click
+  // Dismiss to return to the submission form (persisted via localStorage so
+  // that a refresh does not lose the approval/rejection message).
+  const dismissAdBanner = (id: string) => {
+    try {
+      const key = 'prw_ad_dismissed_v1';
+      const raw = localStorage.getItem(key);
+      const set: string[] = raw ? JSON.parse(raw) : [];
+      if (\!set.includes(id)) set.push(id);
+      localStorage.setItem(key, JSON.stringify(set));
+    } catch {}
+    setResult(null);
+    setError(null);
+  };
+
   if (result) {
-    const isProcessing = result.ad_status === 'processing';
+    const status = result.ad_status as string;
+    const isProcessing = status === 'processing';
+    const isPending = status === 'pending_review';
+    const isActive = status === 'active';
+    const isRejected = status === 'rejected';
+
+    const title = isProcessing
+      ? 'Your ad is being generated\!'
+      : isPending
+        ? 'Ad generated — awaiting admin review'
+        : isActive
+          ? 'Your ad is live\!'
+          : isRejected
+            ? 'Your ad was not approved'
+            : 'Ad Submitted\!';
+
+    const iconBgClass = isRejected
+      ? 'bg-red-100'
+      : isActive
+        ? 'bg-emerald-100'
+        : isPending
+          ? 'bg-amber-100'
+          : 'bg-emerald-100';
+
+    const iconColorClass = isRejected
+      ? 'text-red-600'
+      : isActive
+        ? 'text-emerald-600'
+        : isPending
+          ? 'text-amber-600'
+          : 'text-emerald-600';
+
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4">
         <div className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl p-10 text-center shadow-sm">
-          <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-5">
+          <div className={`w-14 h-14 rounded-full ${iconBgClass} flex items-center justify-center mx-auto mb-5`}>
             {isProcessing
-              ? <Loader2 className="h-7 w-7 text-emerald-600 animate-spin" />
-              : <CheckCircle className="h-7 w-7 text-emerald-600" />}
+              ? <Loader2 className={`h-7 w-7 ${iconColorClass} animate-spin`} />
+              : isRejected
+                ? <AlertCircle className={`h-7 w-7 ${iconColorClass}`} />
+                : <CheckCircle className={`h-7 w-7 ${iconColorClass}`} />}
           </div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">
-            {isProcessing ? 'Your ad is being generated!' : 'Ad Submitted!'}
-          </h1>
+          <h1 className="text-2xl font-bold text-slate-900 mb-2">{title}</h1>
           <p className="text-slate-500 text-sm mb-6">{result.message}</p>
 
           {isProcessing && (
@@ -153,7 +274,28 @@ function AdvertiseInner() {
                 <li>An admin reviews and approves the ad</li>
                 <li>Your ad goes live on the directory</li>
               </ol>
-              <p className="mt-3 text-xs text-blue-500">This usually takes 1–2 minutes. You can safely close this page.</p>
+              <p className="mt-3 text-xs text-blue-500">This usually takes 1–2 minutes. You can safely close this page — we'll update this screen when there is news.</p>
+            </div>
+          )}
+
+          {isPending && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-left mb-6 text-sm text-amber-800">
+              <p className="font-semibold mb-1">Ad generated and sent for review</p>
+              <p className="text-amber-700">An admin will review the generated ad copy and approve or reject it within 1 business day. We'll email you as soon as there's a decision.</p>
+            </div>
+          )}
+
+          {isActive && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-5 py-4 text-left mb-6 text-sm text-emerald-800">
+              <p className="font-semibold mb-1">Approved and live</p>
+              <p className="text-emerald-700">Your ad is now visible in the directory. An email confirming approval has been sent to your inbox.</p>
+            </div>
+          )}
+
+          {isRejected && (
+            <div className="bg-red-50 border border-red-200 rounded-xl px-5 py-4 text-left mb-6 text-sm text-red-800">
+              <p className="font-semibold mb-1">Rejection reason</p>
+              <p className="text-red-700 whitespace-pre-wrap">{result.admin_review_notes || 'An admin reviewed your ad and decided not to publish it. A detailed email has been sent to your inbox explaining why and what to adjust before resubmitting.'}</p>
             </div>
           )}
 
@@ -164,12 +306,21 @@ function AdvertiseInner() {
             >
               Go to Dashboard
             </Link>
-            <button
-              onClick={() => { setResult(null); setError(null); }}
-              className="flex-1 text-center py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
-            >
-              Submit Another Ad
-            </button>
+            {(isActive || isRejected || isPending) ? (
+              <button
+                onClick={() => dismissAdBanner(result.ad_id)}
+                className="flex-1 text-center py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                {isRejected ? 'Submit Another Ad' : 'Dismiss'}
+              </button>
+            ) : (
+              <button
+                onClick={() => { setResult(null); setError(null); }}
+                className="flex-1 text-center py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Submit Another Ad
+              </button>
+            )}
           </div>
         </div>
       </div>

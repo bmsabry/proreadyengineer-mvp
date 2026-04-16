@@ -116,6 +116,13 @@ export default function AdminAdsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Ad | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
+  // Reject-and-notify (for pending ads): asks admin for a reason, backend
+  // uses LLM3 to draft + send email to provider, and deletes the record.
+  const [rejectTarget, setRejectTarget] = useState<Ad | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [rejectResult, setRejectResult] = useState<string | null>(null);
+
   // --- Fetchers ---
   const fetchAds = useCallback(async () => {
     setLoading(true);
@@ -211,6 +218,40 @@ export default function AdminAdsPage() {
       setDeleteTarget(null);
       fetchAds(); fetchAnalytics();
     } catch {} finally { setDeleteLoading(false); }
+  };
+
+  const handleRejectAndNotify = async () => {
+    if (!rejectTarget) return;
+    if (!rejectReason.trim()) {
+      setRejectResult('Please provide a reason — the provider will see this in their email.');
+      return;
+    }
+    setRejectLoading(true);
+    setRejectResult(null);
+    try {
+      const res = await fetch(`${apiBase}/admin/ads/${rejectTarget.id}/reject-and-notify`, {
+        method: 'POST', credentials: 'include', headers: getAuthHeaders(),
+        body: JSON.stringify({ reason: rejectReason }),
+      });
+      if (res.ok) {
+        setRejectResult('Email drafted and sent. Ad removed.');
+        setTimeout(() => {
+          setRejectTarget(null);
+          setRejectReason('');
+          setRejectResult(null);
+          setSelectedAd(null);
+          fetchAds();
+          fetchAnalytics();
+        }, 1400);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setRejectResult(`Error: ${err.detail || 'Rejection failed'}`);
+      }
+    } catch (e: any) {
+      setRejectResult(`Error: ${e?.message || 'Network error'}`);
+    } finally {
+      setRejectLoading(false);
+    }
   };
 
   const handleEditSave = async () => {
@@ -476,8 +517,18 @@ export default function AdminAdsPage() {
                             <Play className="h-4 w-4 text-blue-600" />
                           </button>
                         )}
-                        <button onClick={() => setDeleteTarget(ad)}
-                          className="p-2 rounded-lg border border-red-200 hover:bg-red-50" title="Delete">
+                        <button
+                          onClick={() => {
+                            if (ad.ad_status === 'pending_review') {
+                              setRejectTarget(ad);
+                              setRejectReason('');
+                              setRejectResult(null);
+                            } else {
+                              setDeleteTarget(ad);
+                            }
+                          }}
+                          className="p-2 rounded-lg border border-red-200 hover:bg-red-50"
+                          title={ad.ad_status === 'pending_review' ? 'Reject & notify provider' : 'Delete'}>
                           <Trash2 className="h-4 w-4 text-red-400" />
                         </button>
                       </div>
@@ -781,9 +832,15 @@ export default function AdminAdsPage() {
                       className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-60 flex items-center justify-center gap-2">
                       {reviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />} Approve
                     </button>
-                    <button onClick={() => handleReview(selectedAd, 'reject')} disabled={reviewLoading}
+                    <button
+                      onClick={() => {
+                        setRejectTarget(selectedAd);
+                        setRejectReason(reviewNotes || '');
+                        setRejectResult(null);
+                      }}
+                      disabled={reviewLoading}
                       className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2">
-                      {reviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />} Reject
+                      <XCircle className="h-4 w-4" /> Reject &amp; Notify
                     </button>
                   </div>
                 </div>
@@ -878,6 +935,48 @@ export default function AdminAdsPage() {
           </div>
         </div>
       )}
+      {/* ===================== REJECT & NOTIFY MODAL (pending ads) ===================== */}
+      {rejectTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6">
+            <h2 className="text-lg font-bold text-slate-900 mb-1">Reject &amp; Notify Provider</h2>
+            <p className="text-sm text-slate-600 mb-1">This ad will be removed and an email (drafted by our AI from your reason) will be sent to the provider explaining the rejection and next steps.</p>
+            <p className="text-sm font-semibold text-slate-900 mt-3 mb-1">&ldquo;{rejectTarget.title}&rdquo;</p>
+            <label className="block text-xs font-semibold text-slate-500 mt-4 mb-1.5">
+              Why is this ad being rejected? <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              rows={4}
+              placeholder="e.g. The ad headline does not describe the firm's core services. Please resubmit with a headline that names the primary technical domains you cover."
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-200 resize-none"
+            />
+            <p className="text-xs text-slate-500 mt-1">The AI will rephrase this into a professional email — you can write it internally or bluntly.</p>
+            {rejectResult && (
+              <div className={`mt-3 p-3 rounded-xl text-sm font-medium ${rejectResult.startsWith('Error') ? 'bg-red-50 text-red-700' : rejectResult.startsWith('Please') ? 'bg-amber-50 text-amber-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                {rejectResult}
+              </div>
+            )}
+            <div className="flex gap-3 mt-5">
+              <button
+                onClick={() => { setRejectTarget(null); setRejectReason(''); setRejectResult(null); }}
+                disabled={rejectLoading}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+                Cancel
+              </button>
+              <button
+                onClick={handleRejectAndNotify}
+                disabled={rejectLoading || !rejectReason.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-60 flex items-center justify-center gap-2">
+                {rejectLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                Reject &amp; Send Email
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

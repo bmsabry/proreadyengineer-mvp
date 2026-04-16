@@ -207,6 +207,145 @@ Return ONLY valid JSON. No markdown. No explanation."""
     return json.loads(content)
 
 
+async def _draft_ad_decision_email(
+    db: AsyncSession,
+    *,
+    decision: str,          # "approved" | "rejected"
+    ad_title: str,
+    ad_content: Optional[Dict[str, Any]],
+    admin_reason: Optional[str],
+    recipient_name: str,
+) -> Dict[str, str]:
+    """Use LLM3 to draft a subject + body for an ad decision email.
+
+    Returns a dict with keys: subject, body_html, body_text.
+    The body is written as real copy a provider will receive — explains
+    the decision (and reason, if rejection) and gives clear next steps.
+    """
+    decision = decision.lower().strip()
+    if decision not in ("approved", "rejected"):
+        raise ValueError("decision must be 'approved' or 'rejected'")
+
+    context_block = {
+        "ad_title": ad_title or "",
+        "ad_extracted_content": ad_content or {},
+        "admin_reason": admin_reason or "",
+        "decision": decision,
+        "recipient_name": recipient_name or "",
+    }
+
+    if decision == "approved":
+        instruction = (
+            "Write a short (3-5 sentence) APPROVAL notification email body. "
+            "Confirm that the advertisement is live on the directory, "
+            "mention the ad's headline in a natural way, invite the provider "
+            "to share the public directory link with prospects, and close "
+            "warmly. Do NOT invent pricing, URLs, or numbers not in the source."
+        )
+    else:
+        instruction = (
+            "Write a short (4-6 sentence) REJECTION notification email body. "
+            "Open with a polite, professional tone. Reference the ad's title. "
+            "Explain the reason (rephrased into clear, respectful language "
+            "drawn from the admin_reason field — do NOT copy the admin's "
+            "raw words verbatim if they are blunt or internal-sounding). "
+            "Give 1-3 concrete suggestions for what the provider should fix "
+            "before resubmitting, grounded in the reason. Close with an "
+            "invitation to resubmit an updated version."
+        )
+
+    prompt = f"""You are writing a customer-facing email on behalf of the ProReadyEngineer marketplace operator.
+
+CONTEXT (JSON):
+{json.dumps(context_block, indent=2, default=str)}
+
+TASK:
+{instruction}
+
+RULES:
+- The email is addressed to "{recipient_name or 'there'}" — do NOT include a greeting line (the template adds one).
+- Do NOT include a sign-off (the template closes the email).
+- Do NOT include subject-line text in the body.
+- Use plain, direct language — no corporate platitudes, no "we hope this message finds you well".
+- Output HTML only for the body — you may use <p>, <strong>, <em>, <ul>, <li>. No other tags.
+
+Return ONLY a valid JSON object with EXACTLY these fields:
+{{
+  "subject": "A clear, specific email subject line under 70 characters",
+  "body_html": "Email body as HTML (paragraphs, lists ok — no greeting, no sign-off)",
+  "body_text": "Same content as plain text, newline-separated paragraphs"
+}}
+
+Return ONLY valid JSON. No markdown. No explanation."""
+
+    client, model = await _get_llm3_client(db)
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        response_format={"type": "json_object"},
+        temperature=0.4,
+    )
+    parsed = json.loads(response.choices[0].message.content)
+    # sanity defaults in case the LLM omits a field
+    return {
+        "subject": (parsed.get("subject") or f"Your advertisement {decision}").strip()[:140],
+        "body_html": parsed.get("body_html") or f"<p>Your advertisement was {decision}.</p>",
+        "body_text": parsed.get("body_text") or f"Your advertisement was {decision}.",
+    }
+
+
+async def _send_ad_decision_email(
+    db: AsyncSession,
+    *,
+    ad,                      # Advertisement instance (needs .title, .llm_extracted_content, .advertiser_user_id)
+    decision: str,           # "approved" | "rejected"
+    admin_reason: Optional[str],
+) -> None:
+    """Look up advertiser, draft email via LLM3, and send it. Best-effort; logs on failure."""
+    from app.services.email_service import send_email
+    from app.core.config import settings
+
+    try:
+        user_row = await db.execute(select(User).where(User.id == ad.advertiser_user_id))
+        advertiser = user_row.scalar_one_or_none()
+        if not advertiser or not advertiser.email:
+            logger.warning("Skipping ad decision email — advertiser_user_id=%s has no email", ad.advertiser_user_id)
+            return
+
+        recipient_name = advertiser.full_name or advertiser.email.split("@")[0]
+
+        draft = await _draft_ad_decision_email(
+            db,
+            decision=decision,
+            ad_title=ad.title or "",
+            ad_content=ad.llm_extracted_content,
+            admin_reason=admin_reason,
+            recipient_name=recipient_name,
+        )
+
+        template = "ad_approved" if decision == "approved" else "ad_rejected"
+        frontend = (settings.FRONTEND_URL or "").rstrip("/")
+        context = {
+            "email_subject": draft["subject"],
+            "recipient_name": recipient_name,
+            "email_body_html": draft["body_html"],
+            "email_body_text": draft["body_text"],
+            "advertise_url": f"{frontend}/provider/advertise",
+            "dashboard_url": f"{frontend}/provider/dashboard",
+        }
+
+        await send_email(
+            to=advertiser.email,
+            template=template,
+            subject=draft["subject"],
+            context=context,
+            db=db,
+        )
+        logger.info("Ad decision email sent decision=%s ad_id=%s to=%s", decision, ad.id, advertiser.email)
+    except Exception as exc:
+        logger.exception("Failed to send ad decision email ad_id=%s err=%s", getattr(ad, "id", None), exc)
+
+
 async def _fetch_full_website_for_ad(url: str) -> str:
     """Crawl the full website — same approach as admin 'add firm' workflow."""
     from app.api.endpoints.admin import _admin_fetch_website_text
@@ -910,7 +1049,17 @@ async def review_ad(
     await db.commit()
     await db.refresh(ad)
 
-    # TODO: Send email notification to advertiser
+    # Send email notification to advertiser (best-effort, non-blocking)
+    try:
+        await _send_ad_decision_email(
+            db,
+            ad=ad,
+            decision="approved" if data.action == "approve" else "rejected",
+            admin_reason=data.notes,
+        )
+    except Exception as exc:
+        logger.exception("review_ad: email dispatch failed ad_id=%s err=%s", ad.id, exc)
+
 
     return AdminAdReviewResponse(
         ad_id=ad.id,
@@ -918,6 +1067,58 @@ async def review_ad(
         reviewed_at=ad.reviewed_at,
         message=message,
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin: Reject Pending Ad + Notify Provider + Delete
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _PydBase
+
+
+class AdminAdRejectNotifyRequest(_PydBase):
+    reason: str
+
+
+@router.post("/admin/ads/{ad_id}/reject-and-notify")
+async def admin_reject_and_notify(
+    ad_id: str,
+    data: AdminAdRejectNotifyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin rejects a submitted ad with a reason. LLM3 drafts + sends an
+    email to the provider explaining the rejection and suggesting next steps.
+    The ad is then deleted — no lingering 'rejected' row in the directory."""
+    from app.models.advertising import Advertisement
+
+    reason = (data.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="reason is required")
+
+    result = await db.execute(
+        select(Advertisement).where(Advertisement.id == ad_id)
+    )
+    ad = result.scalar_one_or_none()
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+
+    # Fire email FIRST (while the record still exists, so we can reference
+    # its title/content). Best-effort — failure is logged but does not block.
+    await _send_ad_decision_email(
+        db,
+        ad=ad,
+        decision="rejected",
+        admin_reason=reason,
+    )
+
+    await db.delete(ad)
+    await db.commit()
+
+    return {
+        "message": "Ad rejected, provider notified, and record removed.",
+        "ad_id": ad_id,
+    }
 
 
 # ---------------------------------------------------------------------------
