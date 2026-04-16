@@ -158,6 +158,12 @@ class AdAssetUploadCompleteRequest(BaseSchema):
     s3_key: str
 
 
+class AdAssetUploadCompleteResponse(BaseSchema):
+    """Response after confirming ad material upload."""
+    s3_key: str
+    message: str = "Upload confirmed"
+
+
 # === Ad Creation (legacy) ===
 
 class AdCreateRequest(BaseSchema):
