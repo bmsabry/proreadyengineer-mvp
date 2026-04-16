@@ -20,7 +20,7 @@ function getAuthHeaders(): HeadersInit {
   return h;
 }
 
-type TabKey = 'pending' | 'active' | 'all' | 'rejected' | 'paused';
+type TabKey = 'pending' | 'checkout_pending' | 'active' | 'all' | 'rejected' | 'paused';
 
 interface Ad {
   id: string;
@@ -130,6 +130,8 @@ export default function AdminAdsPage() {
       let url: string;
       if (tab === 'pending') {
         url = `${apiBase}/admin/ads/pending`;
+      } else if (tab === 'checkout_pending') {
+        url = `${apiBase}/admin/ads?status=reserved_checkout_pending`;
       } else {
         const statusParam = tab === 'all' ? '' : `?status=${tab}`;
         url = `${apiBase}/admin/ads${statusParam}`;
@@ -190,7 +192,14 @@ export default function AdminAdsPage() {
       if (res.ok) {
         const data = await res.json();
         setReviewResult(data.message);
-        setTimeout(() => { setSelectedAd(null); setReviewNotes(''); setReviewResult(null); fetchAds(); fetchAnalytics(); }, 1200);
+        setTimeout(() => {
+          setSelectedAd(null);
+          setReviewNotes('');
+          setReviewResult(null);
+          if (action === 'approve') setTab('checkout_pending');
+          fetchAds();
+          fetchAnalytics();
+        }, 1200);
       } else {
         const err = await res.json();
         setReviewResult(`Error: ${err.detail || 'Failed'}`);
@@ -334,6 +343,7 @@ export default function AdminAdsPage() {
 
   const tabs: { key: TabKey; label: string; count?: number }[] = [
     { key: 'pending', label: 'Pending Review', count: analytics?.status_counts?.pending_review ?? 0 },
+    { key: 'checkout_pending', label: 'Checkout Pending', count: analytics?.status_counts?.reserved_checkout_pending ?? 0 },
     { key: 'active', label: 'Active', count: analytics?.status_counts?.active ?? 0 },
     { key: 'paused', label: 'Paused', count: analytics?.status_counts?.paused ?? 0 },
     { key: 'rejected', label: 'Rejected', count: analytics?.status_counts?.rejected ?? 0 },

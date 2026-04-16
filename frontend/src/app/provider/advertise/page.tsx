@@ -91,12 +91,13 @@ function AdvertiseInner() {
     if (result) return;
     if (!myAds || myAds.length === 0) return;
     try {
-      const raw = localStorage.getItem('prw_ad_dismissed_v1');
+      const raw = localStorage.getItem('prw_ad_dismissed_v2');
       const dismissed: string[] = raw ? JSON.parse(raw) : [];
       const relevantStatuses = new Set(['processing', 'pending_review', 'reserved_checkout_pending', 'active', 'rejected']);
-      // Pick the most-recently-updated ad still in a displayable state.
+      // Dismiss key is `${ad.id}:${ad.ad_status}` so a new status on the
+      // same ad always produces a fresh banner (e.g. pending_review -> reserved_checkout_pending).
       const sorted = [...myAds]
-        .filter((a: any) => relevantStatuses.has(a.ad_status) && !dismissed.includes(a.id))
+        .filter((a: any) => relevantStatuses.has(a.ad_status) && !dismissed.includes(`${a.id}:${a.ad_status}`))
         .sort((a: any, b: any) => {
           const ta = new Date(a.updated_at || a.reviewed_at || a.created_at || 0).getTime();
           const tb = new Date(b.updated_at || b.reviewed_at || b.created_at || 0).getTime();
@@ -237,12 +238,13 @@ function AdvertiseInner() {
     }
   };
 
-  const dismissAdBanner = (id: string) => {
+  const dismissAdBanner = (id: string, status: string) => {
     try {
-      const key = 'prw_ad_dismissed_v1';
+      const key = 'prw_ad_dismissed_v2';
       const raw = localStorage.getItem(key);
       const set: string[] = raw ? JSON.parse(raw) : [];
-      if (!set.includes(id)) set.push(id);
+      const compound = `${id}:${status}`;
+      if (!set.includes(compound)) set.push(compound);
       localStorage.setItem(key, JSON.stringify(set));
     } catch {}
     setResult(null);
@@ -358,7 +360,7 @@ function AdvertiseInner() {
             </Link>
             {(isActive || isRejected || isPending) ? (
               <button
-                onClick={() => dismissAdBanner(result.ad_id)}
+                onClick={() => dismissAdBanner(result.ad_id, result.ad_status)}
                 className="flex-1 text-center py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
               >
                 {isRejected ? 'Submit Another Ad' : 'Dismiss'}
@@ -401,21 +403,35 @@ function AdvertiseInner() {
             <h2 className="text-sm font-bold text-slate-700 mb-3">Your Existing Ads</h2>
             <div className="space-y-2">
               {myAds.map((ad: any) => (
-                <div key={ad.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-50">
-                  <div>
-                    <p className="text-sm font-medium text-slate-900">{ad.title}</p>
-                    <p className="text-xs text-slate-500">{ad.page_type} &middot; {ad.ad_status}</p>
+                <div key={ad.id} className="flex flex-col gap-2 py-2 px-3 rounded-lg bg-slate-50">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{ad.title}</p>
+                      <p className="text-xs text-slate-500">{ad.page_type} &middot; {ad.ad_status}</p>
+                    </div>
+                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                      ad.ad_status === 'active' ? 'bg-emerald-100 text-emerald-700' :
+                      ad.ad_status === 'pending_review' ? 'bg-amber-100 text-amber-700' :
+                      ad.ad_status === 'reserved_checkout_pending' ? 'bg-amber-100 text-amber-700' :
+                      ad.ad_status === 'rejected' ? 'bg-red-100 text-red-700' :
+                      'bg-slate-100 text-slate-600'
+                    }`}>
+                      {ad.ad_status === 'pending_review' ? 'Pending Review'
+                        : ad.ad_status === 'reserved_checkout_pending' ? 'Awaiting Payment'
+                        : ad.ad_status === 'processing' ? 'Generating…'
+                        : ad.ad_status}
+                    </span>
                   </div>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    ad.ad_status === 'active' ? 'bg-emerald-100 text-emerald-700' :
-                    ad.ad_status === 'pending_review' ? 'bg-amber-100 text-amber-700' :
-                    ad.ad_status === 'rejected' ? 'bg-red-100 text-red-700' :
-                    'bg-slate-100 text-slate-600'
-                  }`}>
-                    {ad.ad_status === 'pending_review' ? 'Pending Review'
-                      : ad.ad_status === 'processing' ? 'Generating…'
-                      : ad.ad_status}
-                  </span>
+                  {ad.ad_status === 'reserved_checkout_pending' && (
+                    <button
+                      type="button"
+                      disabled={checkoutLoading}
+                      onClick={() => startAdCheckout(ad.id)}
+                      className="w-full py-2 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-60"
+                    >
+                      {checkoutLoading ? 'Redirecting to Stripe…' : 'Pay & Publish ($50/month)'}
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
