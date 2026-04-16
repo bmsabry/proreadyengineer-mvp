@@ -135,59 +135,10 @@ IMPORTANT:
     return json.loads(content)
 
 
-def _build_provider_profile_text(provider) -> str:
-    """Build a rich text summary from the provider's already-crawled profile data."""
-    parts: list[str] = []
-
-    if provider.firm_name:
-        parts.append(f"Company: {provider.firm_name}")
-    if provider.business_description:
-        parts.append(f"Description: {provider.business_description}")
-    if provider.primary_specialty:
-        parts.append(f"Primary Specialty: {provider.primary_specialty}")
-    if provider.specialties:
-        parts.append(f"Specialties: {', '.join(provider.specialties)}")
-    if provider.secondary_specialties:
-        parts.append(f"Secondary Specialties: {', '.join(provider.secondary_specialties)}")
-    if provider.capabilities:
-        parts.append(f"Capabilities: {', '.join(provider.capabilities)}")
-    if provider.software_tools:
-        parts.append(f"Software Tools: {', '.join(provider.software_tools)}")
-    if provider.certifications:
-        parts.append(f"Certifications: {', '.join(provider.certifications)}")
-    if provider.equipment:
-        parts.append(f"Equipment: {', '.join(provider.equipment)}")
-    if provider.notable_clients:
-        parts.append(f"Notable Clients: {provider.notable_clients}")
-    if provider.proven_experience_industries_served:
-        parts.append(f"Industries Served: {', '.join(provider.proven_experience_industries_served)}")
-    if provider.proven_experience_notable_projects:
-        parts.append(f"Notable Projects: {', '.join(provider.proven_experience_notable_projects)}")
-    if provider.proven_experience_case_studies:
-        parts.append(f"Case Studies: {', '.join(provider.proven_experience_case_studies)}")
-    if provider.proven_experience_years_in_business:
-        parts.append(f"Years in Business: {provider.proven_experience_years_in_business}")
-    if provider.proven_experience_project_count:
-        parts.append(f"Project Count: {provider.proven_experience_project_count}")
-    if provider.business_evaluation_employee_count:
-        parts.append(f"Employee Count: {provider.business_evaluation_employee_count}")
-    if provider.business_evaluation_tier:
-        parts.append(f"Business Tier: {provider.business_evaluation_tier}")
-    if provider.website:
-        parts.append(f"Website: {provider.website}")
-    if provider.city and provider.state:
-        parts.append(f"Location: {provider.city}, {provider.state}")
-    if provider.phone:
-        parts.append(f"Phone: {provider.phone}")
-    if provider.email_addresses:
-        emails = provider.email_addresses if isinstance(provider.email_addresses, list) else [provider.email_addresses]
-        parts.append(f"Email: {', '.join(emails[:3])}")
-    if provider.online_presence_linkedin_url:
-        parts.append(f"LinkedIn: {provider.online_presence_linkedin_url}")
-    if provider.team_summary:
-        parts.append(f"Team: {provider.team_summary}")
-
-    return "\n".join(parts)
+async def _fetch_full_website_for_ad(url: str) -> str:
+    """Crawl the full website — same approach as admin 'add firm' workflow."""
+    from app.api.endpoints.admin import _admin_fetch_website_text
+    return await _admin_fetch_website_text(url)
 
 
 # ---------------------------------------------------------------------------
@@ -222,38 +173,41 @@ async def submit_ad(
     if membership_row:
         provider_id = membership_row
 
-    # --- Gather content from existing provider profile ---
+    # --- Gather content: crawl the full website (same as admin "add firm") ---
     source_url = data.website_url
     if source_url and not source_url.startswith("http"):
         source_url = "https://" + source_url
 
-    # Pull the provider's already-crawled profile data from the database
-    # (extracted by the "add firm" workflow — business_description, capabilities,
-    # specialties, certifications, notable_clients, proven_experience, etc.)
-    profile_text: str | None = None
-    if provider_id:
+    # If no URL provided, check the provider's website on file
+    if not source_url and provider_id:
         provider_result = await db.execute(
-            select(Provider).where(Provider.id == provider_id)
+            select(Provider.website).where(Provider.id == provider_id)
         )
-        provider_obj = provider_result.scalar_one_or_none()
-        if provider_obj:
-            profile_text = _build_provider_profile_text(provider_obj)
-            if not source_url and provider_obj.website:
-                source_url = provider_obj.website
-                if not source_url.startswith("http"):
-                    source_url = "https://" + source_url
+        existing_website = provider_result.scalar_one_or_none()
+        if existing_website:
+            source_url = existing_website
+            if not source_url.startswith("http"):
+                source_url = "https://" + source_url
 
-    if not profile_text and not data.description_text:
+    # Crawl the full website — reads all pages just like admin "add firm"
+    website_text: str | None = None
+    if source_url:
+        try:
+            website_text = await _fetch_full_website_for_ad(source_url)
+        except Exception as exc:
+            logger.warning("Ad website crawl failed url=%s err=%s", source_url, exc)
+
+    if not website_text and not data.description_text:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="No provider profile data found. Please provide a description or ensure your firm profile has been set up.",
+            detail="Could not fetch website content. Please provide a description or check the URL.",
         )
 
-    # --- LLM3 ad generation from existing profile data ---
+    # --- LLM3 ad generation from full website content ---
     try:
         extracted = await _extract_ad_content(
             db,
-            website_text=profile_text,
+            website_text=website_text,
             description_text=data.description_text,
             page_type=data.page_type,
         )
