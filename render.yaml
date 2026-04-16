@@ -1,0 +1,119 @@
+services:
+  # FastAPI Backend API
+  - type: web
+    name: proreadyengineer-api
+    env: python
+    plan: starter
+    buildCommand: cd backend && pip install -r requirements.txt
+    startCommand: cd backend && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: proreadyengineer-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: proreadyengineer-redis
+          type: redis
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: "production"
+      - key: DEBUG
+        value: "false"
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+      - key: EXTRA_CORS_ORIGINS
+        value: "https://proreadyengineer-web.onrender.com,http://localhost:3000"
+      - key: FRONTEND_URL
+        value: "https://proreadyengineer-web.onrender.com"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_API_BASE
+        value: "https://api.deepinfra.com/v1/openai"
+      - key: OPENAI_LLM_MODEL
+        value: "moonshotai/Kimi-K2.5"
+      - key: OPENAI_EMBEDDING_MODEL
+        value: "BAAI/bge-large-en-v1.5"
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: "us-east-1"
+      - key: S3_BUCKET_NAME
+        value: "promechdirectory-uploads"
+      - key: SIGNWELL_API_KEY
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_SANDBOX_CLIENT_ID
+        sync: false
+      - key: PAYPAL_SANDBOX_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_SANDBOX_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_MODE
+        value: "sandbox"
+      - key: PAYPAL_CURRENCY
+        value: "USD"
+      - key: SENTRY_DSN
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+
+  # Redis (Key-Value store for Celery broker)
+  - type: redis
+    name: proreadyengineer-redis
+    plan: starter
+    ipAllowList: []
+
+  # Next.js Frontend
+  - type: web
+    name: proreadyengineer-web
+    env: node
+    plan: starter
+    buildCommand: cd frontend && rm -rf node_modules .next && rm -f tsconfig.tsbuildinfo && npm install --legacy-peer-deps && npm run build
+    startCommand: cd frontend && npx next start -p $PORT
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        value: https://proreadyengineer-api.onrender.com
+      - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+        sync: false
+
+  # Cron Job: RFQ Batch Dispatch (every 15 minutes)
+  # Calls the internal FastAPI endpoint to trigger next batch dispatch for open RFQs
+  - type: cron
+    name: proreadyengineer-rfq-cron
+    env: python
+    plan: starter
+    schedule: "*/15 * * * *"
+    buildCommand: pip install requests
+    startCommand: python -c "import requests,os; r=requests.post(os.environ.get('API_URL','https://proreadyengineer-api.onrender.com')+'/api/v1/internal/cron/dispatch-rfq-batches',timeout=120); print('status:',r.status_code,'body:',r.text[:500])"
+    envVars:
+      - key: API_URL
+        value: https://proreadyengineer-api.onrender.com
+
+databases:
+  - name: proreadyengineer-db
+    plan: Basic-256mb
+    ipAllowList: []

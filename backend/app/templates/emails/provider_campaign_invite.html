@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>You're Invited — ProMechDirectory</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #f4f4f7; font-family: Arial, Helvetica, sans-serif; }
+    .wrapper { max-width: 620px; margin: 40px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .header { background-color: #0F2B54; padding: 32px 40px; text-align: center; }
+    .header h1 { color: #ffffff; font-size: 22px; margin: 0; letter-spacing: 0.5px; }
+    .header p { color: #a8c4e0; font-size: 13px; margin: 6px 0 0; }
+    .body { padding: 36px 40px; color: #333333; font-size: 15px; line-height: 1.7; }
+    .body p { margin: 0 0 16px; }
+    .body ul { margin: 0 0 16px 0; padding-left: 20px; }
+    .body ul li { margin-bottom: 8px; }
+    .founding-banner { background-color: #fff8e1; border: 1px solid #f5c518; border-radius: 6px; padding: 14px 18px; margin: 20px 0; font-size: 14px; color: #7a5800; }
+    .founding-banner strong { font-size: 15px; }
+    .cta-button { display: block; width: fit-content; margin: 28px auto; background-color: #0F2B54; color: #ffffff !important; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 15px; font-weight: bold; letter-spacing: 0.3px; }
+    .divider { border: none; border-top: 1px solid #e8e8e8; margin: 24px 0; }
+    .signature { font-size: 14px; color: #555555; line-height: 1.6; }
+    .signature strong { color: #0F2B54; }
+    .footer { background-color: #f4f4f7; padding: 20px 40px; text-align: center; font-size: 12px; color: #888888; }
+    .footer a { color: #888888; text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+
+    <!-- Header -->
+    <div class="header">
+      <h1>ProMechDirectory</h1>
+      <p>Engineering Services Marketplace</p>
+    </div>
+
+    <!-- Body -->
+    <div class="body">
+      <p>Dear <strong>{{firm_name}}</strong>,</p>
+
+      <p>As an engineer with over two decades of experience in thermal fluid sciences and gas turbine combustion, I know firsthand how much time is wasted between an initial RFQ and actually starting the engineering work.</p>
+
+      <p>That is why I created <strong>ProMechDirectory</strong> — a platform designed to connect customers directly with specialized firms like yours. Our goal is to use AI to simplify the entire workflow, from the initial RFQ write-up to quote acceptance, including automated NDA generation.</p>
+
+      <div class="founding-banner">
+        <strong>&#9733; Founding Provider Offer</strong><br />
+        To help build our founding network, we are offering the first <strong>250 engineering firms</strong> a free 3-month subscription (<strong>$200 value</strong>).
+      </div>
+
+      <p>By joining, you will get:</p>
+      <ul>
+        <li>Free access to all submitted RFQs in your domain.</li>
+        <li>Zero commission fees on projects you win (compared to the 10%+ fees on platforms like Upwork).</li>
+        <li>A streamlined workflow so you can focus on engineering, not administrative waste.</li>
+      </ul>
+
+      <p>You can claim your free 3 months and set up your profile here:</p>
+
+      <a href="{{invite_link}}" class="cta-button">Claim Your Free 3-Month Access &rarr;</a>
+
+      <p style="text-align:center; font-size:13px; color:#888;">No credit card information is required.</p>
+
+      <p>I hope this platform brings you excellent business opportunities and makes your proposal process significantly easier.</p>
+
+      <hr class="divider" />
+
+      <div class="signature">
+        <p>Best regards,</p>
+        <p>
+          <strong>Bassam Abdelnabi</strong><br />
+          Founder, <a href="https://www.promechdirectory.com" style="color:#0F2B54;">ProMechDirectory.com</a><br />
+          <a href="https://www.linkedin.com/in/bassam-abdelnabi-4a055a20" style="color:#0F2B54;">LinkedIn Profile</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>You are receiving this email because your firm appears in our engineering services directory.</p>
+      <p>
+        <a href="{{unsubscribe_link}}">Unsubscribe</a> &nbsp;&middot;&nbsp;
+        ProMechDirectory &nbsp;&middot;&nbsp;
+        <a href="https://www.promechdirectory.com">www.promechdirectory.com</a>
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>

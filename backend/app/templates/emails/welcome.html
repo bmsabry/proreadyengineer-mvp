@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome to ProMechDirectory{% endblock %}
+
+{% block content %}
+<h2>Welcome, {{ user_name }}!</h2>
+<p>Thank you for joining ProMechDirectory. Your account has been successfully created.</p>
+<p>You can now:</p>
+<ul>
+    <li>Search for engineering service providers</li>
+    <li>Submit RFQs for your projects</li>
+    <li>Connect with qualified engineering firms</li>
+</ul>
+<p style="text-align: center; margin-top: 30px;">
+    <a href="{{ login_url }}" class="button">Log In to Your Account</a>
+</p>
+{% endblock %}

@@ -1,0 +1,732 @@
+import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
+import {
+  User, RegisterRequest, LoginRequest, AuthResponse, PasswordResetRequest, PasswordResetConfirm,
+  Provider, ProviderClaimRequest, ProviderMembership, TierEvaluationRequest,
+  SearchQueryRequest, SearchQueryResponse,
+  RFQ, RFQFile, RFQDispatch, RFQUnlock, RFQMatch, RFQNDA, RFQTeaser, CreateRFQRequest,
+  Quote, QuoteAcceptResponse, QuoteFile, CreateQuoteRequest, QuoteForCustomerResponse, QuoteDocExtractResponse,
+  PaymentAttempt, Subscription,
+  Advertisement, AdSlot,
+  AdminRFQDispatchTracking, AdminDispatchProvider, AuditLog, PaginatedResponse
+} from '@/types';
+
+// API Configuration
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// Token storage helpers (localStorage for cross-domain auth)
+const TOKEN_KEY = 'access_token';
+
+export const getStoredToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+};
+
+export const setStoredToken = (token: string): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(TOKEN_KEY, token);
+};
+
+export const clearStoredToken = (): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_KEY);
+};
+
+// Refresh token storage helpers (localStorage fallback for cross-domain)
+const REFRESH_TOKEN_KEY = 'refresh_token';
+
+export const getStoredRefreshToken = (): string | null => {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+};
+
+export const setStoredRefreshToken = (token: string): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(REFRESH_TOKEN_KEY, token);
+};
+
+export const clearStoredRefreshToken = (): void => {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
+};
+
+// Create Axios instance
+const apiClient: AxiosInstance = axios.create({
+  baseURL: API_URL + '/api/v1',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  withCredentials: true,
+});
+
+// Request interceptor - send stored token as Authorization Bearer header
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = getStoredToken();
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Response interceptor - handle 401 with token refresh
+let isRefreshing = false;
+// Flag to prevent auto-refresh during intentional logout
+export let isLoggingOut = false;
+export const setLoggingOut = (val: boolean) => { isLoggingOut = val; };
+let refreshQueue: Array<(token?: string) => void> = [];
+
+const processRefreshQueue = (error?: Error) => {
+  refreshQueue.forEach(callback => callback());
+  refreshQueue = [];
+};
+
+apiClient.interceptors.response.use(
+  (response: AxiosResponse) => response,
+  async (error: AxiosError & { config?: any }) => {
+    const originalRequest = error.config;
+
+    // Don't retry refresh endpoint itself (prevents infinite loop)
+    if (originalRequest?.url?.includes('auth/refresh') || 
+        originalRequest?.url?.includes('auth/login') ||
+        originalRequest?.url?.includes('auth/register')) {
+      return Promise.reject(error);
+    }
+
+    if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isLoggingOut) {
+      if (isRefreshing) {
+        // Queue this request until refresh completes
+        return new Promise((resolve, reject) => {
+          refreshQueue.push(() => {
+            resolve(apiClient(originalRequest));
+          });
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        await auth.refresh();
+        processRefreshQueue();
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        processRefreshQueue(refreshError as Error);
+        // Only redirect if not already on auth pages
+        if (typeof window !== 'undefined' && 
+            !window.location.pathname.includes('/login') &&
+            !window.location.pathname.includes('/register')) {
+          // Don't redirect, just return error - let AuthContext handle it
+        }
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+// Auth API - stores/clears token on auth events
+const auth = {
+  register: async (data: RegisterRequest) => {
+    const response = await apiClient.post<AuthResponse>('/auth/register', data);
+    if ((response.data as any)?.access_token) setStoredToken((response.data as any).access_token);
+    if ((response.data as any)?.refresh_token) setStoredRefreshToken((response.data as any).refresh_token);
+    return response;
+  },
+
+  login: async (data: LoginRequest) => {
+    const response = await apiClient.post<AuthResponse>('/auth/login', data);
+    if ((response.data as any)?.access_token) setStoredToken((response.data as any).access_token);
+    if ((response.data as any)?.refresh_token) setStoredRefreshToken((response.data as any).refresh_token);
+    return response;
+  },
+
+  refresh: async () => {
+    const storedRefreshToken = getStoredRefreshToken();
+    const response = await apiClient.post('/auth/refresh',
+      storedRefreshToken ? { refresh_token: storedRefreshToken } : undefined
+    );
+    if (response.data?.access_token) setStoredToken(response.data.access_token);
+    if (response.data?.refresh_token) setStoredRefreshToken(response.data.refresh_token);
+    return response;
+  },
+
+  logout: async () => {
+    clearStoredToken();
+    clearStoredRefreshToken();
+    return apiClient.post('/auth/logout');
+  },
+
+  logoutAll: async () => {
+    clearStoredToken();
+    clearStoredRefreshToken();
+    return apiClient.post('/auth/logout-all');
+  },
+
+  forgotPassword: (data: PasswordResetRequest) =>
+    apiClient.post('/auth/password/forgot', data),
+
+  resetPassword: (data: PasswordResetConfirm) =>
+    apiClient.post('/auth/password/reset', data),
+
+  redeemInvite: (token: string) =>
+    apiClient.post('/auth/redeem-invite', { token }),
+
+  getInviteInfo: (token: string) =>
+    apiClient.get<{ firm_name: string | null; name: string | null; phone: string | null; city: string | null; state: string | null; sent_to_email: string | null }>(`/auth/invite-info?token=${encodeURIComponent(token)}`),
+  checkInvite: (token: string) =>
+    apiClient.get<{ has_account: boolean; email: string | null; firm_name: string | null; phone: string | null; state: string | null; city: string | null }>(`/auth/invite-check?token=${encodeURIComponent(token)}`),
+
+  me: () =>
+    apiClient.get<User>('/auth/me'),
+};
+
+// Public Search API
+const search = {
+  query: (data: SearchQueryRequest) => 
+    apiClient.post<SearchQueryResponse>('/search/query', data),
+  
+  uploadInitiate: () => 
+    apiClient.post<{ presigned_url: string; s3_key: string }>('/search/upload/initiate'),
+  
+  uploadComplete: (s3Key: string) => 
+    apiClient.post('/search/upload/complete', { s3_key: s3Key }),
+  
+  getProviderPublic: (providerId: string) => 
+    apiClient.get<Provider>(`/providers/${providerId}/public`),
+  
+  claimSearch: (query: string) => 
+    apiClient.post<Provider[]>('/providers/claim-search', { query }),
+  
+  debug: () =>
+    apiClient.get('/search/debug'),
+};
+
+// Providers
+const providers = {
+  // Public
+  getPublic: (id: string) =>
+    apiClient.get<Provider>(`/providers/${id}/public`),
+
+  claimSearch: (data: { query: string }) =>
+    apiClient.post<Provider[]>('/providers/claim-search', data),
+
+  // Provider profile
+  getProfile: () =>
+    apiClient.get<Provider>('/provider/profile'),
+
+  updateProfile: (data: Partial<Provider>) =>
+    apiClient.patch<Provider>('/provider/profile', data),
+
+  requestRankUp: (data: { requested_reason: string; supporting_payload?: Record<string, unknown> }) =>
+    apiClient.post('/provider/profile/request-rank-up', data),
+
+  getMemberships: () =>
+    apiClient.get<ProviderMembership[]>('/provider/memberships'),
+
+  selfRegisterCheckout: () =>
+    apiClient.post('/providers/self-register/checkout', {}),
+
+  selfRegisterSubmit: (data: {
+    name: string;
+    city?: string;
+    state?: string;
+    website?: string;
+    phone?: string;
+    primary_specialty?: string;
+    business_description?: string;
+    proven_experience_notable_projects?: string[];
+    payment_intent_id: string;
+  }) =>
+    apiClient.post('/providers/self-register/submit', data),
+
+  listingInquiry: (data: {
+    firm_name: string;
+    firm_description: string;
+    contact_name: string;
+  }) =>
+    apiClient.post('/providers/listing-inquiry', data),
+
+  getFullEditStatus: () =>
+    apiClient.get<{ paid: boolean; provider_id: string | null }>('/provider/profile/full-edit/status'),
+
+  startFullEditCheckout: () =>
+    apiClient.post<{ client_secret: string; payment_intent_id: string }>('/provider/profile/full-edit/checkout', {}),
+
+  saveFullEdit: (data: Record<string, any>) =>
+    apiClient.patch<any>('/provider/profile/full-edit', data),
+
+  startWebsiteCrawl: (website_url: string) =>
+    apiClient.post<{ task_id: string; status: string }>('/provider/profile/crawl-website', { website_url }),
+
+  getCrawlStatus: (task_id: string) =>
+    apiClient.get<{ status: string; data: Record<string, any> | null; error: string | null }>(`/provider/profile/crawl-status/${task_id}`),
+
+};
+
+// Provider Claims API
+const providerClaims = {
+  create: (data: { provider_id: string; proof_type?: string; proof_payload?: Record<string, unknown>; submitted_notes?: string }) => 
+    apiClient.post<ProviderClaimRequest>('/provider-claims', data),
+  
+  listMyClaims: () => 
+    apiClient.get<ProviderClaimRequest[]>('/provider-claims/me'),
+  
+  // Admin endpoints
+  listAll: () => 
+    apiClient.get<ProviderClaimRequest[]>('/admin/provider-claims'),
+  
+  approve: (id: string) => 
+    apiClient.post<ProviderClaimRequest>(`/admin/provider-claims/${id}/approve`),
+  
+  reject: (id: string, data: { reason?: string }) => 
+    apiClient.post<ProviderClaimRequest>(`/admin/provider-claims/${id}/reject`, data),
+};
+
+// RFQs API
+const rfqs = {
+  create: (data: CreateRFQRequest) => 
+    apiClient.post<RFQ>('/rfqs', data),
+  
+  get: (id: string) => 
+    apiClient.get<RFQ>(`/rfqs/${id}`),
+  
+  fileInitiate: (rfqId: string, filename: string, mimeType: string, size: number) => 
+    apiClient.post<RFQFile>(`/rfqs/${rfqId}/files/initiate`, { filename, mime_type: mimeType, file_size_bytes: size }),
+  
+  fileComplete: (rfqId: string, s3Key: string) => 
+    apiClient.post(`/rfqs/${rfqId}/files/complete`, { s3_key: s3Key }),
+  
+  ndaCheckout: (rfqId: string) => 
+    apiClient.post<{ checkout_url: string; payment_attempt_id: string }>(`/rfqs/${rfqId}/nda/checkout`),
+
+  ndaInitiate: (rfqId: string) =>
+    apiClient.post<{ signing_url: string; document_id?: string; status?: string }>(`/rfqs/${rfqId}/nda/initiate`),
+
+  ndaSigningUrl: (rfqId: string) =>
+    apiClient.get<{ signing_url: string }>(`/rfqs/${rfqId}/nda/signing-url`),
+
+  ndaStatus: (rfqId: string) =>
+    apiClient.get<{ nda_status: string; signing_url?: string; fully_signed_at?: string; nda_required?: boolean }>(`/rfqs/${rfqId}/nda/status`),
+
+  ndaConfirmSigned: (rfqId: string) =>
+    apiClient.post<{ confirmed: boolean; nda_status?: string; rfq_status?: string; healed?: boolean; message?: string; reason?: string }>(`/rfqs/${rfqId}/nda/confirm-signed`),
+  
+  getStatus: (rfqId: string) => 
+    apiClient.get<{ rfq_status: string; quote_count: number }>(`/rfqs/${rfqId}/status`),
+  
+  submit: (rfqId: string) =>
+    apiClient.post<RFQ>(`/rfqs/${rfqId}/submit`),
+
+  cancel: (rfqId: string) =>
+    apiClient.post<{ message: string; rfq_id: string; rfq_status: string }>(`/rfqs/${rfqId}/cancel`),
+};
+
+// Provider RFQ access
+const providerRFQ = {
+  getTeasers: () =>
+    apiClient.get<RFQTeaser[]>('/provider/rfqs/teasers'),
+
+  getTeaser: (rfqId: string) =>
+    apiClient.get<RFQTeaser>(`/provider/rfqs/${rfqId}/teaser`),
+
+  unlockCheckout: (rfqId: string) =>
+    apiClient.post<{ checkout_url: string; payment_attempt_id: string }>(`/provider/rfqs/${rfqId}/unlock/checkout`),
+
+  getUnlockStatus: (rfqId: string) =>
+    apiClient.get<{ unlocked: boolean }>(`/provider/rfqs/${rfqId}/unlock/status`),
+
+  verifyPayment: (rfqId: string) =>
+    apiClient.post<{ unlocked: boolean; reason: string }>(`/provider/rfqs/${rfqId}/verify-payment`),
+
+  getFiles: (rfqId: string) =>
+    apiClient.get<RFQFile[]>(`/provider/rfqs/${rfqId}/files`),
+
+  submitQuote: (rfqId: string, data: CreateQuoteRequest) =>
+    apiClient.post<Quote>(`/provider/rfqs/${rfqId}/quote`, data),
+
+  initiateProviderNda: (rfqId: string) =>
+    apiClient.post<{ signing_url?: string; message?: string }>(`/provider/rfqs/${rfqId}/nda`),
+};
+
+
+// Provider RFQ Access API
+const providerRfqAccess = {
+  getTeasers: () => 
+    apiClient.get<RFQ[]>('/provider/rfqs/teasers'),
+  
+  getTeaser: (rfqId: string) => 
+    apiClient.get<RFQ>(`/provider/rfqs/${rfqId}/teaser`),
+  
+  unlockCheckout: (rfqId: string) => 
+    apiClient.post<{ checkout_url: string; payment_attempt_id: string }>(`/provider/rfqs/${rfqId}/unlock/checkout`),
+  
+  getUnlockStatus: (rfqId: string) => 
+    apiClient.get<RFQUnlock>(`/provider/rfqs/${rfqId}/unlock/status`),
+
+  verifyPayment: (rfqId: string) =>
+    apiClient.post<{ unlocked: boolean; reason: string }>(`/provider/rfqs/${rfqId}/verify-payment`),
+  
+  getFiles: (rfqId: string) => 
+    apiClient.get<RFQFile[]>(`/provider/rfqs/${rfqId}/files`),
+  
+  submitQuote: (rfqId: string, data: CreateQuoteRequest) => 
+    apiClient.post<Quote>(`/provider/rfqs/${rfqId}/quote`, data),
+};
+
+// Quotes API
+const quotes = {
+  // Customer endpoints
+  getCustomerQuotes: (rfqId: string) => 
+    apiClient.get<QuoteForCustomerResponse[]>(`/customer/rfqs/${rfqId}/quotes`),
+
+  getForCustomer: (rfqId: string) =>
+    apiClient.get<QuoteForCustomerResponse[]>(`/customer/rfqs/${rfqId}/quotes`),
+  
+  accept: (quoteId: string) => 
+    apiClient.post<QuoteAcceptResponse>(`/customer/quotes/${quoteId}/accept`),
+  
+  // Provider endpoints
+  withdraw: (quoteId: string) => 
+    apiClient.post<Quote>(`/provider/quotes/${quoteId}/withdraw`),
+  
+  getMyQuotes: () => 
+    apiClient.get<Quote[]>('/provider/quotes/me'),
+
+  getForProvider: () =>
+    apiClient.get<Quote[]>('/provider/quotes/me'),
+
+  extractQuoteDocument: async (rfqId: string, file: File): Promise<QuoteDocExtractResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = getStoredToken();
+    // Must delete Content-Type so Axios auto-sets multipart/form-data with correct boundary.
+    // The apiClient default Content-Type: application/json would otherwise override FormData detection.
+    const headers: Record<string, string | undefined> = {
+      'Content-Type': undefined,
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const response = await apiClient.post<QuoteDocExtractResponse>(
+      `/provider/rfqs/${rfqId}/quote/extract-document`,
+      formData,
+      { headers }
+    );
+    return response.data;
+  },
+
+  getQuoteDocumentDownload: (quoteId: string) =>
+    apiClient.get<{ download_url: string; filename: string }>(`/customer/quotes/${quoteId}/document`),
+};
+
+// Provider Profile API
+const providerProfile = {
+  get: () => 
+    apiClient.get<Provider>('/provider/profile'),
+  
+  create: (data: Partial<Provider>) => 
+    apiClient.post<Provider>('/provider/profile', data),
+  
+  update: (data: Partial<Provider>) => 
+    apiClient.patch<Provider>('/provider/profile', data),
+  
+  requestRankUp: (data: { reason: string; supporting_payload?: Record<string, unknown> }) => 
+    apiClient.post<TierEvaluationRequest>('/provider/profile/request-rank-up', data),
+  
+  getMemberships: () => 
+    apiClient.get<ProviderMembership[]>('/provider/memberships'),
+};
+
+// Ads API
+const ads = {
+  // Public endpoints
+  getSoftwareProviders: () => 
+    apiClient.get<Advertisement[]>('/ads/software-providers'),
+  
+  getFeaturedFirms: () => 
+    apiClient.get<Advertisement[]>('/ads/featured-firms'),
+  
+  // Advertiser endpoints
+  checkout: (data: { ad_slot_id: string }) => 
+    apiClient.post<{ checkout_url: string }>('/ads/checkout', data),
+  
+  getMyAds: () => 
+    apiClient.get<Advertisement[]>('/advertiser/ads/me'),
+  
+  uploadAssetInitiate: (adId: string) => 
+    apiClient.post<{ presigned_url: string; s3_key: string }>(`/advertiser/ads/${adId}/asset/initiate`),
+  
+  uploadAssetComplete: (adId: string, s3Key: string) => 
+    apiClient.post(`/advertiser/ads/${adId}/asset/complete`, { s3_key: s3Key }),
+  
+  updateAd: (adId: string, data: Partial<Advertisement>) => 
+    apiClient.patch<Advertisement>(`/advertiser/ads/${adId}`, data),
+};
+
+// Billing API
+const billing = {
+  getPortal: () => 
+    apiClient.get<{ portal_url: string }>('/billing/portal'),
+  getSubscriptionStatus: () =>
+    apiClient.get<{ has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null }>('/billing/subscription-status'),
+  getProviderSubscriptionStatus: () =>
+    apiClient.get<{ has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null }>('/billing/provider-subscription-status'),
+  cancelSubscription: (subscriptionType: string) =>
+    apiClient.post<{ success: boolean; cancel_at: string | null }>('/billing/cancel-subscription', { subscription_type: subscriptionType }),
+  reactivateSubscription: (subscriptionType: string) =>
+    apiClient.post<{ success: boolean }>('/billing/reactivate-subscription', { subscription_type: subscriptionType }),
+};
+
+// Admin API
+const admin = {
+  // RFQs
+  getStats: () =>
+    apiClient.get<any>('/admin/stats'),
+  // backward compat alias
+  getStatus: () =>
+    apiClient.get<any>('/admin/stats'),
+  listRFQs: (params?: { page?: number; page_size?: number; status?: string }) => 
+    apiClient.get<PaginatedResponse<RFQ>>('/admin/rfqs', { params }),
+  
+  getRFQ: (id: string) => 
+    apiClient.get<RFQ>(`/admin/rfqs/${id}`),
+  
+  getRFQDispatchTracking: (rfqId: string) =>
+    apiClient.get<AdminRFQDispatchTracking>(`/admin/rfqs/${rfqId}/dispatch-tracking`),
+  
+  terminateRFQDispatch: (rfqId: string) =>
+    apiClient.post<{ message: string; rfq_id: string }>(`/admin/rfqs/${rfqId}/terminate-dispatch`),
+  forceDispatchRFQ: (rfqId: string) =>
+    apiClient.post<{ status: string; rfq_id: string; providers_emailed: number }>(`/admin/rfqs/${rfqId}/force-dispatch`),
+  repairQuoteCounts: () =>
+    apiClient.post<{ message: string; repaired_count: number; details: any[] }>('/admin/rfqs/repair-quote-counts'),
+
+  forceFulfillSubscription: (paymentId: string) =>
+    apiClient.post<{ success: boolean; payment_id: string; purpose: string; message: string }>(`/admin/payments/${paymentId}/force-fulfill-subscription`),
+  
+  
+  overrideRFQStatus: (id: string, status: string) => 
+    apiClient.post<RFQ>(`/admin/rfqs/${id}/override-status`, { status }),
+  
+  // Payments
+  listPayments: (params?: { page?: number; page_size?: number; status?: string }) => 
+    apiClient.get<PaginatedResponse<PaymentAttempt>>('/admin/payments', { params }),
+  
+  // Webhooks
+  listWebhooks: (params?: { page?: number; page_size?: number; provider?: string }) => 
+    apiClient.get<PaginatedResponse<{ id: string; provider_name: string; event_type: string; processing_status: string; received_at: string }>>('/admin/webhooks', { params }),
+  
+  replayWebhook: (id: string) => 
+    apiClient.post(`/admin/webhooks/${id}/replay`),
+  
+  // Tier Requests
+  listTierRequests: (params?: { page?: number; page_size?: number; status?: string }) => 
+    apiClient.get<PaginatedResponse<TierEvaluationRequest>>('/admin/tier-requests', { params }),
+  
+  approveTierRequest: (id: string) => 
+    apiClient.post<TierEvaluationRequest>(`/admin/tier-requests/${id}/approve`),
+  
+  rejectTierRequest: (id: string, data?: { reason?: string }) => 
+    apiClient.post<TierEvaluationRequest>(`/admin/tier-requests/${id}/reject`, data),
+  
+  // Ads
+  listAds: (params?: { page?: number; page_size?: number; status?: string }) => 
+    apiClient.get<PaginatedResponse<Advertisement>>('/admin/ads', { params }),
+  
+  pauseAd: (id: string) => 
+    apiClient.post<Advertisement>(`/admin/ads/${id}/pause`),
+  
+  // Users
+  listUsers: (queryString?: string) =>
+    apiClient.get<any>(`/admin/users${queryString ? '?' + queryString : ''}`),
+
+  suspendUser: (id: string) =>
+    apiClient.post<any>(`/admin/users/${id}/suspend`),
+  removeUser: (id: string) =>
+    apiClient.post<any>(`/admin/users/${id}/remove`),
+  getConfig: () =>
+    apiClient.get<any>('/admin/config'),
+  saveConfig: (data: Record<string, string>) =>
+    apiClient.post<any>('/admin/config', data),
+
+  resetUserSearchQuota: (userId: string) =>
+    apiClient.post<any>(`/admin/users/${userId}/reset-search-quota`),
+
+  // Debug / Testing
+  testEmail: (toEmail: string) =>
+    apiClient.post<any>('/admin/debug/test-email', { to_email: toEmail }),
+  checkResendDomains: () =>
+    apiClient.get<any>('/admin/debug/resend-domains'),
+  testNda: (customerName: string, customerEmail: string, providerName: string, providerEmail: string) =>
+    apiClient.post<any>('/admin/debug/test-nda', {
+      customer_name: customerName,
+      customer_email: customerEmail,
+      provider_name: providerName,
+      provider_email: providerEmail,
+    }),
+  testNdaStatus: (documentId: string) =>
+    apiClient.get<any>(`/admin/debug/test-nda/${documentId}/status`),
+  testNdaVoid: (documentId: string) =>
+    apiClient.post<any>(`/admin/debug/test-nda/${documentId}/void`),
+  testSignwellConnection: () =>
+    apiClient.get<any>('/admin/debug/test-signwell'),
+  testStripeConnection: () =>
+    apiClient.get<any>('/admin/debug/test-stripe'),
+  testRfqUnlockConfig: () =>
+    apiClient.get<any>('/admin/debug/test-rfq-unlock'),
+  testPaypalConnection: () =>
+    apiClient.get<any>('/admin/debug/test-paypal'),
+  testLlm: (prompt: string) =>
+    apiClient.post<any>('/admin/debug/test-llm', { prompt }),
+  testDocLlm: (prompt: string) =>
+    apiClient.post<any>('/admin/debug/test-doc-llm', { prompt }),
+
+  getProviders: (params?: { search?: string; page?: number; limit?: number }) =>
+    apiClient.get<{ providers: any[]; total: number }>('/admin/providers', { params }),
+  createProvider: (data: Record<string, any>) =>
+    apiClient.post<any>('/admin/providers', data),
+
+  deleteProvider: (provider_id: string) =>
+    apiClient.delete<{ message: string; provider_id: string }>(`/admin/providers/${provider_id}`),
+
+  getProvider: (id: string | number) =>
+    apiClient.get<any>(`/admin/providers/${id}`),
+
+  updateProvider: (id: string | number, data: { [k: string]: any }) =>
+    apiClient.patch<any>(`/admin/providers/${id}`, data),
+
+  crawlWebsiteForProvider: (website_url: string) =>
+    apiClient.post<{ task_id: string; status: string }>('/admin/crawl-website', { website_url }),
+
+  crawlWebsiteStatus: (task_id: string) =>
+    apiClient.get<{ status: string; data: Record<string, any> | null; error: string | null }>(`/admin/crawl-status/${task_id}`),
+
+  paymentAnalytics: () =>
+    apiClient.get<any>('/admin/payments/analytics'),
+
+  paymentTransactions: (params?: Record<string, string | number>) =>
+    apiClient.get<any>('/admin/payments/transactions', { params }),
+
+  spendOpenAI: () =>
+    apiClient.get<any>('/admin/spend/openai'),
+
+  spendAWS: () =>
+    apiClient.get<any>('/admin/spend/aws'),
+
+  spendRender: () =>
+    apiClient.get<any>('/admin/spend/render'),
+
+};
+
+// Internal / Cron
+const internal = {
+  getCronStatus: () =>
+    apiClient.get<{
+      last_run: string | null;
+      minutes_ago: number | null;
+      last_result: string | null;
+      status: string;
+    }>('/internal/cron/status'),
+
+  triggerDispatch: () =>
+    apiClient.post<{
+      status: string;
+      dispatched: Array<{ rfq_id: string; providers_emailed: number; reason: string }>;
+      skipped: Array<{ rfq_id: string; reason: string }>;
+      interval_hours: number;
+      open_rfqs_found: number;
+      checked_at: string;
+    }>('/internal/cron/dispatch-rfq-batches'),
+};
+
+// Webhooks (server-side only, usually)
+const webhooks = {
+  stripe: (payload: unknown, signature: string) => 
+    apiClient.post('/webhooks/stripe', payload, { headers: { 'Stripe-Signature': signature } }),
+  
+  paypal: (payload: unknown) => 
+    apiClient.post('/webhooks/paypal', payload),
+  
+  signrequest: (payload: unknown) => 
+    apiClient.post('/webhooks/signrequest', payload),
+};
+
+
+// Payments API
+const payments = {
+  /** Create Stripe Checkout Session for the $1,000/year Annual Professional subscription. */
+  createProviderAnnualSubscription: (data: { origin?: string }) =>
+    apiClient.post<{ checkout_url: string; payment_attempt_id: string }>(
+      '/stripe/create-provider-subscription',
+      data,
+    ),
+
+  /** Create Stripe Checkout Session for the $500 one-time profile edit unlock. */
+  createProfileEditCheckout: (data: { origin?: string }) =>
+    apiClient.post<{ checkout_url: string; payment_attempt_id?: string }>(
+      '/provider/profile/full-edit/checkout',
+      data,
+    ),
+
+  /** Create Stripe Checkout Session for a search subscription tier. */
+  createSearchSubscription: (data: { subscription_type: string; origin?: string }) =>
+    apiClient.post<{ checkout_url: string; payment_attempt_id: string }>(
+      '/stripe/create-search-subscription',
+      data,
+    ),
+};
+
+// Export all API modules
+const support = {
+  contactPublic: (data: { name: string; email: string; category: string; subject: string; description: string }) =>
+    apiClient.post('/support/contact', data),
+  contactAuthenticated: (data: { category: string; subject: string; message: string }) =>
+    apiClient.post('/support/contact-authenticated', data),
+};
+
+export const api = {
+  auth,
+  search,
+  providers,
+  providerClaims,
+  rfqs,
+  providerRFQ,
+  providerRfqAccess,
+  quotes,
+  providerProfile,
+  ads,
+  billing,
+  payments,
+  admin,
+  webhooks,
+  internal,
+  support,
+};
+
+export { apiClient };
+export default api;
+
+// ── Customer RFQ API helpers ─────────────────────────────────────────────────
+import type { CustomerRFQSummary, RFQTrackingData } from '@/types';
+
+export const customerRfqApi = {
+  getMyRfqs: async (): Promise<CustomerRFQSummary[]> => {
+    const res = await fetch(`${API_URL}/api/v1/customer/my-rfqs`, {
+      method: 'GET', credentials: 'include',
+      headers: { 'Content-Type': 'application/json',  },
+    });
+    if (!res.ok) throw new Error(`getMyRfqs failed: ${res.status}`);
+    return res.json();
+  },
+  getRfqTracking: async (rfqId: string): Promise<RFQTrackingData> => {
+    const res = await fetch(`${API_URL}/api/v1/customer/rfqs/${rfqId}/tracking`, {
+      method: 'GET', credentials: 'include',
+      headers: { 'Content-Type': 'application/json',  },
+    });
+    if (!res.ok) throw new Error(`getRfqTracking failed: ${res.status}`);
+    return res.json();
+  },
+};
