@@ -685,6 +685,51 @@ async def send_listing_inquiry_email(
     return delivered
 
 
+async def send_ad_pending_review_alert(
+    ad_id: str,
+    advertiser_email: str,
+    advertiser_name: str,
+    ad_title: str,
+    page_type: str,
+    db=None,
+) -> bool:
+    """Notify the admin team that a new ad is ready for review."""
+    import re
+
+    admin_panel_url = "https://proreadyengineer.com/admin/ads"
+    subject = f"New Ad Pending Review — {ad_title or 'Untitled'}"
+    html_content = f"""
+    <h2 style="color:#0F2B54;">New Advertisement Ready for Review</h2>
+    <table cellpadding="6" cellspacing="0" style="font-family:Arial,sans-serif;font-size:14px;">
+      <tr><td><strong>Ad Title:</strong></td><td>{ad_title or '—'}</td></tr>
+      <tr><td><strong>Placement:</strong></td><td>{page_type or '—'}</td></tr>
+      <tr><td><strong>Submitted by:</strong></td><td>{advertiser_name} ({advertiser_email})</td></tr>
+      <tr><td><strong>Ad ID:</strong></td><td>{ad_id}</td></tr>
+    </table>
+    <br/>
+    <p>
+      <a href="{admin_panel_url}"
+         style="background:#0F2B54;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:bold;">
+        Review in Admin Panel
+      </a>
+    </p>
+    <p style="color:#888;font-size:12px;">
+      Log in as admin and open the Ads tab to approve or reject this submission.
+    </p>
+    """
+    text_content = re.sub(r"<[^>]+>", " ", html_content).strip()
+    delivered = await _send_email_now(
+        to=["info@promechdirectory.com"],
+        subject=subject,
+        html_content=html_content,
+        text_content=text_content,
+        from_email=None,
+        reply_to=advertiser_email,
+        db=db,
+    )
+    return delivered
+
+
 async def send_security_alert_email(email: str, db=None) -> None:
     """Send security alert when 5 failed login attempts detected.
 

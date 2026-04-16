@@ -145,8 +145,14 @@ async def _fetch_full_website_for_ad(url: str) -> str:
 # Ad Submission (new workflow)
 # ---------------------------------------------------------------------------
 
-async def _process_ad_in_background(ad_id: uuid.UUID, source_url: Optional[str],
-                                     description_text: Optional[str], page_type: str) -> None:
+async def _process_ad_in_background(
+    ad_id: uuid.UUID,
+    source_url: Optional[str],
+    description_text: Optional[str],
+    page_type: str,
+    advertiser_email: str,
+    advertiser_name: str,
+) -> None:
     """Background task: crawl website + LLM extraction, then update ad record."""
     from app.db.session import AsyncSessionLocal
     from app.models.advertising import Advertisement
@@ -199,6 +205,21 @@ async def _process_ad_in_background(ad_id: uuid.UUID, source_url: Optional[str],
             )
             await bg_db.commit()
             logger.info("Ad %s processing complete → pending_review", ad_id)
+
+            # Notify admin team by email
+            try:
+                from app.services.email_service import send_ad_pending_review_alert
+                await send_ad_pending_review_alert(
+                    ad_id=str(ad_id),
+                    advertiser_email=advertiser_email,
+                    advertiser_name=advertiser_name,
+                    ad_title=headline,
+                    page_type=page_type,
+                    db=bg_db,
+                )
+                logger.info("Admin notification sent for ad %s", ad_id)
+            except Exception as notify_exc:
+                logger.warning("Admin notify failed for ad %s err=%s", ad_id, notify_exc)
 
         except Exception as exc:
             logger.exception("Ad background processing failed ad_id=%s err=%s", ad_id, exc)
@@ -284,6 +305,8 @@ async def submit_ad(
         source_url=source_url,
         description_text=data.description_text,
         page_type=data.page_type,
+        advertiser_email=current_user.email or "",
+        advertiser_name=current_user.name or current_user.email or "Advertiser",
     )
 
     return AdSubmissionResponse(
