@@ -18,7 +18,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -317,6 +317,62 @@ async def get_material_upload_url(
         fields=url_data.get("fields", {}),
         s3_key=key,
     )
+
+
+# ---------------------------------------------------------------------------
+# Document text extraction (brochures / flyers / PDFs / DOCX)
+# ---------------------------------------------------------------------------
+
+@router.post("/ads/parse-doc")
+async def parse_ad_document(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Extract plain text from an uploaded PDF, DOCX, or TXT file.
+
+    Returns: { "text": "..." }  Max file size: 10 MB.
+    """
+    from io import BytesIO
+
+    MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+    content = await file.read(MAX_BYTES + 1)
+    if len(content) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
+
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
+
+    try:
+        if filename.endswith(".pdf") or "pdf" in content_type:
+            import pypdf
+            reader = pypdf.PdfReader(BytesIO(content))
+            pages = [page.extract_text() or "" for page in reader.pages]
+            text = "\n\n".join(p for p in pages if p.strip())
+
+        elif filename.endswith(".docx") or "wordprocessingml" in content_type or "msword" in content_type:
+            import docx as _docx
+            doc = _docx.Document(BytesIO(content))
+            text = "\n".join(para.text for para in doc.paragraphs if para.text.strip())
+
+        elif filename.endswith(".txt") or "text/plain" in content_type:
+            text = content.decode("utf-8", errors="replace")
+
+        else:
+            raise HTTPException(
+                status_code=415,
+                detail="Unsupported file type. Please upload a PDF, Word document (.docx), or plain text file.",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Doc parse failed filename=%s err=%s", filename, exc)
+        raise HTTPException(status_code=422, detail="Could not extract text from this file.")
+
+    text = text.strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="No readable text found in this file.")
+
+    return {"text": text[:50000]}  # cap at 50k chars
 
 
 # ---------------------------------------------------------------------------
