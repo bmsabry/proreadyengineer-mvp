@@ -94,35 +94,66 @@ async def _extract_ad_content(
         else "an engineering firm"
     )
 
-    prompt = f"""You are extracting structured advertisement data for {ad_type_context} strictly from the source content below.
+    prompt = f"""You are an expert B2B copywriter for an engineering-services marketplace. Your job: turn the source content into a punchy, lead-generating advertisement that helps a buyer SEE why THIS firm is the right one to call. Stay 100% truthful — every claim must be grounded in the source — but do the work of a real copywriter: surface the most specific, compelling, hire-me signals the source actually contains.
 
-STRICT RULES — violating these is a critical failure:
-1. Use ONLY information that is explicitly stated in the source content. Do NOT invent, infer, or guess anything.
-2. Specialties and capabilities must be the EXACT technical areas mentioned in the text (e.g. "Gas Turbine Combustion", "CFD Analysis", "Digital Twin Development") — never generic substitutes like "Mechanical Engineering" or "Feasibility Studies" unless those exact words appear.
-3. The company name must be taken verbatim from the text.
-4. Proof points must be real credentials from the text (specific degrees, named employers, certifications, patents, award names, government registrations) — not vague platitudes like "experienced team" or "client-focused."
-5. If a field cannot be filled from the source content, return null for that field — do NOT fabricate a plausible-sounding value.
+CORE RULES
 
-SOURCE CONTENT:
+TRUTHFULNESS (non-negotiable)
+- Every noun, number, name, credential, and technical term you write MUST come from the source content (verbatim, or a close paraphrase that keeps the meaning identical).
+- If a fact is not in the source, leave that field empty (null, or an empty list). Never invent plausible-sounding filler.
+- Company name: verbatim from source.
+- Proof points: real credentials only — specific degrees, named employers, certifications, patents, awards, government registrations, years of experience, named projects/clients, quantified outcomes. NEVER platitudes like "experienced team" or "client-focused".
+- Specialties / capabilities: use the MOST specific technical terms present in the source. Prefer "gas turbine combustion diagnostics" over "mechanical engineering"; prefer "pressure-vessel FEA to ASME Sec VIII" over "engineering analysis". Do NOT substitute a more generic term when a specific one is available in the source.
+
+MARKETING QUALITY (equally non-negotiable)
+- FORBIDDEN PHRASES — if any field contains these or close variants, reject your own output and rewrite that field with specifics drawn from the source:
+  * "engineering solutions for complex challenges"
+  * "specialized engineering services"
+  * "precise and innovative solutions"
+  * "tailored to complex engineering problems"
+  * "cutting-edge", "world-class", "state-of-the-art", "industry-leading"
+  * "experienced professionals", "trusted partner", "your success is our priority"
+  * any sentence that could describe literally any engineering firm.
+- Headline MUST name at least one specific technical domain OR a concrete buyer outcome drawn from the source (e.g. "Gas Turbine Combustion & Emissions Redesign", "CFD for Rotating Machinery — Cut Downtime Fast", "ASME Sec VIII Pressure Vessel Design").
+- Headline and tagline MUST NOT be paraphrases of each other. Tagline = the single most memorable buyer-facing sentence in the source, or a crisp rewrite of it.
+- Value proposition structure: (who this firm is for) + (the specific problem it solves) + (what makes it qualified) — using source language.
+- Promotional summary structure (3–5 sentences): target buyer → pain point they have → what this firm does specifically to solve it (with source-specific terminology) → proof signal → implicit or explicit CTA.
+
+MINIMUMS (meet these unless the source is truly silent on that dimension)
+- specialties: at least 4 entries if the source names any technical domain
+- capabilities: at least 3 entries if the source names any service/deliverable
+- industry_keywords: at least 6 buyer-searchable technical terms
+- proof_points: at least 2 entries if ANY credentials/years/clients/projects are mentioned
+
+SILENT WORKFLOW (do this internally before writing the JSON)
+1. Scan the source and list: all named technical domains, all services/deliverables, all credentials/years/clients/projects/numbers, any target-buyer or pain-point language.
+2. Pick the 3–5 most differentiating items — what makes THIS firm hireable vs. a generic one.
+3. Draft the ad copy around those items. Every field draws from your list.
+4. Self-check: re-read each field. If any field could describe any engineering firm, or hits a forbidden phrase, rewrite it with more specificity.
+
+CONTEXT
+Advertisement is for: {ad_type_context}.
+
+SOURCE CONTENT
 {combined_text}
 
-Return a JSON object with exactly these fields:
+Return a JSON object with EXACTLY these fields and nothing else:
 {{
   "company_name": "Exact company name as written in the source",
-  "headline": "5-10 word headline using the company's own language and specific domain — not generic marketing speak",
-  "tagline": "One sentence (max 15 words) drawn from or closely paraphrasing the source",
-  "value_proposition": "2-3 sentences using the specific technical language and differentiators from the source",
-  "specialties": ["exact technical specialty from source", "another exact specialty", "..."],
-  "capabilities": ["specific service or capability named in source", "..."],
-  "proof_points": ["specific credential from source: degree, employer, patent, certification, award, registration", "..."],
-  "cta_label": "Short call-to-action (e.g. 'Consult with Experts', 'Explore Services', 'Get a Quote')",
-  "industry_keywords": ["technical keyword from source", "..."],
+  "headline": "5–10 words. Must name a specific technical domain or concrete buyer outcome. No forbidden phrases.",
+  "tagline": "One sentence, max 15 words, drawn from the source's own language. Not a paraphrase of the headline.",
+  "value_proposition": "2–3 sentences: who this firm is for, the specific problem it solves, what makes it qualified — all using source terminology.",
+  "specialties": ["most specific technical specialty from source", "..."],
+  "capabilities": ["specific service or deliverable named in source", "..."],
+  "proof_points": ["specific credential with the concrete number or name from source", "..."],
+  "cta_label": "3–4 word call-to-action that fits this firm specifically (e.g. 'Discuss Your Turbine Issue', 'Request CFD Consult', 'Get Scoped Quote')",
+  "industry_keywords": ["buyer search term from source", "..."],
   "contact_info": {{
     "phone": "phone number if found in source, else null",
     "email": "email if found in source, else null",
-    "location": "city/state if found in source, else null"
+    "location": "city/state/country if found in source, else null"
   }},
-  "promotional_summary": "2-4 sentence paragraph using the company's own specific technical terms and real differentiators from the source — no generic filler"
+  "promotional_summary": "3–5 sentences following the (buyer → pain → specific what-we-do → proof → CTA) structure. Source-specific technical terms. No forbidden phrases."
 }}
 
 Return ONLY valid JSON. No markdown. No explanation."""
@@ -132,7 +163,7 @@ Return ONLY valid JSON. No markdown. No explanation."""
         model=model,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
-        temperature=0.1,
+        temperature=0.35,
     )
     content = response.choices[0].message.content
     return json.loads(content)
