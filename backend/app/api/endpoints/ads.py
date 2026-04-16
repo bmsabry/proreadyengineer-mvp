@@ -136,10 +136,43 @@ IMPORTANT:
 
 
 async def _fetch_website_for_ad(url: str) -> str:
-    """Fetch website text for ad content extraction (reuses admin pattern)."""
-    # Import the same function used by admin crawl
-    from app.api.endpoints.admin import _admin_fetch_website_text
-    return await _admin_fetch_website_text(url)
+    """Fetch a SINGLE page of website text for ad content extraction.
+
+    Lightweight — only fetches the provided URL (no deep crawl).
+    The admin deep-crawl fetches up to 25 pages which times out on
+    Render's 30-second request limit.
+    """
+    import httpx
+    from html.parser import HTMLParser
+
+    class _TextExtractor(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self._parts: list = []
+            self._skip = False
+        def handle_starttag(self, tag, attrs):
+            if tag in ("script", "style", "nav", "footer", "head", "noscript"):
+                self._skip = True
+        def handle_endtag(self, tag):
+            if tag in ("script", "style", "nav", "footer", "head", "noscript"):
+                self._skip = False
+        def handle_data(self, data):
+            if not self._skip and data.strip():
+                self._parts.append(data.strip())
+
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; ProReadyBot/1.0)"}
+    async with httpx.AsyncClient(headers=headers, timeout=15.0,
+                                  follow_redirects=True, verify=False) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+
+    parser = _TextExtractor()
+    try:
+        parser.feed(resp.text)
+    except Exception:
+        pass
+    text = " ".join(parser._parts)
+    return text[:60000] if text else ""
 
 
 # ---------------------------------------------------------------------------
