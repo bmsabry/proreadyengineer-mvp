@@ -1,5 +1,6 @@
 """Authentication API endpoints."""
 
+import re
 from typing import Optional
 from pydantic import BaseModel
 
@@ -777,7 +778,7 @@ async def provider_lookup(
 
     Returns up to 10 matches with limited public fields.
     """
-    from sqlalchemy import select, or_, cast, String
+    from sqlalchemy import select, or_, cast, String, func
     from app.models.provider import Provider
 
     q = q.strip()
@@ -785,6 +786,13 @@ async def provider_lookup(
         return {"providers": []}
 
     search = f"%{q}%"
+
+    # Normalized search: strip all non-alphanumeric chars so
+    # "proreadyengineer" matches "Pro Ready Engineer LLC"
+    q_normalized = f"%{re.sub(r'[^a-z0-9]', '', q.lower())}%"
+    normalized_firm = func.regexp_replace(func.lower(Provider.firm_name), '[^a-z0-9]', '', 'g')
+    normalized_name = func.regexp_replace(func.lower(Provider.name), '[^a-z0-9]', '', 'g')
+
     result = await db.execute(
         select(Provider)
         .where(
@@ -792,6 +800,8 @@ async def provider_lookup(
                 Provider.firm_name.ilike(search),
                 Provider.name.ilike(search),
                 cast(Provider.email_addresses, String).ilike(search),
+                normalized_firm.like(q_normalized),
+                normalized_name.like(q_normalized),
             )
         )
         .order_by(Provider.firm_name)
