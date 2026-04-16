@@ -132,7 +132,7 @@ Return ONLY valid JSON. No markdown. No explanation."""
         model=model,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
-        temperature=0.0,
+        temperature=0.1,
     )
     content = response.choices[0].message.content
     return json.loads(content)
@@ -163,7 +163,7 @@ async def _process_ad_in_background(
 
     async with AsyncSessionLocal() as bg_db:
         try:
-            # Crawl the full website — all pages, same as admin "add firm"
+            # ── Step 1: Crawl the website ──────────────────────────────────
             website_text: str | None = None
             if source_url:
                 logger.info("Ad bg starting crawl ad_id=%s url=%s", ad_id, source_url)
@@ -175,7 +175,6 @@ async def _process_ad_in_background(
                 except Exception as exc:
                     logger.warning("Ad bg crawl failed ad_id=%s url=%s err=%s", ad_id, source_url, exc)
 
-            # If crawl returned nothing but we have a description, use that alone
             if not website_text and description_text:
                 logger.info("Ad %s crawl empty — using description_text only", ad_id)
 
@@ -185,17 +184,22 @@ async def _process_ad_in_background(
                     update(Advertisement)
                     .where(Advertisement.id == ad_id)
                     .values(ad_status=AdStatus.REJECTED,
-                            title="Content extraction failed — please re-submit with a description")
+                            title="No content found — please re-submit with a description or brochure")
                 )
                 await bg_db.commit()
                 return
 
-            # LLM3 extraction — full website content → ad fields
-            extracted = await _extract_ad_content(bg_db, website_text=website_text,
-                                                   description_text=description_text, page_type=page_type)
-            headline = extracted.get("headline", "Advertisement")
-            promo_summary = extracted.get("promotional_summary") or extracted.get("value_proposition", "")
+            # ── Step 2: LLM extraction ─────────────────────────────────────
+            extracted = await _extract_ad_content(
+                bg_db,
+                website_text=website_text,
+                description_text=description_text,
+                page_type=page_type,
+            )
+            headline = extracted.get("headline") or extracted.get("company_name") or "Advertisement"
+            promo_summary = extracted.get("promotional_summary") or extracted.get("value_proposition") or ""
 
+            # ── Step 3: Commit to DB ───────────────────────────────────────
             await bg_db.execute(
                 update(Advertisement)
                 .where(Advertisement.id == ad_id)
@@ -209,7 +213,7 @@ async def _process_ad_in_background(
             await bg_db.commit()
             logger.info("Ad %s processing complete → pending_review", ad_id)
 
-            # Notify admin team by email
+            # ── Step 4: Notify admin ───────────────────────────────────────
             try:
                 from app.services.email_service import send_ad_pending_review_alert
                 await send_ad_pending_review_alert(
@@ -225,7 +229,19 @@ async def _process_ad_in_background(
                 logger.warning("Admin notify failed for ad %s err=%s", ad_id, notify_exc)
 
         except Exception as exc:
+            # ── Any crash → mark REJECTED so ad never stays stuck in processing ──
             logger.exception("Ad background processing failed ad_id=%s err=%s", ad_id, exc)
+            try:
+                await bg_db.rollback()
+                await bg_db.execute(
+                    update(Advertisement)
+                    .where(Advertisement.id == ad_id)
+                    .values(ad_status=AdStatus.REJECTED,
+                            title="Ad generation failed — please re-submit")
+                )
+                await bg_db.commit()
+            except Exception as cleanup_exc:
+                logger.error("Ad %s cleanup also failed: %s", ad_id, cleanup_exc)
 
 
 @router.post("/ads/submit", response_model=AdSubmissionResponse)
