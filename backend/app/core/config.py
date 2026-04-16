@@ -111,6 +111,7 @@ class Settings(BaseSettings):
 
     # Security - CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
+    EXTRA_CORS_ORIGINS: str = ""
 
     # Security - Email Verification
     REQUIRE_EMAIL_VERIFICATION: bool = True

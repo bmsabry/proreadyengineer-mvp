@@ -128,13 +128,16 @@ def create_application() -> FastAPI:
     # Default: localhost:3000,localhost:3001 for development
     # Production: set ALLOWED_ORIGINS=https://promechdirectory.com,https://www.promechdirectory.com
     # -----------------------------------------------------------------------
+    # Collect origins from both ALLOWED_ORIGINS and EXTRA_CORS_ORIGINS env vars
     allowed_origins_raw = getattr(settings, 'ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:3001')
-    allowed_origins = [o.strip() for o in allowed_origins_raw.split(',') if o.strip()]
+    extra_origins_raw = getattr(settings, 'EXTRA_CORS_ORIGINS', '')
+    combined = f"{allowed_origins_raw},{extra_origins_raw}"
+    allowed_origins = [o.strip() for o in combined.split(',') if o.strip()]
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_origin_regex=r"https://(.*\.onrender\.com|proreadyengineer\.com|www\.proreadyengineer\.com)",
+        allow_origin_regex=r"https://.*\.onrender\.com",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
