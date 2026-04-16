@@ -92,6 +92,22 @@ class AdvertisementListResponse(BaseSchema):
     total_spend: float
 
 
+class SoftwareProvidersAdsResponse(BaseSchema):
+    """Paginated response for software-providers ad page."""
+    advertisements: list[AdvertisementPublicResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class FeaturedFirmsAdsResponse(BaseSchema):
+    """Paginated response for featured-firms ad page."""
+    advertisements: list[AdvertisementPublicResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 # === Ad Submission (new workflow) ===
 
 class AdSubmissionRequest(BaseSchema):
