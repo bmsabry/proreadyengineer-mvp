@@ -134,7 +134,7 @@ def create_application() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_origin_regex=r"https://.*\.onrender\.com",
+        allow_origin_regex=r"https://(.*\.onrender\.com|proreadyengineer\.com|www\.proreadyengineer\.com)",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
