@@ -3090,17 +3090,7 @@ async def admin_list_providers(
     from app.models.provider import Provider, ProviderMembership
 
     offset = (page - 1) * limit
-    # Subquery: get the single user email linked to each provider via membership
-    user_email_sub = (
-        select(ProviderMembership.provider_id, User.email.label("user_email"))
-        .join(User, User.id == ProviderMembership.user_id)
-        .distinct(ProviderMembership.provider_id)
-        .subquery()
-    )
-    query = (
-        select(Provider, user_email_sub.c.user_email)
-        .outerjoin(user_email_sub, Provider.id == user_email_sub.c.provider_id)
-    )
+    query = select(Provider)
     count_query = select(func.count(Provider.id))
 
     if search:
@@ -3115,7 +3105,20 @@ async def admin_list_providers(
 
     total = (await db.execute(count_query)).scalar() or 0
     result = await db.execute(query.order_by(Provider.name).offset(offset).limit(limit))
-    rows = result.all()
+    providers = result.scalars().all()
+
+    # Batch-lookup user emails for this page of providers only
+    provider_ids = [p.id for p in providers]
+    email_map: dict = {}
+    if provider_ids:
+        email_rows = await db.execute(
+            select(ProviderMembership.provider_id, User.email)
+            .join(User, User.id == ProviderMembership.user_id)
+            .where(ProviderMembership.provider_id.in_(provider_ids))
+        )
+        for pid, email in email_rows.all():
+            if pid not in email_map:  # keep first match only
+                email_map[pid] = email
 
     return {
         "providers": [
@@ -3128,11 +3131,11 @@ async def admin_list_providers(
                 "business_evaluation_tier": p.business_evaluation_tier,
                 "primary_specialty": p.primary_specialty,
                 "is_engineering_service": p.is_engineering_service,
-                "user_email": user_email,
+                "user_email": email_map.get(p.id),
                 "website": p.website,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
             }
-            for p, user_email in rows
+            for p in providers
         ],
         "total": total,
         "page": page,
