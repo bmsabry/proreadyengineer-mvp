@@ -674,7 +674,7 @@ async def send_listing_inquiry_email(
     import re
     text_content = re.sub(r"<[^>]+>", " ", html_content).strip()
     delivered = await _send_email_now(
-        to=["info@promechdirectory.com"],
+        to=["info@mail.promechdirectory.com"],
         subject=subject,
         html_content=html_content,
         text_content=text_content,
@@ -719,7 +719,7 @@ async def send_ad_pending_review_alert(
     """
     text_content = re.sub(r"<[^>]+>", " ", html_content).strip()
     delivered = await _send_email_now(
-        to=["info@promechdirectory.com"],
+        to=["info@mail.promechdirectory.com"],
         subject=subject,
         html_content=html_content,
         text_content=text_content,

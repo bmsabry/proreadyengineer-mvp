@@ -2,30 +2,80 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FileText, Building2, Factory, DollarSign, Megaphone, Users, Settings, LogOut, Home, Activity, Download, Webhook, Mail, LifeBuoy } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  LayoutDashboard, FileText, Building2, Factory, DollarSign,
+  Megaphone, Users, Settings, LogOut, Home, Activity, Download,
+  Webhook, Mail, LifeBuoy,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000') + '/api/v1';
+
+function getAuthHeaders(): HeadersInit {
+  if (typeof window === 'undefined') return {};
+  const token = localStorage.getItem('access_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 const navItems = [
-  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/rfqs', label: 'RFQs', icon: FileText },
-  { href: '/admin/claims', label: 'Claims', icon: Building2 },
-  { href: '/admin/providers', label: 'Providers', icon: Factory },
-  { href: '/admin/payments', label: 'Payments', icon: DollarSign },
-  { href: '/admin/webhooks', label: 'Webhooks', icon: Webhook },
-  { href: '/admin/campaigns', label: 'Email Campaigns', icon: Mail },
-  { href: '/admin/support', label: 'Support Tickets', icon: LifeBuoy },
-  { href: '/admin/ads', label: 'Ads', icon: Megaphone },
-  { href: '/admin/users', label: 'Users', icon: Users },
-  { href: '/admin/data-extraction', label: 'Data Extraction', icon: Download },
-  { href: '/admin/settings', label: 'Settings', icon: Settings },
-  { href: '/admin/debugging', label: 'Debugging', icon: Activity },
+  { href: '/admin/dashboard',       label: 'Dashboard',        icon: LayoutDashboard },
+  { href: '/admin/rfqs',            label: 'RFQs',             icon: FileText },
+  { href: '/admin/claims',          label: 'Claims',           icon: Building2 },
+  { href: '/admin/providers',       label: 'Providers',        icon: Factory },
+  { href: '/admin/payments',        label: 'Payments',         icon: DollarSign },
+  { href: '/admin/webhooks',        label: 'Webhooks',         icon: Webhook },
+  { href: '/admin/campaigns',       label: 'Email Campaigns',  icon: Mail },
+  { href: '/admin/support',         label: 'Support Tickets',  icon: LifeBuoy,  badgeKey: 'tickets' },
+  { href: '/admin/ads',             label: 'Ads',              icon: Megaphone, badgeKey: 'ads' },
+  { href: '/admin/users',           label: 'Users',            icon: Users },
+  { href: '/admin/data-extraction', label: 'Data Extraction',  icon: Download },
+  { href: '/admin/settings',        label: 'Settings',         icon: Settings },
+  { href: '/admin/debugging',       label: 'Debugging',        icon: Activity },
 ];
 
 export function DashboardNav() {
   const pathname = usePathname();
   const { logout, user } = useAuth();
+
+  const [pendingAds, setPendingAds] = useState(0);
+  const [pendingTickets, setPendingTickets] = useState(0);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchCounts = async () => {
+      try {
+        const [adsRes, ticketsRes] = await Promise.all([
+          fetch(`${API_BASE}/admin/ads/pending`, { headers: getAuthHeaders() }),
+          fetch(`${API_BASE}/admin/support/tickets?status_filter=new&size=1`, { headers: getAuthHeaders() }),
+        ]);
+
+        if (adsRes.ok) {
+          const ads = await adsRes.json();
+          setPendingAds(Array.isArray(ads) ? ads.length : 0);
+        }
+        if (ticketsRes.ok) {
+          const tickets = await ticketsRes.json();
+          // SupportTicketListOut has { total, items, page, size }
+          setPendingTickets(tickets?.total ?? 0);
+        }
+      } catch {
+        // Silent — nav badge is best-effort
+      }
+    };
+
+    fetchCounts();
+    // Refresh every 60 seconds so the badge stays current
+    const interval = setInterval(fetchCounts, 60_000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const badgeCounts: Record<string, number> = {
+    ads: pendingAds,
+    tickets: pendingTickets,
+  };
 
   const handleLogout = async () => {
     try {
@@ -38,7 +88,7 @@ export function DashboardNav() {
   };
 
   return (
-    <div className="w-64 min-h-screen flex flex-col" style={{background: 'linear-gradient(180deg, #0F2B54 0%, #1a3a6b 100%)'}}>
+    <div className="w-64 min-h-screen flex flex-col" style={{ background: 'linear-gradient(180deg, #0F2B54 0%, #1a3a6b 100%)' }}>
       {/* Logo / Brand Header */}
       <div className="px-6 py-6 border-b border-white/10">
         <Link href="/admin/dashboard" className="flex items-center gap-2.5 group">
@@ -62,6 +112,9 @@ export function DashboardNav() {
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+          const pendingCount = item.badgeKey ? badgeCounts[item.badgeKey] ?? 0 : 0;
+          const hasPending = pendingCount > 0;
+
           return (
             <Link key={item.href} href={item.href}>
               <div className={cn(
@@ -72,7 +125,16 @@ export function DashboardNav() {
               )}>
                 <Icon className="h-4 w-4 flex-shrink-0" />
                 <span className="flex-1">{item.label}</span>
-                {isActive && (
+
+                {/* Pending alert badge — red dot with count */}
+                {hasPending && (
+                  <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex-shrink-0">
+                    {pendingCount > 99 ? '99+' : pendingCount}
+                  </span>
+                )}
+
+                {/* Active indicator dot — only shown when active and no pending badge */}
+                {isActive && !hasPending && (
                   <div className="w-1.5 h-1.5 rounded-full bg-blue-300 flex-shrink-0" />
                 )}
               </div>
