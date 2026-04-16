@@ -183,6 +183,9 @@ const auth = {
 
   me: () =>
     apiClient.get<User>('/auth/me'),
+
+  providerLookup: (q: string) =>
+    apiClient.get<{ providers: Array<{ id: number; firm_name: string; city: string | null; state: string | null; website: string | null; phone: string | null; primary_specialty: string | null; email: string | null }> }>(`/auth/provider-lookup?q=${encodeURIComponent(q)}`),
 };
 
 // Public Search API

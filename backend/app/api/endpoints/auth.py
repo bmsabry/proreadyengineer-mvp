@@ -749,3 +749,68 @@ async def resend_verification(
         logging.getLogger(__name__).warning("Failed to resend verification email to %s", user.email)
 
     return {"message": "If the email exists and is unverified, a new verification link has been sent."}
+
+
+# ---------------------------------------------------------------------------
+# Public provider lookup (for registration flow — no auth required)
+# ---------------------------------------------------------------------------
+
+class ProviderLookupResult(BaseModel):
+    id: int
+    firm_name: str
+    city: Optional[str] = None
+    state: Optional[str] = None
+    website: Optional[str] = None
+    phone: Optional[str] = None
+    primary_specialty: Optional[str] = None
+    email: Optional[str] = None  # single email from email_addresses
+
+
+@limiter.limit("20/minute")
+@router.get("/provider-lookup")
+async def provider_lookup(
+    request: Request,
+    q: str = "",
+    db: AsyncSession = Depends(get_db),
+):
+    """Public: search providers by firm name or email for registration.
+
+    Returns up to 10 matches with limited public fields.
+    """
+    from sqlalchemy import select, or_, cast, String
+    from app.models.provider import Provider
+
+    q = q.strip()
+    if len(q) < 2:
+        return {"providers": []}
+
+    search = f"%{q}%"
+    result = await db.execute(
+        select(Provider)
+        .where(
+            or_(
+                Provider.firm_name.ilike(search),
+                Provider.name.ilike(search),
+                cast(Provider.email_addresses, String).ilike(search),
+            )
+        )
+        .order_by(Provider.firm_name)
+        .limit(10)
+    )
+    providers = result.scalars().all()
+
+    return {
+        "providers": [
+            ProviderLookupResult(
+                id=p.id,
+                firm_name=p.firm_name or p.name,
+                city=p.city,
+                state=p.state,
+                website=p.website,
+                phone=p.phone,
+                primary_specialty=p.primary_specialty,
+                email=(p.email_addresses[0] if isinstance(p.email_addresses, list) and p.email_addresses else None),
+            ).model_dump()
+            for p in providers
+        ]
+    }
