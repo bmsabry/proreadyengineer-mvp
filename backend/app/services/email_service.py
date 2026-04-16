@@ -714,13 +714,12 @@ async def send_security_alert_email(email: str, db=None) -> None:
         "Your account will be temporarily locked after 10 failed attempts."
     )
     try:
-        email_config = await _get_email_config(db=db)
-        await _send_email(
-            to_email=email,
+        await _send_email_now(
+            to=[email],
             subject=subject,
             html_content=html_content,
             text_content=text_content,
-            email_config=email_config,
+            db=db,
         )
         logger.info('[EMAIL] Security alert sent to %s', email)
     except Exception as exc:
@@ -758,13 +757,12 @@ async def send_email_verification(email: str, token: str, db=None) -> None:
         "If you did not create an account, ignore this email."
     )
     try:
-        email_config = await _get_email_config(db=db)
-        await _send_email(
-            to_email=email,
+        await _send_email_now(
+            to=[email],
             subject=subject,
             html_content=html_content,
             text_content=text_content,
-            email_config=email_config,
+            db=db,
         )
         logger.info('[EMAIL] Verification email sent to %s', email)
     except Exception as exc:
