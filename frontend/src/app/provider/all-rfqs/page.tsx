@@ -8,6 +8,7 @@ import { RFQTeaser } from '@/types';
 import { Button } from '@/components/ui/button';
 import { formatDate } from '@/lib/utils';
 import { Archive, AlertCircle, ArrowRight, Lock } from 'lucide-react';
+import NdaBadge from '@/components/ui/NdaBadge';
 
 function UrgencyBadge({ urgency }: { urgency?: string }) {
   const m: Record<string, string> = {
@@ -104,9 +105,7 @@ export default function AllRFQsPage() {
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 <UrgencyBadge urgency={t.urgency} />
                 <StatusBadge status={t.status} />
-                {t.nda_required && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700 border border-purple-200">NDA</span>
-                )}
+                <NdaBadge ndaRequired={t.nda_required} ndaStatus={t.nda_status} />
               </div>
 
               {(t as any).project_description_preview && (

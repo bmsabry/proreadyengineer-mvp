@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import api from '@/lib/api';
 import { Quote } from '@/types';
 import { useRequireAuth } from '@/hooks/useAuth';
+import NdaBadge from '@/components/ui/NdaBadge';
 
 interface UnlockStatus {
   unlocked: boolean;
@@ -25,6 +26,7 @@ interface UnlockStatus {
   urgency?: string;
   tollgate_phases?: string[];
   nda_required?: boolean;
+  nda_status?: string;
   provider_nda_signed?: boolean;
   quote_accepted?: boolean;
   business_name?: string;
@@ -70,7 +72,7 @@ function TeaserInfoPanel({ status }: { status: UnlockStatus }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {status.urgency && <Badge variant={urgencyVariant(status.urgency)}><Clock className="h-3 w-3 mr-1"/>{status.urgency} Priority</Badge>}
-          {status.nda_required && <Badge variant="outline" className="border-amber-400 text-amber-700 bg-amber-50"><ShieldAlert className="h-3 w-3 mr-1"/>NDA Required</Badge>}
+          <NdaBadge ndaRequired={status.nda_required} ndaStatus={status.nda_status} variant="full" />
           {status.rfq_status && <Badge variant="outline" className="capitalize text-gray-600">{status.rfq_status.replace(/_/g, ' ')}</Badge>}
         </div>
       </CardHeader>

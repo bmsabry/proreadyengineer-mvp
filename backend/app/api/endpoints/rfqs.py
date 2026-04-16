@@ -51,6 +51,20 @@ async def get_my_rfqs(
         select(RFQ).where(RFQ.customer_user_id == current_user.id).order_by(RFQ.created_at.desc())
     )).scalars().all()
 
+    # Bulk-query NDA statuses for all customer RFQs
+    from app.models.nda import RFQNDA
+    all_rfq_ids = [r.id for r in rows]
+    nda_result = (await db.execute(
+        select(RFQNDA.rfq_id, RFQNDA.nda_status).where(
+            RFQNDA.rfq_id.in_(all_rfq_ids)
+        ).order_by(RFQNDA.created_at.desc())
+    )).all() if all_rfq_ids else []
+    nda_status_map: dict[str, str] = {}
+    for nda_rfq_id, nda_st in nda_result:
+        key = str(nda_rfq_id)
+        if key not in nda_status_map:
+            nda_status_map[key] = nda_st.value if hasattr(nda_st, "value") else str(nda_st)
+
     result = []
     for r in rows:
         uid = r.id
@@ -69,6 +83,7 @@ async def get_my_rfqs(
             "rfq_status": r.rfq_status.value if hasattr(r.rfq_status, "value") else str(r.rfq_status),
             "urgency": r.urgency,
             "nda_required": r.nda_required,
+            "nda_status": nda_status_map.get(str(uid), "not_required" if not r.nda_required else "payment_pending"),
             "quote_count": r.quote_count,
             "is_closed": r.is_closed,
             "business_name": r.business_name,
@@ -138,10 +153,18 @@ async def get_rfq_tracking(
         "currency": q.currency, "turnaround_estimate_text": q.turnaround_estimate_text,
         "submitted_at": iso(q.submitted_at),
     } for q in quotes]
+    # Fetch latest NDA status for this RFQ
+    from app.models.nda import RFQNDA
+    nda_row = (await db.execute(
+        select(RFQNDA.nda_status).where(RFQNDA.rfq_id == uid).order_by(RFQNDA.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    nda_status_val = (nda_row.value if hasattr(nda_row, "value") else str(nda_row)) if nda_row else ("not_required" if not rfq.nda_required else "payment_pending")
+
     return {
         "rfq": {"id": str(rfq.id), "project_description": rfq.project_description,
                 "rfq_status": sv(rfq.rfq_status), "urgency": rfq.urgency,
-                "nda_required": rfq.nda_required, "quote_count": rfq.quote_count,
+                "nda_required": rfq.nda_required, "nda_status": nda_status_val,
+                "quote_count": rfq.quote_count,
                 "is_closed": rfq.is_closed, "created_at": iso(rfq.created_at),
                 "submitted_at": iso(rfq.submitted_at)},
         "total_matches": total_matches, "total_dispatched": len(dispatched),
@@ -185,6 +208,13 @@ async def get_rfq(
 
     # Build response with files + presigned download URLs
     rfq_data = RFQResponse.model_validate(rfq).model_dump()
+
+    # Attach latest NDA status
+    from app.models.nda import RFQNDA
+    nda_row = (await db.execute(
+        select(RFQNDA.nda_status).where(RFQNDA.rfq_id == uid).order_by(RFQNDA.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    rfq_data["nda_status"] = (nda_row.value if hasattr(nda_row, "value") else str(nda_row)) if nda_row else ("not_required" if not rfq.nda_required else "payment_pending")
 
     # Load runtime config for S3 presigned URL generation
     from app.services.config_service import get_runtime_config
@@ -643,6 +673,19 @@ async def get_provider_teasers(
     # Collect all RFQ ids for bulk lookup
     rfq_ids = [rfq.id for _, rfq in rows]
 
+    # Bulk-query NDA status for these RFQs (latest NDA per RFQ)
+    from app.models.nda import RFQNDA
+    nda_result = await db.execute(
+        select(RFQNDA.rfq_id, RFQNDA.nda_status).where(
+            RFQNDA.rfq_id.in_(rfq_ids)
+        ).order_by(RFQNDA.created_at.desc())
+    )
+    nda_status_map: dict[str, str] = {}
+    for nda_rfq_id, nda_st in nda_result.all():
+        key = str(nda_rfq_id)
+        if key not in nda_status_map:  # keep latest (first due to desc order)
+            nda_status_map[key] = nda_st.value if hasattr(nda_st, "value") else str(nda_st)
+
     # Bulk-query active unlocks for this provider
     unlock_result = await db.execute(
         select(RFQUnlock.rfq_id).where(
@@ -683,6 +726,7 @@ async def get_provider_teasers(
             "urgency": rfq.urgency,
             "tollgate_phases": rfq.tollgate_phases or [],
             "nda_required": rfq.nda_required,
+            "nda_status": nda_status_map.get(rfq_id_str, "not_required" if not rfq.nda_required else "payment_pending"),
             "business_name": rfq.business_name,
             "project_description_preview": preview,
             "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
@@ -726,6 +770,13 @@ async def get_rfq_teaser(
     result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
     rfq = result.scalar_one()
 
+    # Fetch latest NDA status for this RFQ
+    from app.models.nda import RFQNDA
+    nda_row = (await db.execute(
+        select(RFQNDA.nda_status).where(RFQNDA.rfq_id == rfq_id).order_by(RFQNDA.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    nda_status_val = (nda_row.value if hasattr(nda_row, "value") else str(nda_row)) if nda_row else ("not_required" if not rfq.nda_required else "payment_pending")
+
     desc = rfq.project_description or ""
     preview = (desc[:300] + "...") if len(desc) > 300 else desc
 
@@ -735,6 +786,7 @@ async def get_rfq_teaser(
         "dispatch_status": str(dispatch.dispatch_status) if dispatch.dispatch_status else "unknown",
         "tollgate_phases": rfq.tollgate_phases or [],
         "nda_required": rfq.nda_required,
+        "nda_status": nda_status_val,
         "business_name": rfq.business_name,
         "project_description_preview": preview,
         "submitted_at": rfq.submitted_at.isoformat() if rfq.submitted_at else None,
@@ -1080,12 +1132,20 @@ async def get_unlock_status(
     desc = rfq.project_description or ""
     preview = (desc[:300] + "...") if len(desc) > 300 else desc
 
+    # Fetch latest NDA status for this RFQ
+    from app.models.nda import RFQNDA as _RFQNDA
+    _nda_row = (await db.execute(
+        select(_RFQNDA.nda_status).where(_RFQNDA.rfq_id == rfq_id).order_by(_RFQNDA.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    _nda_status_val = (_nda_row.value if hasattr(_nda_row, "value") else str(_nda_row)) if _nda_row else ("not_required" if not rfq.nda_required else "payment_pending")
+
     base_info = {
         "has_membership": True,
         "has_dispatch": dispatch is not None,
         "urgency": rfq.urgency,
         "tollgate_phases": rfq.tollgate_phases or [],
         "nda_required": rfq.nda_required,
+        "nda_status": _nda_status_val,
         "business_name": rfq.business_name,
         "project_description_preview": preview,
         "rfq_status": str(rfq.rfq_status) if rfq.rfq_status else None,

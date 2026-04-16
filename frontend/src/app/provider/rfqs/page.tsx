@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { RFQTeaser } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Mail, ArrowRight, Lock } from 'lucide-react';
+import NdaBadge from '@/components/ui/NdaBadge';
 
 type RFQFilterTab = 'all' | 'pending' | 'unlocked' | 'quoted';
 
@@ -84,7 +85,7 @@ export default function RFQsPage() {
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <p className="text-sm font-semibold text-slate-900">RFQ #{String(t.rfq_id).slice(0,8)}&hellip;</p>
                       <UrgencyBadge urgency={t.urgency} />
-                      {t.nda_required && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-700 border border-purple-200">NDA</span>}
+                      <NdaBadge ndaRequired={t.nda_required} ndaStatus={t.nda_status} />
                       {t.status === 'unlocked' && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Unlocked</span>}
                       {t.status === 'quoted' && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">Quoted</span>}
                     </div>

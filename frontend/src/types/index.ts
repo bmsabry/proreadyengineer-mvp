@@ -209,6 +209,7 @@ export interface RFQ {
   urgency: 'High' | 'Intermediate' | 'Low';
   tollgate_phases?: string[];
   nda_required: boolean;
+  nda_status?: string;
   rfq_status: RFQStatus;
   quote_count: number;
   is_closed: boolean;
@@ -294,6 +295,7 @@ export interface RFQTeaser {
   urgency?: string;
   tollgate_phases?: string[];
   nda_required?: boolean;
+  nda_status?: string;       // NDA signing state: not_required, payment_pending, customer_signature_pending, provider_signature_pending, fully_signed, failed, cancelled
   business_name?: string;
   project_description_preview?: string;
   submitted_at?: string;

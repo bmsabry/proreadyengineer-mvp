@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ArrowLeft, RefreshCw, Users, MessageSquare, Activity, Clock } from 'lucide-react';
 import React from 'react';
+import NdaBadge from '@/components/ui/NdaBadge';
 
 interface DispatchedProvider {
   provider_id: number;
@@ -40,6 +41,7 @@ interface RfqSummary {
   rfq_status: string;
   urgency: string | null;
   nda_required: boolean;
+  nda_status?: string;
   quote_count: number;
   submitted_at: string | null;
 }
@@ -293,7 +295,7 @@ export default function RFQTrackingPage() {
           </div>
           <div className="flex flex-wrap gap-3 mt-3 text-xs text-gray-500">
             {rfq.urgency && <span>Urgency: <strong>{rfq.urgency}</strong></span>}
-            {rfq.nda_required && <span className="text-orange-600 font-medium">NDA Required</span>}
+            <NdaBadge ndaRequired={rfq.nda_required} ndaStatus={rfq.nda_status} variant="full" />
           </div>
         </CardContent>
       </Card>

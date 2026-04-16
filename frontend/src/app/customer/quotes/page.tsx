@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { MessageSquare, Users, Activity, Clock, ChevronRight, FileText } from 'lucide-react';
+import NdaBadge from '@/components/ui/NdaBadge';
 
 const apiBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000') + '/api/v1';
 
@@ -21,6 +22,7 @@ interface RFQ {
   rfq_status: string;
   urgency: string | null;
   nda_required: boolean;
+  nda_status?: string;
   quote_count: number;
   is_closed: boolean;
   business_name: string | null;
@@ -169,11 +171,7 @@ export default function CustomerQuotesPage() {
                             {rfq.urgency} urgency
                           </span>
                         )}
-                        {rfq.nda_required && (
-                          <span className="text-xs text-purple-600 border border-purple-200 px-2 py-0.5 rounded-full">
-                            NDA Required
-                          </span>
-                        )}
+                        <NdaBadge ndaRequired={rfq.nda_required} ndaStatus={rfq.nda_status} />
                       </div>
                       <p className="text-gray-800 font-medium mb-1 group-hover:text-blue-700 transition-colors">
                         {rfq.project_description

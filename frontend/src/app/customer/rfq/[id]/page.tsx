@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { formatDate, getRFQStatusBadgeColor, formatCurrency } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy, Download , ShieldAlert } from 'lucide-react';
+import NdaBadge from '@/components/ui/NdaBadge';
 
 export default function RFQDetailPage() {
   const { id } = useParams();
@@ -273,8 +274,12 @@ export default function RFQDetailPage() {
                   <p className="mt-1">{rfq.urgency}</p>
                 </div>
                 <div>
-                  <h4 className="font-medium text-sm text-muted-foreground">NDA Required</h4>
-                  <p className="mt-1">{rfq.nda_required ? 'Yes' : 'No'}</p>
+                  <h4 className="font-medium text-sm text-muted-foreground">NDA Status</h4>
+                  <div className="mt-1">
+                    {rfq.nda_required
+                      ? <NdaBadge ndaRequired={rfq.nda_required} ndaStatus={(rfq as any).nda_status} variant="full" />
+                      : <span className="text-sm text-muted-foreground">Not required</span>}
+                  </div>
                 </div>
               </div>
             </CardContent>
