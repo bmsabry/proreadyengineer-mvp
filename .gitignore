@@ -92,3 +92,8 @@ proready.db
 # Backend env files
 backend/.env
 deploy/backend/.env
+
+# Handoff files - never commit
+SECRETS.md
+secrets.env
+backend/.env
