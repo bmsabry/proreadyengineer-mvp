@@ -213,7 +213,7 @@ function AdvertiseInner() {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const startAdCheckout = async (adId: string) => {
-    if (\!adId) return;
+    if (!adId) return;
     setCheckoutLoading(true);
     setCheckoutError(null);
     try {
@@ -242,7 +242,7 @@ function AdvertiseInner() {
       const key = 'prw_ad_dismissed_v1';
       const raw = localStorage.getItem(key);
       const set: string[] = raw ? JSON.parse(raw) : [];
-      if (\!set.includes(id)) set.push(id);
+      if (!set.includes(id)) set.push(id);
       localStorage.setItem(key, JSON.stringify(set));
     } catch {}
     setResult(null);
@@ -258,16 +258,16 @@ function AdvertiseInner() {
     const isRejected = status === 'rejected';
 
     const title = isProcessing
-      ? 'Your ad is being generated\!'
+      ? 'Your ad is being generated!'
       : isPending
         ? 'Ad generated — awaiting admin review'
         : isCheckoutPending
           ? 'Approved — complete payment to publish'
           : isActive
-            ? 'Your ad is live\!'
+            ? 'Your ad is live!'
             : isRejected
               ? 'Your ad was not approved'
-              : 'Ad Submitted\!';
+              : 'Ad Submitted!';
 
     const iconBgClass = isRejected
       ? 'bg-red-100'
