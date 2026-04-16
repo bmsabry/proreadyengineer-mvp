@@ -90,46 +90,49 @@ async def _extract_ad_content(
     combined_text = combined_text[:80000]
 
     ad_type_context = (
-        "a software product/tool advertisement" if page_type == "software-providers"
-        else "an engineering firm advertisement"
+        "a software product/tool" if page_type == "software-providers"
+        else "an engineering firm"
     )
 
-    prompt = f"""You are creating {ad_type_context} from the following content.
+    prompt = f"""You are extracting structured advertisement data for {ad_type_context} strictly from the source content below.
 
+STRICT RULES — violating these is a critical failure:
+1. Use ONLY information that is explicitly stated in the source content. Do NOT invent, infer, or guess anything.
+2. Specialties and capabilities must be the EXACT technical areas mentioned in the text (e.g. "Gas Turbine Combustion", "CFD Analysis", "Digital Twin Development") — never generic substitutes like "Mechanical Engineering" or "Feasibility Studies" unless those exact words appear.
+3. The company name must be taken verbatim from the text.
+4. Proof points must be real credentials from the text (specific degrees, named employers, certifications, patents, award names, government registrations) — not vague platitudes like "experienced team" or "client-focused."
+5. If a field cannot be filled from the source content, return null for that field — do NOT fabricate a plausible-sounding value.
+
+SOURCE CONTENT:
 {combined_text}
 
-Extract and return a JSON object with these fields:
+Return a JSON object with exactly these fields:
 {{
-  "headline": "Compelling 5-10 word headline that captures the core value proposition",
-  "tagline": "One punchy sentence (max 15 words) — the hook that grabs attention",
-  "value_proposition": "2-3 sentences explaining what makes this offering unique and valuable",
-  "specialties": ["list", "of", "key", "specialties", "or", "features"],
-  "capabilities": ["list", "of", "specific", "capabilities", "or", "services"],
-  "proof_points": ["list of credibility signals: certifications, years in business, notable clients, project counts, etc."],
-  "cta_label": "Call-to-action button text (e.g. 'Get a Quote', 'Try Free', 'Learn More')",
-  "industry_keywords": ["relevant", "industry", "keywords", "for", "search", "matching"],
+  "company_name": "Exact company name as written in the source",
+  "headline": "5-10 word headline using the company's own language and specific domain — not generic marketing speak",
+  "tagline": "One sentence (max 15 words) drawn from or closely paraphrasing the source",
+  "value_proposition": "2-3 sentences using the specific technical language and differentiators from the source",
+  "specialties": ["exact technical specialty from source", "another exact specialty", "..."],
+  "capabilities": ["specific service or capability named in source", "..."],
+  "proof_points": ["specific credential from source: degree, employer, patent, certification, award, registration", "..."],
+  "cta_label": "Short call-to-action (e.g. 'Consult with Experts', 'Explore Services', 'Get a Quote')",
+  "industry_keywords": ["technical keyword from source", "..."],
   "contact_info": {{
-    "phone": "phone number if found",
-    "email": "email if found",
-    "location": "city, state if found"
+    "phone": "phone number if found in source, else null",
+    "email": "email if found in source, else null",
+    "location": "city/state if found in source, else null"
   }},
-  "company_name": "Official company or product name",
-  "promotional_summary": "A 2-4 sentence promotional paragraph suitable for an ad card"
+  "promotional_summary": "2-4 sentence paragraph using the company's own specific technical terms and real differentiators from the source — no generic filler"
 }}
 
-IMPORTANT:
-- Make the headline action-oriented and benefit-focused
-- The tagline should create urgency or curiosity
-- Proof points should be specific and quantifiable where possible
-- Industry keywords should be comprehensive for search matching
-- Return ONLY valid JSON. No markdown wrapping."""
+Return ONLY valid JSON. No markdown. No explanation."""
 
     client, model = await _get_llm3_client(db)
     response = await client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
-        temperature=0.2,
+        temperature=0.0,
     )
     content = response.choices[0].message.content
     return json.loads(content)
