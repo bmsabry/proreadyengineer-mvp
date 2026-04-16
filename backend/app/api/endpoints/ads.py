@@ -236,11 +236,14 @@ async def _draft_ad_decision_email(
 
     if decision == "approved":
         instruction = (
-            "Write a short (3-5 sentence) APPROVAL notification email body. "
-            "Confirm that the advertisement is live on the directory, "
-            "mention the ad's headline in a natural way, invite the provider "
-            "to share the public directory link with prospects, and close "
-            "warmly. Do NOT invent pricing, URLs, or numbers not in the source."
+            "Write a short (4-6 sentence) APPROVAL notification email body. "
+            "Confirm that the advertisement has been APPROVED by our review team. "
+            "Explicitly state that the ad is NOT yet live on the directory — it will "
+            "go live as soon as the provider completes the $50/month subscription. "
+            "Tell them to click the \"Pay & Publish Ad\" button in this email (or visit "
+            "their dashboard) to complete payment via Stripe. Mention the ad's headline "
+            "in a natural way. Close warmly. Do NOT invent pricing, URLs, or numbers "
+            "not in the source (other than the $50/month subscription that is already stated)."
         )
     else:
         instruction = (
@@ -952,6 +955,71 @@ async def complete_ad_asset_upload(
 # Ad checkout (Stripe subscription for $50/month)
 # ---------------------------------------------------------------------------
 
+@router.post("/ads/{ad_id}/checkout-session")
+async def create_ad_checkout_session(
+    ad_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create a Stripe-hosted Checkout Session for an approved ad ($50/month).
+
+    Returns { checkout_url, payment_attempt_id }. The frontend should redirect
+    the provider to checkout_url. On successful payment, the Stripe webhook
+    (checkout.session.completed -> _fulfill_advertisement_subscription)
+    flips ad_status to ACTIVE and sets started_at, making the ad live on
+    the public directory.
+    """
+    from app.models.advertising import Advertisement
+    from app.models.enums import AdStatus
+    from app.services.payment_service import create_stripe_checkout_session
+    from app.core.config import settings
+
+    result = await db.execute(
+        select(Advertisement).where(
+            Advertisement.id == ad_id,
+            Advertisement.advertiser_user_id == current_user.id,
+        )
+    )
+    ad = result.scalar_one_or_none()
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+
+    # Only allow checkout for ads that have been approved by admin and are
+    # awaiting payment. If the ad is already ACTIVE, the provider has already
+    # paid; nothing to do here.
+    if ad.ad_status != AdStatus.RESERVED_CHECKOUT_PENDING:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Ad is not awaiting payment. Current status: {ad.ad_status}. "
+                "Checkout is only available after admin approval."
+            ),
+        )
+
+    frontend = (settings.FRONTEND_URL or "").rstrip("/")
+    success_url = f"{frontend}/provider/advertise?payment=success&ad_id={ad.id}"
+    cancel_url = f"{frontend}/provider/advertise?payment=cancelled&ad_id={ad.id}"
+
+    session_info = await create_stripe_checkout_session(
+        db=db,
+        purpose="advertisement_subscription",
+        amount=5000,  # $50.00 in cents
+        currency="usd",
+        user=current_user,
+        related_entity_type="advertisement",
+        related_id=str(ad.id),
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={"ad_id": str(ad.id), "ad_title": ad.title or ""},
+    )
+
+    return {
+        "checkout_url": session_info.get("checkout_url", ""),
+        "payment_attempt_id": session_info.get("payment_attempt_id"),
+        "already_paid": session_info.get("already_paid", False),
+    }
+
+
 @router.post("/ads/checkout")
 async def create_ad_checkout(
     ad_id: str,
@@ -1035,9 +1103,11 @@ async def review_ad(
     now = datetime.utcnow()
 
     if data.action == "approve":
-        ad.ad_status = AdStatus.ACTIVE
-        ad.started_at = now
-        message = "Ad approved and is now live."
+        # Approval reserves the slot; ad goes ACTIVE only after the provider
+        # completes the $50/month subscription checkout (handled by the
+        # Stripe webhook -> _fulfill_advertisement_subscription).
+        ad.ad_status = AdStatus.RESERVED_CHECKOUT_PENDING
+        message = "Ad approved — awaiting provider payment before it goes live."
     else:
         ad.ad_status = AdStatus.REJECTED
         message = "Ad has been rejected."

@@ -93,7 +93,7 @@ function AdvertiseInner() {
     try {
       const raw = localStorage.getItem('prw_ad_dismissed_v1');
       const dismissed: string[] = raw ? JSON.parse(raw) : [];
-      const relevantStatuses = new Set(['processing', 'pending_review', 'active', 'rejected']);
+      const relevantStatuses = new Set(['processing', 'pending_review', 'reserved_checkout_pending', 'active', 'rejected']);
       // Pick the most-recently-updated ad still in a displayable state.
       const sorted = [...myAds]
         .filter((a: any) => relevantStatuses.has(a.ad_status) && !dismissed.includes(a.id))
@@ -113,9 +113,11 @@ function AdvertiseInner() {
             ? 'Approved — an email confirmation has been sent.'
             : latest.ad_status === 'rejected'
               ? 'An email with the reason and next steps has been sent.'
-              : latest.ad_status === 'pending_review'
-                ? 'Generated successfully and queued for admin review.'
-                : 'Generating your ad — this usually takes 1–2 minutes.',
+              : latest.ad_status === 'reserved_checkout_pending'
+                ? 'Approved — complete the $50/month subscription to publish your ad.'
+                : latest.ad_status === 'pending_review'
+                  ? 'Generated successfully and queued for admin review.'
+                  : 'Generating your ad — this usually takes 1–2 minutes.',
         });
       }
     } catch {}
@@ -207,6 +209,34 @@ function AdvertiseInner() {
   // approves or rejects it the screen updates in place. User must click
   // Dismiss to return to the submission form (persisted via localStorage so
   // that a refresh does not lose the approval/rejection message).
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  const startAdCheckout = async (adId: string) => {
+    if (\!adId) return;
+    setCheckoutLoading(true);
+    setCheckoutError(null);
+    try {
+      const { apiClient } = await import('@/lib/api');
+      const resp = await apiClient.post(`/ads/${adId}/checkout-session`);
+      const data = resp.data || {};
+      if (data.already_paid) {
+        // Webhook may still be catching up; refresh once.
+        window.location.reload();
+        return;
+      }
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+        return;
+      }
+      throw new Error('Checkout URL was not returned by the server.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Unable to start checkout.';
+      setCheckoutError(msg);
+      setCheckoutLoading(false);
+    }
+  };
+
   const dismissAdBanner = (id: string) => {
     try {
       const key = 'prw_ad_dismissed_v1';
@@ -223,6 +253,7 @@ function AdvertiseInner() {
     const status = result.ad_status as string;
     const isProcessing = status === 'processing';
     const isPending = status === 'pending_review';
+    const isCheckoutPending = status === 'reserved_checkout_pending';
     const isActive = status === 'active';
     const isRejected = status === 'rejected';
 
@@ -230,17 +261,19 @@ function AdvertiseInner() {
       ? 'Your ad is being generated\!'
       : isPending
         ? 'Ad generated — awaiting admin review'
-        : isActive
-          ? 'Your ad is live\!'
-          : isRejected
-            ? 'Your ad was not approved'
-            : 'Ad Submitted\!';
+        : isCheckoutPending
+          ? 'Approved — complete payment to publish'
+          : isActive
+            ? 'Your ad is live\!'
+            : isRejected
+              ? 'Your ad was not approved'
+              : 'Ad Submitted\!';
 
     const iconBgClass = isRejected
       ? 'bg-red-100'
       : isActive
         ? 'bg-emerald-100'
-        : isPending
+        : (isPending || isCheckoutPending)
           ? 'bg-amber-100'
           : 'bg-emerald-100';
 
@@ -248,7 +281,7 @@ function AdvertiseInner() {
       ? 'text-red-600'
       : isActive
         ? 'text-emerald-600'
-        : isPending
+        : (isPending || isCheckoutPending)
           ? 'text-amber-600'
           : 'text-emerald-600';
 
@@ -282,6 +315,23 @@ function AdvertiseInner() {
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-left mb-6 text-sm text-amber-800">
               <p className="font-semibold mb-1">Ad generated and sent for review</p>
               <p className="text-amber-700">An admin will review the generated ad copy and approve or reject it within 1 business day. We'll email you as soon as there's a decision.</p>
+            </div>
+          )}
+          {isCheckoutPending && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-left mb-6 text-sm text-amber-800">
+              <p className="font-semibold mb-1">Approved — one last step</p>
+              <p className="text-amber-700 mb-3">Your ad has been approved by our review team. Complete the $50/month subscription to publish it to the public directory. The ad will go live within seconds of a successful payment.</p>
+              {checkoutError && (
+                <p className="text-red-700 text-xs mt-2">{checkoutError}</p>
+              )}
+              <button
+                type="button"
+                disabled={checkoutLoading}
+                onClick={() => startAdCheckout(result.ad_id)}
+                className="w-full mt-2 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-60"
+              >
+                {checkoutLoading ? 'Redirecting to Stripe…' : 'Pay & Publish ($50/month)'}
+              </button>
             </div>
           )}
 

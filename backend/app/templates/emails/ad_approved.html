@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Your Advertisement Is Live{% endblock %}
+{% block title %}Your Advertisement Was Approved — Complete Payment To Publish{% endblock %}
 
 {% block content %}
 <h2>{{ email_subject }}</h2>
@@ -10,8 +10,18 @@
   {{ email_body_html | safe }}
 </div>
 
+<div style="background: #fef3c7; padding: 14px 18px; border-left: 4px solid #d97706; margin: 18px 0; border-radius: 4px;">
+  <p style="margin: 0; font-size: 14px; color: #78350f;">
+    <strong>One last step:</strong> your ad is approved but not yet live. Complete the $50/month subscription to publish it to the public directory.
+  </p>
+</div>
+
 <p style="text-align: center; margin-top: 28px;">
-  <a href="{{ dashboard_url }}" class="button">View Your Ad</a>
+  <a href="{{ advertise_url }}" class="button">Pay &amp; Publish Ad ($50/month)</a>
+</p>
+
+<p style="font-size: 12px; color: #6b7280; margin-top: 14px; text-align: center;">
+  After a successful payment, the ad will appear on the directory within a few seconds.
 </p>
 
 <p style="font-size: 12px; color: #6b7280; margin-top: 24px;">
