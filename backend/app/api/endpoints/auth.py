@@ -778,56 +778,75 @@ async def provider_lookup(
 
     Returns up to 10 matches with limited public fields.
     """
-    from sqlalchemy import select, or_, cast, String, func
+    import logging
+    from sqlalchemy import text
     from app.models.provider import Provider
+
+    logger = logging.getLogger(__name__)
 
     q = q.strip()
     if len(q) < 2:
         return {"providers": []}
 
-    search = f"%{q}%"
-
-    # Normalized search: strip spaces, dashes, dots, and common suffixes so
-    # "proreadyengineer" matches "Pro Ready Engineer LLC"
+    search_pattern = f"%{q}%"
+    # Strip ALL non-alphanumeric for normalized comparison
     q_clean = re.sub(r'[^a-z0-9]', '', q.lower())
-    q_normalized = f"%{q_clean}%"
+    normalized_pattern = f"%{q_clean}%"
 
-    # Use chained REPLACE calls (universally supported) instead of regexp_replace
-    stripped_firm = func.replace(func.replace(func.replace(func.replace(
-        func.lower(Provider.firm_name),
-        ' ', ''), '-', ''), '.', ''), ',', '')
-    stripped_name = func.replace(func.replace(func.replace(func.replace(
-        func.lower(Provider.name),
-        ' ', ''), '-', ''), '.', ''), ',', '')
+    logger.info(f"provider-lookup: q={q!r}, search_pattern={search_pattern!r}, normalized={normalized_pattern!r}")
 
-    result = await db.execute(
-        select(Provider)
-        .where(
-            or_(
-                Provider.firm_name.ilike(search),
-                Provider.name.ilike(search),
-                cast(Provider.email_addresses, String).ilike(search),
-                stripped_firm.like(q_normalized),
-                stripped_name.like(q_normalized),
-            )
-        )
-        .order_by(Provider.firm_name)
-        .limit(10)
-    )
-    providers = result.scalars().all()
+    # Raw SQL — proven, zero abstraction layers
+    raw = text("""
+        SELECT id, firm_name, name, city, state, website, phone,
+               primary_specialty, email_addresses
+        FROM providers
+        WHERE firm_name ILIKE :search
+           OR name ILIKE :search
+           OR CAST(email_addresses AS TEXT) ILIKE :search
+           OR LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                firm_name, ' ', ''), '-', ''), '.', ''), ',', ''), '''', ''))
+              LIKE :normalized
+           OR LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                name, ' ', ''), '-', ''), '.', ''), ',', ''), '''', ''))
+              LIKE :normalized
+        ORDER BY firm_name
+        LIMIT 10
+    """)
 
-    return {
-        "providers": [
+    try:
+        result = await db.execute(raw, {"search": search_pattern, "normalized": normalized_pattern})
+        rows = result.fetchall()
+    except Exception as e:
+        logger.error(f"provider-lookup query failed: {e}")
+        return {"providers": [], "error": str(e)}
+
+    logger.info(f"provider-lookup: found {len(rows)} results")
+
+    providers_out = []
+    for r in rows:
+        email = None
+        ea = r.email_addresses
+        if isinstance(ea, list) and ea:
+            email = ea[0]
+        elif isinstance(ea, str):
+            try:
+                import json
+                parsed = json.loads(ea)
+                if isinstance(parsed, list) and parsed:
+                    email = parsed[0]
+            except Exception:
+                email = ea if '@' in ea else None
+        providers_out.append(
             ProviderLookupResult(
-                id=p.id,
-                firm_name=p.firm_name or p.name,
-                city=p.city,
-                state=p.state,
-                website=p.website,
-                phone=p.phone,
-                primary_specialty=p.primary_specialty,
-                email=(p.email_addresses[0] if isinstance(p.email_addresses, list) and p.email_addresses else None),
+                id=r.id,
+                firm_name=r.firm_name or r.name,
+                city=r.city,
+                state=r.state,
+                website=r.website,
+                phone=r.phone,
+                primary_specialty=r.primary_specialty,
+                email=email,
             ).model_dump()
-            for p in providers
-        ]
-    }
+        )
+
+    return {"providers": providers_out}
