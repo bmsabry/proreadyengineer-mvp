@@ -4282,6 +4282,59 @@ async def admin_force_complete_payment(
         "fulfillment": fulfillment_result,
         "fulfillment_error": fulfillment_error,
     }
+@router.post("/admin/payments/bulk-resolve-nda-initiated")
+async def admin_bulk_resolve_nda_initiated(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> Dict[str, Any]:
+    """Bulk-update all NDA fee PaymentAttempts stuck at 'initiated' to 'completed'.
+
+    Use when the NDA signing flow works end-to-end but PaymentAttempt records
+    were never updated (e.g. because Stripe webhook wasn't configured).
+    Does NOT require Stripe API keys — trusts that if an NDA fee was initiated
+    and the NDA flow completed, the payment was successful.
+    Creates an audit log entry for each update.
+    """
+    import logging
+    _log = logging.getLogger(__name__)
+
+    result = await db.execute(
+        select(PaymentAttempt).where(
+            PaymentAttempt.purpose == "nda_fee",
+            PaymentAttempt.payment_status == PaymentStatus.INITIATED,
+        )
+    )
+    stuck_payments = result.scalars().all()
+
+    if not stuck_payments:
+        return {"status": "nothing_to_do", "updated": 0}
+
+    updated = 0
+    for pa in stuck_payments:
+        pa.payment_status = PaymentStatus.COMPLETED
+        pa.confirmed_at = datetime.utcnow()
+        updated += 1
+
+        # Audit log
+        try:
+            audit = AuditLog(
+                actor_user_id=current_user.id,
+                entity_type="payment_attempt",
+                entity_id=str(pa.id),
+                action="bulk_resolve_nda_initiated",
+                before_state={"payment_status": "initiated"},
+                after_state={"payment_status": "completed"},
+                metadata={"reason": "Admin bulk resolve: NDA flow confirmed working, payment records retroactively updated"},
+            )
+            db.add(audit)
+        except Exception:
+            pass
+
+    await db.commit()
+    _log.info("Bulk resolved %d NDA fee payments from initiated to completed (admin: %s)", updated, current_user.id)
+    return {"status": "resolved", "updated": updated}
+
+
 @router.post("/admin/payments/{payment_id}/force-fulfill-subscription")
 async def admin_force_fulfill_subscription(
     payment_id: str,

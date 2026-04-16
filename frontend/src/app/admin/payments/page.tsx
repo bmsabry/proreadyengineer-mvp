@@ -516,6 +516,7 @@ export default function AdminPaymentsPage() {
   const [renderData, setRenderData] = useState(null as RenderSpend | null);
   const [renderLoading, setRenderLoading] = useState(true);
   const [reconcileLoading, setReconcileLoading] = useState(false);
+  const [ndaResolveLoading, setNdaResolveLoading] = useState(false);
   const [fulfillLoadingId, setFulfillLoadingId] = useState(null as string | null);
   const [fulfillMsg, setFulfillMsg] = useState(null as string | null);
   const [reconcileReport, setReconcileReport] = useState(null as ReconcileReportData | null);
@@ -646,6 +647,22 @@ export default function AdminPaymentsPage() {
     } catch (e) { alert('Reconciliation error: ' + String(e)); } finally { setReconcileLoading(false); }
   };
 
+  const handleBulkResolveNda = async () => {
+    if (!confirm('This will mark ALL NDA fee payments stuck at "Initiated" as "Completed". Continue?')) return;
+    setNdaResolveLoading(true);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      const res = await fetch(API_BASE + '/api/v1/admin/payments/bulk-resolve-nda-initiated', {
+        method: 'POST',
+        headers: { Authorization: token ? 'Bearer ' + token : '', 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) { const err = await res.json().catch(() => ({})); alert('Bulk resolve failed: ' + (err.detail || res.status)); return; }
+      const data = await res.json();
+      alert('Resolved ' + data.updated + ' NDA fee payment(s) to Completed.');
+      if (data.updated > 0) { fetchAnalytics(); fetchTransactions(1, activeTab, filterPurpose, filterDateFrom, filterDateTo); }
+    } catch (e) { alert('Bulk resolve error: ' + String(e)); } finally { setNdaResolveLoading(false); }
+  };
+
   const handleExportCSV = () => {
     const statusVal = TAB_STATUS[activeTab];
     const params = new URLSearchParams();
@@ -725,6 +742,10 @@ export default function AdminPaymentsPage() {
           <button onClick={() => handleReconcile(false)} disabled={reconcileLoading} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50" title="Reconcile and fulfill all Stripe-confirmed initiated payments">
             {reconcileLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
             Reconcile Payments
+          </button>
+          <button onClick={handleBulkResolveNda} disabled={ndaResolveLoading} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50" title="Mark all NDA fee payments stuck at Initiated as Completed">
+            {ndaResolveLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+            Resolve NDA Payments
           </button>
           <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
             <Download className="h-4 w-4" />
