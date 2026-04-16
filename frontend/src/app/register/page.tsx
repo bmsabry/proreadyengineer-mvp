@@ -31,7 +31,7 @@ function RegisterPageContent() {
     company_name: '',
     phone: '',
     state: '',
-    role: 'customer' as 'customer' | 'provider' | 'advertiser',
+    role: 'customer' as 'customer' | 'provider',
     entity_type: 'Individual' as 'Individual' | 'Company',
   });
   const [error, setError] = useState('');
@@ -50,6 +50,15 @@ function RegisterPageContent() {
   const [selectedProvider, setSelectedProvider] = useState<LookupProvider | null>(null);
   const [firmNotFound, setFirmNotFound] = useState(false); // user confirmed firm not in DB
   const [emailMismatch, setEmailMismatch] = useState(false); // user's email doesn't match firm
+
+  // Read role from URL params (e.g. /register?role=provider from Advertise page)
+  useEffect(() => {
+    const urlRole = searchParams.get('role');
+    if (urlRole === 'provider') {
+      setFd(prev => ({ ...prev, role: 'provider', entity_type: 'Company' }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // When role changes to provider (and no invite), enter search mode
   useEffect(() => {
@@ -196,7 +205,7 @@ function RegisterPageContent() {
 
   const handleRoleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     if (!hasInvite) {
-      setFd(p => ({ ...p, role: e.target.value as 'customer' | 'provider' | 'advertiser' }));
+      setFd(p => ({ ...p, role: e.target.value as 'customer' | 'provider' }));
     }
   };
 
@@ -479,8 +488,7 @@ function RegisterPageContent() {
                   className="mt-1.5 block w-full border border-slate-200 rounded-lg bg-white py-0 px-4 h-11 text-slate-900 text-sm focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all duration-150"
                 >
                   <option value="customer">Customer (seeking engineering services)</option>
-                  <option value="provider">Provider (engineering firm)</option>
-                  <option value="advertiser">Advertiser</option>
+                  <option value="provider">Provider (engineering firm / advertiser)</option>
                 </select>
               </div>
             )}

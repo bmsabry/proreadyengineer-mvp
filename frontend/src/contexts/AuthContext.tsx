@@ -10,7 +10,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string, rememberMe?: boolean) => Promise<void>;
-  register: (email: string, password: string, roles?: ('customer' | 'provider' | 'advertiser')[]) => Promise<void>;
+  register: (email: string, password: string, roles?: ('customer' | 'provider')[]) => Promise<void>;
   logout: () => Promise<void>;
   logoutAll: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -92,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (
     email: string,
     password: string,
-    roles: ('customer' | 'provider' | 'advertiser')[] = ['customer']
+    roles: ('customer' | 'provider')[] = ['customer']
   ) => {
     setIsLoading(true);
     if (typeof window !== 'undefined') {
@@ -162,7 +162,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (roles.includes('admin')) return '/admin/dashboard';
     if (roles.includes('provider')) return '/provider/dashboard';
     if (roles.includes('customer')) return '/customer/dashboard';
-    if (roles.includes('advertiser')) return '/customer/dashboard';
     return '/';
   };
 

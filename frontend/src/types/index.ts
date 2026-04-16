@@ -18,7 +18,7 @@ export interface User {
 export interface RegisterRequest {
   email: string;
   password: string;
-  roles?: ('customer' | 'provider' | 'advertiser')[];
+  roles?: ('customer' | 'provider')[];
   full_name?: string;
   company_name?: string;
   phone?: string;

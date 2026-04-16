@@ -38,7 +38,7 @@ export default function AdvertisePage() {
   useEffect(() => {
     if (!isLoading && user) {
       const roles = user.roles ?? [];
-      if (roles.includes('provider') || roles.includes('advertiser')) {
+      if (roles.includes('provider')) {
         router.push('/provider/advertise');
         return;
       }
