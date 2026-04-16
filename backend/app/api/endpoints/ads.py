@@ -94,19 +94,38 @@ async def _extract_ad_content(
         else "an engineering firm"
     )
 
-    prompt = f"""You are an expert B2B copywriter for an engineering-services marketplace. Your job: turn the source content into a punchy, lead-generating advertisement that helps a buyer SEE why THIS firm is the right one to call. Stay 100% truthful — every claim must be grounded in the source — but do the work of a real copywriter: surface the most specific, compelling, hire-me signals the source actually contains.
+    prompt = f"""You are an expert B2B copywriter for an engineering-services marketplace. Your job: turn the source content into a punchy, lead-generating advertisement that helps a qualified buyer SEE — within a few seconds — the full range of problems THIS firm is uniquely qualified to solve. The ad must be 100% truthful (every claim grounded in the source) AND must faithfully represent the firm's COMPLETE expertise — not a single narrow sub-specialty.
 
+=====================================================================
+THE TWO FAILURE MODES YOU MUST AVOID
+=====================================================================
+
+FAILURE MODE A — Generic / vague (the "any-firm" trap)
+  Writing sentences that could describe any engineering company ("specialized engineering solutions", "experienced team", "tailored services"). If a competitor could copy your ad and it would still be true of them, your ad is broken.
+
+FAILURE MODE B — Narrow / amputated (the "one-specialty" trap)
+  Picking ONE technical domain from the source and ignoring the rest. If the firm does AI + experimental work + gas turbine combustion + thermal fluid sciences, and your ad only talks about CFD of rotating machinery, you have MISREPRESENTED the firm by omission. A buyer searching for thermal-fluid or combustion work will scroll past. This is just as harmful as hallucinating — you are amputating real capability.
+
+Your ad must avoid BOTH. Specific AND comprehensive. That is the bar.
+
+=====================================================================
 CORE RULES
+=====================================================================
 
-TRUTHFULNESS (non-negotiable)
+[1] TRUTHFULNESS — non-negotiable
 - Every noun, number, name, credential, and technical term you write MUST come from the source content (verbatim, or a close paraphrase that keeps the meaning identical).
-- If a fact is not in the source, leave that field empty (null, or an empty list). Never invent plausible-sounding filler.
+- If a fact is not in the source, leave that field empty (null / empty list). Never invent plausible-sounding filler.
 - Company name: verbatim from source.
-- Proof points: real credentials only — specific degrees, named employers, certifications, patents, awards, government registrations, years of experience, named projects/clients, quantified outcomes. NEVER platitudes like "experienced team" or "client-focused".
-- Specialties / capabilities: use the MOST specific technical terms present in the source. Prefer "gas turbine combustion diagnostics" over "mechanical engineering"; prefer "pressure-vessel FEA to ASME Sec VIII" over "engineering analysis". Do NOT substitute a more generic term when a specific one is available in the source.
+- Proof points: real credentials only — specific degrees, named employers, certifications, patents, awards, years of experience, named projects/clients, quantified outcomes. NEVER platitudes ("experienced team", "client-focused").
 
-MARKETING QUALITY (equally non-negotiable)
-- FORBIDDEN PHRASES — if any field contains these or close variants, reject your own output and rewrite that field with specifics drawn from the source:
+[2] BREADTH — equally non-negotiable
+- You MUST represent the full technical breadth present in the source. If the source names multiple distinct technical domains (e.g., AI / machine learning, experimental testing, gas turbine combustion, thermal-fluid sciences, CFD, FEA, design, emissions, rotating machinery, pressure vessels, HVAC, combustion diagnostics, heat transfer, etc.), EVERY distinct domain must appear in at least one of: headline, value_proposition, specialties, capabilities, OR promotional_summary.
+- Do NOT collapse a multi-disciplinary firm into a single sub-specialty ad. That is a failure.
+- "Distinct technical domain" = a technical area a buyer would search for separately. "AI-driven diagnostics" and "gas turbine combustion" are distinct. "CFD" and "rotating machinery" together are a single coupled specialty. Use engineering judgment.
+
+[3] SPECIFICITY — equally non-negotiable
+- Use the MOST specific technical terms present in the source. Prefer "gas turbine combustion diagnostics" over "combustion"; prefer "pressure-vessel FEA to ASME Sec VIII" over "structural analysis"; prefer "LES of swirl-stabilized flames" over "CFD". Do NOT substitute a more generic term when a specific one is available.
+- FORBIDDEN PHRASES — if any field contains these or close variants, reject your own output and rewrite that field with specifics from the source:
   * "engineering solutions for complex challenges"
   * "specialized engineering services"
   * "precise and innovative solutions"
@@ -114,46 +133,65 @@ MARKETING QUALITY (equally non-negotiable)
   * "cutting-edge", "world-class", "state-of-the-art", "industry-leading"
   * "experienced professionals", "trusted partner", "your success is our priority"
   * any sentence that could describe literally any engineering firm.
-- Headline MUST name at least one specific technical domain OR a concrete buyer outcome drawn from the source (e.g. "Gas Turbine Combustion & Emissions Redesign", "CFD for Rotating Machinery — Cut Downtime Fast", "ASME Sec VIII Pressure Vessel Design").
-- Headline and tagline MUST NOT be paraphrases of each other. Tagline = the single most memorable buyer-facing sentence in the source, or a crisp rewrite of it.
-- Value proposition structure: (who this firm is for) + (the specific problem it solves) + (what makes it qualified) — using source language.
-- Promotional summary structure (3–5 sentences): target buyer → pain point they have → what this firm does specifically to solve it (with source-specific terminology) → proof signal → implicit or explicit CTA.
 
-MINIMUMS (meet these unless the source is truly silent on that dimension)
-- specialties: at least 4 entries if the source names any technical domain
-- capabilities: at least 3 entries if the source names any service/deliverable
-- industry_keywords: at least 6 buyer-searchable technical terms
-- proof_points: at least 2 entries if ANY credentials/years/clients/projects are mentioned
+[4] MARKETING STRUCTURE
+- Headline (5–12 words): Must either (a) name a concrete buyer outcome, OR (b) name the firm's 2–3 strongest technical domains joined naturally. For a multi-disciplinary firm, prefer (b) — e.g. "AI-Driven CFD & Experimental Combustion Engineering", "Gas-Turbine Thermal-Fluid Analysis + Experimental Validation", "Pressure Vessel FEA & Rotating-Machinery CFD". Do NOT write a single-domain headline for a multi-domain firm.
+- Tagline (<=15 words): One crisp buyer-facing sentence drawn from the source's own language. NOT a paraphrase of the headline.
+- Value proposition (2–3 sentences): (who this firm is for) + (the specific problems it solves across its full scope) + (what makes it qualified). MUST name the firm's multiple technical areas, not just one.
+- Promotional summary (3–5 sentences): target buyer -> pain points they have -> what this firm does SPECIFICALLY across its full domain set -> proof signal -> implicit/explicit CTA. At least one sentence must enumerate the firm's cross-disciplinary breadth.
 
-SILENT WORKFLOW (do this internally before writing the JSON)
-1. Scan the source and list: all named technical domains, all services/deliverables, all credentials/years/clients/projects/numbers, any target-buyer or pain-point language.
-2. Pick the 3–5 most differentiating items — what makes THIS firm hireable vs. a generic one.
-3. Draft the ad copy around those items. Every field draws from your list.
-4. Self-check: re-read each field. If any field could describe any engineering firm, or hits a forbidden phrase, rewrite it with more specificity.
+[5] HARD MINIMUMS (meet these unless the source is truly silent on that dimension)
+- specialties: MUST contain every distinct technical domain you enumerated in Silent Workflow step 1 (cap at 8 — if more exist, pick the 8 most buyer-relevant). Minimum 4 if the firm spans multiple areas.
+- capabilities: at least 4 entries if the source names any services/deliverables; each capability is a specific service a buyer could purchase (e.g., "CFD of swirl-stabilized combustors", "Experimental rig design & instrumentation", "AI surrogate-model development for thermal systems").
+- industry_keywords: at least 8 buyer-searchable technical terms spanning the firm's full domain set.
+- proof_points: at least 2 entries if ANY credentials/years/clients/projects are mentioned.
 
+=====================================================================
+SILENT WORKFLOW — do this internally BEFORE writing any JSON
+=====================================================================
+
+Step 1 — ENUMERATE (do not filter yet). Read the source and list, as a raw inventory:
+   a) Every distinct TECHNICAL DOMAIN named (e.g., AI/ML, experimental testing, gas turbine combustion, thermal-fluid sciences, CFD, FEA, rotating machinery, emissions, heat transfer, pressure vessels, HVAC, controls, etc.).
+   b) Every SERVICE or DELIVERABLE named (design, analysis, simulation, experimental validation, rig build, instrumentation, surrogate model development, report generation).
+   c) Every CREDENTIAL, NUMBER, CLIENT, PROJECT, YEAR, CERTIFICATION, PATENT.
+   d) Any TARGET-BUYER or PAIN-POINT language.
+  Do not drop items because they seem secondary. Completeness first.
+
+Step 2 — ORGANIZE.
+  Group the domains from (a) into the firm's top-level positioning. For a multi-disciplinary firm this is typically a cluster of 3–5 areas, NOT a single one.
+
+Step 3 — DRAFT the ad so that every domain from step 1(a) appears somewhere in the final output (headline, tagline, value_proposition, specialties, capabilities, or promotional_summary). The headline and value proposition should reflect the firm's breadth when it is genuinely multi-disciplinary.
+
+Step 4 — SELF-CHECK before returning:
+  - For each domain you listed in step 1(a): does it appear in at least one output field? If not, rewrite.
+  - For each field: does it contain a forbidden phrase or could it describe any firm? If yes, rewrite with specifics.
+  - Is the headline representing the firm's true breadth, or have you narrowed to a single sub-specialty? If narrowed on a multi-domain firm, rewrite.
+
+=====================================================================
 CONTEXT
 Advertisement is for: {ad_type_context}.
 
 SOURCE CONTENT
 {combined_text}
+=====================================================================
 
 Return a JSON object with EXACTLY these fields and nothing else:
 {{
   "company_name": "Exact company name as written in the source",
-  "headline": "5–10 words. Must name a specific technical domain or concrete buyer outcome. No forbidden phrases.",
-  "tagline": "One sentence, max 15 words, drawn from the source's own language. Not a paraphrase of the headline.",
-  "value_proposition": "2–3 sentences: who this firm is for, the specific problem it solves, what makes it qualified — all using source terminology.",
-  "specialties": ["most specific technical specialty from source", "..."],
-  "capabilities": ["specific service or deliverable named in source", "..."],
+  "headline": "5-12 words. For a multi-domain firm, combine 2-3 strongest domains (source terminology). No forbidden phrases.",
+  "tagline": "One sentence, max 15 words, drawn from source language. Not a paraphrase of the headline.",
+  "value_proposition": "2-3 sentences naming the firm's full technical scope, the buyer problems it solves across that scope, and its qualifications — all in source terminology.",
+  "specialties": ["EVERY distinct technical domain from the source (cap 8)", "..."],
+  "capabilities": ["specific purchasable service/deliverable from source", "..."],
   "proof_points": ["specific credential with the concrete number or name from source", "..."],
-  "cta_label": "3–4 word call-to-action that fits this firm specifically (e.g. 'Discuss Your Turbine Issue', 'Request CFD Consult', 'Get Scoped Quote')",
-  "industry_keywords": ["buyer search term from source", "..."],
+  "cta_label": "3-4 word call-to-action that fits THIS firm (e.g. 'Discuss Your Turbine Challenge', 'Request CFD Consult', 'Scope Experimental Test')",
+  "industry_keywords": ["buyer search term spanning the firm's full domain set", "..."],
   "contact_info": {{
     "phone": "phone number if found in source, else null",
     "email": "email if found in source, else null",
     "location": "city/state/country if found in source, else null"
   }},
-  "promotional_summary": "3–5 sentences following the (buyer → pain → specific what-we-do → proof → CTA) structure. Source-specific technical terms. No forbidden phrases."
+  "promotional_summary": "3-5 sentences: buyer -> pain -> specific what-we-do across the firm's FULL domain set -> proof -> CTA. Must reflect breadth, not a single sub-specialty."
 }}
 
 Return ONLY valid JSON. No markdown. No explanation."""
