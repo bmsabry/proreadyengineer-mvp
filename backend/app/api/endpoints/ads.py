@@ -783,7 +783,7 @@ async def admin_create_ad(
         if not source_url.startswith("http"):
             source_url = "https://" + source_url
         try:
-            website_text = await _fetch_website_for_ad(source_url)
+            website_text = await _fetch_full_website_for_ad(source_url)
         except Exception as exc:
             logger.warning("Admin ad website fetch failed url=%s err=%s", source_url, exc)
 
