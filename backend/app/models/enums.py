@@ -123,6 +123,7 @@ class PaymentPurpose(str, PyEnum):
 class AdStatus(str, PyEnum):
     """Advertisement status values."""
     EMPTY = "empty"
+    PROCESSING = "processing"
     PENDING_REVIEW = "pending_review"
     RESERVED_CHECKOUT_PENDING = "reserved_checkout_pending"
     ACTIVE = "active"

@@ -222,7 +222,7 @@ async def submit_ad(
     membership_result = await db.execute(
         select(ProviderMembership.provider_id).where(
             ProviderMembership.user_id == current_user.id,
-            ProviderMembership.membership_status == "active",
+            ProviderMembership.status == "active",
         ).limit(1)
     )
     membership_row = membership_result.scalar_one_or_none()
@@ -813,7 +813,7 @@ async def admin_create_ad(
     membership_result = await db.execute(
         select(ProviderMembership.user_id).where(
             ProviderMembership.provider_id == data.provider_id,
-            ProviderMembership.membership_status == "active",
+            ProviderMembership.status == "active",
         ).limit(1)
     )
     advertiser_user_id = membership_result.scalar_one_or_none() or current_user.id
