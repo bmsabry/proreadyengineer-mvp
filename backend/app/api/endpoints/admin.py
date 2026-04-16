@@ -3342,32 +3342,62 @@ class AdminCrawlWebsiteRequest(_BaseModel):
 
 
 async def _admin_fetch_website_text(url: str) -> str:
-    """Fetch website pages using httpx with dynamic link discovery."""
+    """Fetch website pages using httpx with dynamic link discovery.
+
+    Uses a real browser User-Agent so CDN/bot-protection layers (Vercel,
+    Cloudflare, etc.) serve the actual HTML rather than a JS challenge page.
+    The skip-tag tracker uses a counter stack so nested tags don't
+    accidentally re-enable text capture mid-block.
+    """
     import httpx
+    import logging as _logging
     from html.parser import HTMLParser
     from urllib.parse import urljoin, urlparse
 
+    _log = _logging.getLogger(__name__)
+
+    # ── Real browser headers — avoids bot-detection on Vercel / Cloudflare ──
+    BROWSER_HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+    }
+
+    # ── HTML parser: counter-based skip so nested tags don't break capture ──
     class _TextExtractor(HTMLParser):
+        # Tags whose entire subtree we discard (code/style only — keep nav/footer)
+        SKIP_TAGS = frozenset(("script", "style", "head", "noscript", "iframe",
+                               "svg", "canvas", "template"))
+
         def __init__(self):
             super().__init__()
             self._parts: list = []
             self._links: list = []
-            self._skip = False
+            self._skip_depth: int = 0   # counter, not bool
+
         def handle_starttag(self, tag, attrs):
-            if tag in ("script", "style", "nav", "footer", "head", "noscript"):
-                self._skip = True
+            if tag in self.SKIP_TAGS:
+                self._skip_depth += 1
             if tag == "a":
                 href = dict(attrs).get("href", "")
                 if href:
                     self._links.append(href)
+
         def handle_endtag(self, tag):
-            if tag in ("script", "style", "nav", "footer", "head", "noscript"):
-                self._skip = False
+            if tag in self.SKIP_TAGS and self._skip_depth > 0:
+                self._skip_depth -= 1
+
         def handle_data(self, data):
-            if not self._skip and data.strip():
+            if self._skip_depth == 0 and data.strip():
                 self._parts.append(data.strip())
 
-    def _parse(html):
+    def _parse(html: str):
         p = _TextExtractor()
         try:
             p.feed(html)
@@ -3375,14 +3405,14 @@ async def _admin_fetch_website_text(url: str) -> str:
             pass
         return " ".join(p._parts), p._links
 
-    def _is_internal(href, domain):
+    def _is_internal(href: str, domain: str) -> bool:
         if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
             return False
         if href.startswith("http"):
             return urlparse(href).netloc == domain
         return True
 
-    def _norm(href, base):
+    def _norm(href: str, base: str) -> str:
         return urljoin(base, href).split("#")[0].rstrip("/")
 
     parsed = urlparse(url)
@@ -3392,16 +3422,20 @@ async def _admin_fetch_website_text(url: str) -> str:
     seed_paths = ["/about", "/about-us", "/services", "/capabilities",
                   "/projects", "/case-studies", "/portfolio", "/experience",
                   "/industries", "/our-work", "/solutions", "/team",
-                  "/clients", "/technology", "/expertise", "/work"]
+                  "/clients", "/technology", "/expertise", "/work",
+                  "/contact", "/home", "/products", "/features"]
 
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; ProReadyBot/1.0)"}
     collected: list = []
     visited: set = set()
     to_visit: list = [url] + [base_url + p for p in seed_paths]
     MAX_PAGES = 25
 
-    async with httpx.AsyncClient(headers=headers, timeout=12.0,
-                                  follow_redirects=True, verify=False) as client:
+    async with httpx.AsyncClient(
+        headers=BROWSER_HEADERS,
+        timeout=15.0,
+        follow_redirects=True,
+        verify=False,
+    ) as client:
         while to_visit and len(visited) < MAX_PAGES:
             page_url = _norm(to_visit.pop(0), url)
             if page_url in visited:
@@ -3410,21 +3444,27 @@ async def _admin_fetch_website_text(url: str) -> str:
             try:
                 resp = await client.get(page_url)
                 ct = resp.headers.get("content-type", "")
+                _log.info(
+                    "Crawl %s → status=%d ct=%s bytes=%d",
+                    page_url, resp.status_code, ct[:40], len(resp.content),
+                )
                 if resp.status_code != 200 or "text/html" not in ct:
                     continue
                 text, links = _parse(resp.text)
-                if len(text.strip()) > 50:
-                    nl = "\n"
-                    collected.append(f"[Page: {page_url}]{nl}{text}")
+                text = text.strip()
+                if len(text) > 20:            # lowered from 50 → catch short pages
+                    collected.append(f"[Page: {page_url}]\n{text}")
                 for href in links:
                     if _is_internal(href, domain):
                         abs_url = _norm(href, page_url)
                         if abs_url not in visited and abs_url not in to_visit:
                             to_visit.append(abs_url)
-            except Exception:
-                pass
+            except Exception as exc:
+                _log.warning("Crawl error %s: %s", page_url, exc)
 
-    return "\n\n".join(collected)[:100000]
+    result = "\n\n".join(collected)[:100000]
+    _log.info("Crawl complete domain=%s pages=%d total_chars=%d", domain, len(visited), len(result))
+    return result
 
 
 
