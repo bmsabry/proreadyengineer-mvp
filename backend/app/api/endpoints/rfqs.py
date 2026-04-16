@@ -692,6 +692,7 @@ async def unlock_checkout(
         from app.core.config import settings as _settings
         from sqlalchemy import select
         from app.models.rfq import RFQ
+        from app.models.provider import ProviderMembership
 
         # Verify RFQ exists and is open
         result = await db.execute(select(RFQ).where(RFQ.id == rfq_id))
@@ -765,7 +766,6 @@ async def unlock_checkout(
         logger.info(f"Creating Stripe checkout for rfq={rfq_id} user={current_user.id}")
 
         # Resolve provider_id for webhook metadata
-        from app.models.provider import ProviderMembership
         _mem_result = await db.execute(
             select(ProviderMembership).where(
                 ProviderMembership.user_id == current_user.id
