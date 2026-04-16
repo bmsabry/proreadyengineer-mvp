@@ -123,11 +123,13 @@ class PaymentPurpose(str, PyEnum):
 class AdStatus(str, PyEnum):
     """Advertisement status values."""
     EMPTY = "empty"
+    PENDING_REVIEW = "pending_review"
     RESERVED_CHECKOUT_PENDING = "reserved_checkout_pending"
     ACTIVE = "active"
     PAUSED = "paused"
     CANCELLED = "cancelled"
     EXPIRED = "expired"
+    REJECTED = "rejected"
 
 
 class WebhookProcessingStatus(str, PyEnum):

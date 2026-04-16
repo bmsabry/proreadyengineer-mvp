@@ -1,0 +1,338 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useRequireAuth } from '@/hooks/useAuth';
+import { Megaphone, Globe, FileUp, ArrowRight, CheckCircle, Loader2, AlertCircle, Sparkles, Eye } from 'lucide-react';
+import { Suspense } from 'react';
+
+function AdvertiseInner() {
+  const { user, isLoading: authLoading } = useRequireAuth(['provider']);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectedType = searchParams.get('type') || '';
+
+  const [pageType, setPageType] = useState<string>(preselectedType || 'software-providers');
+  const [websiteUrl, setWebsiteUrl] = useState('');
+  const [descriptionText, setDescriptionText] = useState('');
+  const [outboundUrl, setOutboundUrl] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<any>(null);
+  const [myAds, setMyAds] = useState<any[]>([]);
+  const [loadingAds, setLoadingAds] = useState(true);
+
+  // Load existing ads
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const { apiClient } = await import('@/lib/api');
+        const resp = await apiClient.get('/advertiser/ads/me');
+        setMyAds(resp.data ?? []);
+      } catch {
+        // Ignore — might not have ads yet
+      } finally {
+        setLoadingAds(false);
+      }
+    })();
+  }, [user]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setResult(null);
+
+    if (!websiteUrl && !descriptionText) {
+      setError('Please provide either a website URL or description text.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const { apiClient } = await import('@/lib/api');
+      const resp = await apiClient.post('/ads/submit', {
+        page_type: pageType,
+        website_url: websiteUrl || null,
+        description_text: descriptionText || null,
+        outbound_url: outboundUrl || websiteUrl || null,
+      });
+      setResult(resp.data);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || 'Submission failed';
+      setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Success state
+  if (result) {
+    const extracted = result.llm_extracted_content ?? {};
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <div className="bg-white border-b border-slate-200">
+          <div className="max-w-3xl mx-auto px-6 py-8">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center">
+                <CheckCircle className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold text-slate-900">Ad Submitted Successfully!</h1>
+                <p className="text-sm text-slate-500">{result.message}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-3xl mx-auto px-6 py-8">
+          {/* Preview card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Eye className="h-4 w-4 text-slate-500" />
+              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Ad Preview</h2>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 p-5 bg-gradient-to-br from-slate-50 to-white">
+              <h3 className="text-lg font-bold text-slate-900 mb-1">{result.title}</h3>
+              {extracted.tagline && (
+                <p className="text-sm text-violet-600 font-medium mb-3">{extracted.tagline}</p>
+              )}
+              {result.promotional_text && (
+                <p className="text-sm text-slate-600 mb-4">{result.promotional_text}</p>
+              )}
+              {extracted.specialties?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  {extracted.specialties.slice(0, 8).map((s: string, i: number) => (
+                    <span key={i} className="px-2 py-0.5 rounded-full text-xs bg-violet-100 text-violet-700">
+                      {s}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {extracted.proof_points?.length > 0 && (
+                <div className="space-y-1 mb-4">
+                  {extracted.proof_points.slice(0, 3).map((p: string, i: number) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                      <span className="text-xs text-slate-600">{p}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-xs text-slate-400">
+                  {extracted.company_name || result.title}
+                </span>
+                <span className="px-3 py-1 rounded-lg bg-[#0F2B54] text-white text-xs font-medium">
+                  {extracted.cta_label || 'Learn More'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <Link
+              href="/provider/dashboard"
+              className="flex-1 text-center py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              Back to Dashboard
+            </Link>
+            <button
+              onClick={() => { setResult(null); setError(null); }}
+              className="flex-1 text-center py-2.5 rounded-xl bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#0a1f3e] transition-colors"
+            >
+              Submit Another Ad
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <div className="bg-white border-b border-slate-200">
+        <div className="max-w-3xl mx-auto px-6 py-8">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center">
+              <Megaphone className="h-5 w-5 text-violet-600" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900">Advertise with Us</h1>
+              <p className="text-sm text-slate-500">$50/month per ad — AI-generated, admin-reviewed</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-3xl mx-auto px-6 py-8">
+        {/* Existing ads */}
+        {!loadingAds && myAds.length > 0 && (
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-6">
+            <h2 className="text-sm font-bold text-slate-700 mb-3">Your Existing Ads</h2>
+            <div className="space-y-2">
+              {myAds.map((ad: any) => (
+                <div key={ad.id} className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-50">
+                  <div>
+                    <p className="text-sm font-medium text-slate-900">{ad.title}</p>
+                    <p className="text-xs text-slate-500">{ad.page_type} &middot; {ad.ad_status}</p>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    ad.ad_status === 'active' ? 'bg-emerald-100 text-emerald-700' :
+                    ad.ad_status === 'pending_review' ? 'bg-amber-100 text-amber-700' :
+                    ad.ad_status === 'rejected' ? 'bg-red-100 text-red-700' :
+                    'bg-slate-100 text-slate-600'
+                  }`}>
+                    {ad.ad_status === 'pending_review' ? 'Pending Review' : ad.ad_status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Submission form */}
+        <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-2xl p-6 space-y-6">
+          <div className="flex items-center gap-2 pb-4 border-b border-slate-100">
+            <Sparkles className="h-4 w-4 text-violet-500" />
+            <p className="text-sm font-medium text-slate-700">
+              Our AI will read your materials and generate a professional ad card.
+            </p>
+          </div>
+
+          {/* Page type */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-2">Ad Placement</label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPageType('software-providers')}
+                className={`rounded-xl border-2 p-4 text-left transition-all ${
+                  pageType === 'software-providers'
+                    ? 'border-violet-400 bg-violet-50'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <p className="text-sm font-bold text-slate-900">Software Providers</p>
+                <p className="text-xs text-slate-500 mt-0.5">For software tools &amp; products</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPageType('featured-firms')}
+                className={`rounded-xl border-2 p-4 text-left transition-all ${
+                  pageType === 'featured-firms'
+                    ? 'border-violet-400 bg-violet-50'
+                    : 'border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <p className="text-sm font-bold text-slate-900">Featured Firms</p>
+                <p className="text-xs text-slate-500 mt-0.5">For engineering firms</p>
+              </button>
+            </div>
+          </div>
+
+          {/* Website URL */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+              <Globe className="inline h-3.5 w-3.5 mr-1 text-slate-400" />
+              Website URL <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <input
+              type="url"
+              value={websiteUrl}
+              onChange={e => setWebsiteUrl(e.target.value)}
+              placeholder="https://your-company.com"
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
+            />
+            <p className="text-xs text-slate-400 mt-1">We&apos;ll scrape your site to auto-populate your ad content.</p>
+          </div>
+
+          {/* Description text */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+              <FileUp className="inline h-3.5 w-3.5 mr-1 text-slate-400" />
+              Description / Brochure Text <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <textarea
+              value={descriptionText}
+              onChange={e => setDescriptionText(e.target.value)}
+              rows={6}
+              placeholder="Paste your brochure text, service descriptions, capabilities list, or any promotional content here..."
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400 resize-none"
+            />
+            <p className="text-xs text-slate-400 mt-1">Copy-paste from brochures, flyers, or company descriptions.</p>
+          </div>
+
+          {/* Outbound URL */}
+          <div>
+            <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+              Click-Through URL <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+            <input
+              type="url"
+              value={outboundUrl}
+              onChange={e => setOutboundUrl(e.target.value)}
+              placeholder="https://your-company.com/product (defaults to website URL)"
+              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
+            />
+            <p className="text-xs text-slate-400 mt-1">Where should ad clicks redirect? Defaults to your website URL.</p>
+          </div>
+
+          {/* Error */}
+          {error && (
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-red-50 border border-red-200">
+              <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+          )}
+
+          {/* Submit */}
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full py-3 rounded-xl bg-[#0F2B54] text-white text-sm font-semibold hover:bg-[#0a1f3e] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Generating your ad with AI...
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                Generate &amp; Submit Ad for Review
+              </>
+            )}
+          </button>
+
+          <p className="text-xs text-center text-slate-400">
+            Your ad will be reviewed by an admin before going live. $50/month subscription starts after approval.
+          </p>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+export default function ProviderAdvertisePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <AdvertiseInner />
+    </Suspense>
+  );
+}

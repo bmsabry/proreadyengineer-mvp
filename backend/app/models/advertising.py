@@ -2,12 +2,13 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     String,
     Text,
 )
@@ -16,6 +17,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.enums import AdStatus
+
+# Alias for backward compat with lazy imports in ads.py / admin.py
+AdStatusEnum = AdStatus
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -69,6 +73,9 @@ class Advertisement(Base):
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(
         Text, nullable=True
     )
+    page_type: Mapped[Optional[str]] = mapped_column(
+        Text, nullable=True
+    )  # software-providers, featured-firms
     title: Mapped[str] = mapped_column(Text, nullable=False)
     promotional_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     outbound_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -77,11 +84,40 @@ class Advertisement(Base):
     ad_status: Mapped[AdStatus] = mapped_column(
         String, nullable=False, default=AdStatus.EMPTY
     )
+    # LLM-extracted structured ad content from uploaded materials / website
+    llm_extracted_content: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        JSON, nullable=True
+    )
+    source_website_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    uploaded_materials_s3_keys: Mapped[Optional[List[str]]] = mapped_column(
+        JSON, nullable=True
+    )
+    # Analytics
+    click_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    impression_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    # Admin review
+    admin_review_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by_user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     started_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     ended_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
     
     # Relationships

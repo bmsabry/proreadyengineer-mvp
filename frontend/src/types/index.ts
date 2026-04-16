@@ -474,16 +474,25 @@ export interface AdSlot {
 
 export interface Advertisement {
   id: string;
-  ad_slot_id: string;
+  ad_slot_id?: string;
   advertiser_user_id: string;
-  provider_id?: string;
+  provider_id?: string | number;
   stripe_subscription_id?: string;
+  page_type?: string;
   title: string;
   promotional_text?: string;
   outbound_url?: string;
   image_s3_key?: string;
   optional_price_text?: string;
-  ad_status: 'empty' | 'reserved_checkout_pending' | 'active' | 'paused' | 'cancelled' | 'expired';
+  ad_status: 'empty' | 'pending_review' | 'reserved_checkout_pending' | 'active' | 'paused' | 'cancelled' | 'expired' | 'rejected';
+  llm_extracted_content?: Record<string, any>;
+  source_website_url?: string;
+  uploaded_materials_s3_keys?: string[];
+  click_count?: number;
+  impression_count?: number;
+  admin_review_notes?: string;
+  reviewed_by_user_id?: string;
+  reviewed_at?: string;
   started_at?: string;
   ended_at?: string;
   created_at: string;

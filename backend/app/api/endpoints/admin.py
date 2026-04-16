@@ -741,7 +741,7 @@ async def admin_list_ads(
     ads = result.scalars().all()
 
     return PagedResponse(
-        items=[AdvertisementResponse.from_orm(a) for a in ads],
+        items=[AdvertisementResponse.model_validate(a) for a in ads],
         total=total,
         page=page,
         page_size=size,

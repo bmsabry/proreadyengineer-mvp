@@ -1,7 +1,7 @@
 """Advertising request and response schemas."""
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID
 
 from pydantic import Field, HttpUrl
@@ -10,7 +10,10 @@ from app.schemas.base import BaseSchema, ResponseSchema
 
 
 # Ad enums as Literals
-AdStatus = Literal["empty", "reserved_checkout_pending", "active", "paused", "cancelled", "expired"]
+AdStatus = Literal[
+    "empty", "pending_review", "reserved_checkout_pending",
+    "active", "paused", "cancelled", "expired", "rejected",
+]
 
 
 # === Ad Slots ===
@@ -45,28 +48,41 @@ class AdvertisementUpdateRequest(BaseSchema):
 class AdvertisementResponse(ResponseSchema):
     """Advertisement response."""
     id: UUID
-    ad_slot_id: Optional[UUID]
+    ad_slot_id: Optional[UUID] = None
     advertiser_user_id: UUID
-    provider_id: Optional[int]
-    stripe_subscription_id: Optional[str]
+    provider_id: Optional[int] = None
+    stripe_subscription_id: Optional[str] = None
+    page_type: Optional[str] = None
     title: str
-    promotional_text: Optional[str]
-    outbound_url: Optional[str]
-    image_s3_key: Optional[str]
-    optional_price_text: Optional[str]
+    promotional_text: Optional[str] = None
+    outbound_url: Optional[str] = None
+    image_s3_key: Optional[str] = None
+    optional_price_text: Optional[str] = None
     ad_status: AdStatus
-    started_at: Optional[datetime]
-    ended_at: Optional[datetime]
+    llm_extracted_content: Optional[Dict[str, Any]] = None
+    source_website_url: Optional[str] = None
+    uploaded_materials_s3_keys: Optional[List[str]] = None
+    click_count: int = 0
+    impression_count: int = 0
+    admin_review_notes: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
 
 
 class AdvertisementPublicResponse(BaseSchema):
     """Advertisement as shown on public pages."""
     id: UUID
     title: str
-    promotional_text: Optional[str]
-    outbound_url: Optional[str]
-    image_url: Optional[str]  # Presigned S3 URL
-    optional_price_text: Optional[str]
+    promotional_text: Optional[str] = None
+    outbound_url: Optional[str] = None
+    image_url: Optional[str] = None  # Presigned S3 URL
+    optional_price_text: Optional[str] = None
+    provider_id: Optional[int] = None
+    page_type: Optional[str] = None
+    llm_extracted_content: Optional[Dict[str, Any]] = None
+    click_count: int = 0
+    impression_count: int = 0
 
 
 class AdvertisementListResponse(BaseSchema):
@@ -76,58 +92,76 @@ class AdvertisementListResponse(BaseSchema):
     total_spend: float
 
 
+# === Ad Submission (new workflow) ===
+
+class AdSubmissionRequest(BaseSchema):
+    """Submit ad for creation — provider uploads materials + optional website."""
+    page_type: str = Field(..., pattern="^(software-providers|featured-firms)$")
+    website_url: Optional[str] = Field(None, max_length=500)
+    description_text: Optional[str] = Field(
+        None, max_length=10000,
+        description="Freeform text from brochures, flyers, or descriptions"
+    )
+    outbound_url: Optional[str] = Field(
+        None, max_length=500,
+        description="Where ad clicks redirect (firm website or product page)"
+    )
+    uploaded_material_keys: Optional[List[str]] = Field(
+        None,
+        description="S3 keys of uploaded brochure/flyer files"
+    )
+
+
+class AdSubmissionResponse(BaseSchema):
+    """Response after ad is submitted for review."""
+    ad_id: UUID
+    ad_status: str
+    title: str
+    promotional_text: Optional[str] = None
+    llm_extracted_content: Optional[Dict[str, Any]] = None
+    message: str
+
+
+# === Ad Search ===
+
+class AdSearchRequest(BaseSchema):
+    """Search ads with LLM-powered reordering."""
+    query: str = Field(..., min_length=1, max_length=500)
+    page_type: Optional[str] = Field(None, pattern="^(software-providers|featured-firms)$")
+
+
+class AdSearchResponse(BaseSchema):
+    """Search results for ads."""
+    query: str
+    advertisements: list[AdvertisementPublicResponse]
+    total_count: int
+
+
 # === Ad Asset Upload ===
 
 class AdAssetUploadInitiateRequest(BaseSchema):
-    """Request presigned URL for ad image upload."""
+    """Request presigned URL for ad material upload."""
     filename: str = Field(..., max_length=255)
-    mime_type: str = Field(..., pattern="^(image/jpeg|image/png|image/webp)$")
-    file_size_bytes: int = Field(..., gt=0, le=5242880)  # 5MB max
+    mime_type: str = Field(..., max_length=100)
+    file_size_bytes: int = Field(..., gt=0, le=10485760)  # 10MB max
 
 
 class AdAssetUploadInitiateResponse(BaseSchema):
-    """Presigned URL for ad image upload."""
-    upload_id: UUID
-    presigned_url: str
+    """Presigned URL for ad material upload."""
+    upload_url: str
+    fields: Dict[str, str]
     s3_key: str
-    expires_in_seconds: int
 
 
 class AdAssetUploadCompleteRequest(BaseSchema):
-    """Confirm ad image upload."""
-    upload_id: UUID
+    """Confirm ad material upload."""
+    s3_key: str
 
 
-class AdAssetUploadCompleteResponse(BaseSchema):
-    """Ad image upload confirmation."""
-    ad_id: UUID
-    image_s3_key: str
-    image_url: str  # Presigned URL
-    ad_status: AdStatus
-
-
-# === Public Ad Pages ===
-
-class SoftwareProvidersAdsResponse(BaseSchema):
-    """Software providers page ads."""
-    ads: list[AdvertisementPublicResponse]
-    placeholder_count: int
-    purchase_url: str
-
-
-class FeaturedFirmsAdsResponse(BaseSchema):
-    """Featured firms page ads."""
-    ads: list[AdvertisementPublicResponse]
-    placeholder_count: int
-    purchase_url: str
-    disclaimer: str = "Featured firms allow direct customer access outside the RFQ flow."
-
-
-
-# === Ad Creation ===
+# === Ad Creation (legacy) ===
 
 class AdCreateRequest(BaseSchema):
-    """Create a new advertisement."""
+    """Create a new advertisement (legacy — use AdSubmissionRequest)."""
     ad_slot_id: UUID
     title: str = Field(..., max_length=100)
     promotional_text: str = Field(..., max_length=500)
@@ -146,18 +180,6 @@ class AdCheckoutResponse(BaseSchema):
     checkout_url: str
 
 
-class AdAssetUploadInitiateRequest(BaseSchema):
-    """Request presigned URL for ad image upload."""
-    filename: str = Field(..., max_length=255)
-    mime_type: str = Field(..., max_length=100)
-    file_size_bytes: int = Field(..., gt=0, le=5242880)  # 5MB max
-
-
-class AdAssetUploadCompleteRequest(BaseSchema):
-    """Confirm ad image upload."""
-    upload_id: UUID
-
-
 class AdUpdateRequest(BaseSchema):
     """Update ad configuration."""
     title: Optional[str] = Field(None, max_length=100)
@@ -165,3 +187,26 @@ class AdUpdateRequest(BaseSchema):
     outbound_url: Optional[str] = Field(None, max_length=500)
     optional_price_text: Optional[str] = Field(None, max_length=100)
     image_s3_key: Optional[str] = None
+
+
+# === Admin Ad Review ===
+
+class AdminAdReviewRequest(BaseSchema):
+    """Admin reviews an ad submission."""
+    action: str = Field(..., pattern="^(approve|reject)$")
+    notes: Optional[str] = Field(None, max_length=1000)
+
+
+class AdminAdReviewResponse(BaseSchema):
+    """Response after admin review."""
+    ad_id: UUID
+    ad_status: str
+    reviewed_at: datetime
+    message: str
+
+
+# === Click Tracking ===
+
+class AdClickRequest(BaseSchema):
+    """Record an ad click."""
+    ad_id: UUID

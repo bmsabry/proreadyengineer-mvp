@@ -10,7 +10,7 @@ import { formatDate } from '@/lib/utils';
 import {
   TrendingUp, FileText, CheckCircle, Clock, XCircle,
   FileSignature, Calendar, ArrowRight, Inbox,
-  CreditCard, Bell, Phone, Crown,
+  CreditCard, Bell, Phone, Crown, Megaphone,
 } from 'lucide-react';
 
 // ─── Shared UI helpers ────────────────────────────────────────────────────────
@@ -298,6 +298,19 @@ function ProviderAnalyticsPanel({
             </div>
           </Link>
         </div>
+        {/* Advertise CTA */}
+        <Link href="/provider/advertise">
+          <div className="mt-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50 p-3 flex items-center gap-3 hover:shadow-sm hover:border-violet-300 transition-all cursor-pointer group">
+            <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+              <Megaphone className="h-4 w-4 text-violet-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold text-slate-900 group-hover:text-violet-700 transition-colors">Advertise with Us</p>
+              <p className="text-[10px] text-slate-500">Promote your services — $50/month</p>
+            </div>
+            <ArrowRight className="h-3.5 w-3.5 text-violet-400 group-hover:text-violet-600 transition-colors shrink-0" />
+          </div>
+        </Link>
       </div>
     </div>
   );

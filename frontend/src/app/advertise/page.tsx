@@ -1,32 +1,50 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Building2, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useAuth } from '@/contexts/AuthContext';
 
 const softwareFeatures = [
-  'Appear on Software Providers page',
-  'Direct link to your product',
-  'Reach active engineering buyers',
+  'Appear on the Software Providers directory',
+  'Direct link to your product page',
+  'LLM-powered search visibility for engineering buyers',
   'Cancel anytime',
 ];
 
 const featuredFeatures = [
   'Direct access to engineering customers',
-  'Bypass the RFQ process',
-  'Premium placement on Featured Firms page',
+  'Premium placement on Featured Firms directory',
+  'LLM-powered search visibility with matching',
   'Cancel anytime',
 ];
 
 const faqs = [
-  { q: 'How does billing work?', a: 'You are billed $50/month per ad slot via Stripe. Your card is charged automatically each billing cycle. Manage your subscription through the billing portal at any time.' },
-  { q: 'Can I cancel?', a: 'Yes, cancel anytime from your advertiser dashboard. Your ad remains active until the end of the current billing period.' },
-  { q: 'How many slots are available?', a: 'There are a limited number of premium slots per page to ensure maximum visibility. Once slots are filled, new advertisers join a waitlist.' },
+  { q: 'How does billing work?', a: 'You are billed $50/month per ad via Stripe. Your card is charged automatically each billing cycle. Manage your subscription at any time.' },
+  { q: 'Can I cancel?', a: 'Yes, cancel anytime from your dashboard. Your ad remains active until the end of the current billing period.' },
+  { q: 'How does the ad creation work?', a: 'Just provide your website URL and/or upload a brochure. Our AI reads your materials and generates a professional ad card. Admin reviews it before it goes live.' },
+  { q: 'How many ads can I place?', a: 'There is no limit. Each directory page expands to show all active ads, so your listing is always visible.' },
 ];
 
 export default function AdvertisePage() {
+  const { user, isLoading } = useAuth();
+  const router = useRouter();
+
+  // If logged-in provider, redirect to submission flow
+  useEffect(() => {
+    if (!isLoading && user) {
+      const roles = user.roles ?? [];
+      if (roles.includes('provider') || roles.includes('advertiser')) {
+        router.push('/provider/advertise');
+        return;
+      }
+    }
+  }, [user, isLoading, router]);
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white border-b px-6 py-4">
@@ -43,12 +61,15 @@ export default function AdvertisePage() {
       </header>
 
       <main className="flex-1">
-        <section className="bg-blue-600 text-white py-20 px-6">
+        <section className="bg-gradient-to-br from-[#0F2B54] to-[#1a3d6e] text-white py-20 px-6">
           <div className="max-w-4xl mx-auto text-center">
-            <Badge className="bg-blue-500 text-white mb-4">Advertising</Badge>
+            <Badge className="bg-white/20 text-white mb-4 border-white/30">Advertising</Badge>
             <h1 className="text-4xl font-bold mb-4">Advertise on ProMechDirectory</h1>
-            <p className="text-xl text-blue-100">
+            <p className="text-xl text-blue-100 mb-2">
               Reach thousands of engineers and procurement professionals actively searching for services.
+            </p>
+            <p className="text-sm text-blue-200">
+              AI-powered ad generation — just provide your website or upload a brochure.
             </p>
           </div>
         </section>
@@ -58,13 +79,13 @@ export default function AdvertisePage() {
             <h2 className="text-2xl font-bold text-center mb-10">Choose Your Ad Placement</h2>
             <div className="grid md:grid-cols-2 gap-8">
 
-              <Card className="border-2 hover:border-blue-300 transition-colors">
+              <Card className="border-2 hover:border-violet-300 transition-colors">
                 <CardHeader>
                   <Badge className="w-fit mb-2 bg-purple-100 text-purple-800">Software Providers</Badge>
                   <CardTitle className="text-2xl">
                     $50<span className="text-base font-normal text-gray-500">/month</span>
                   </CardTitle>
-                  <CardDescription>Reach engineers actively searching for software tools</CardDescription>
+                  <CardDescription>Promote your software tools to active engineering buyers</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <ul className="space-y-2">
@@ -75,13 +96,13 @@ export default function AdvertisePage() {
                       </li>
                     ))}
                   </ul>
-                  <Link href="/register?role=advertiser&type=software">
-                    <Button className="w-full mt-2">Get Started</Button>
+                  <Link href="/register?role=provider&redirect=/provider/advertise?type=software-providers">
+                    <Button className="w-full mt-2 bg-[#0F2B54] hover:bg-[#0a1f3e]">Get Started</Button>
                   </Link>
                 </CardContent>
               </Card>
 
-              <Card className="border-2 hover:border-blue-300 transition-colors">
+              <Card className="border-2 hover:border-violet-300 transition-colors">
                 <CardHeader>
                   <Badge className="w-fit mb-2 bg-orange-100 text-orange-800">Featured Firms</Badge>
                   <CardTitle className="text-2xl">
@@ -98,8 +119,8 @@ export default function AdvertisePage() {
                       </li>
                     ))}
                   </ul>
-                  <Link href="/register?role=advertiser&type=featured">
-                    <Button className="w-full mt-2">Get Started</Button>
+                  <Link href="/register?role=provider&redirect=/provider/advertise?type=featured-firms">
+                    <Button className="w-full mt-2 bg-[#0F2B54] hover:bg-[#0a1f3e]">Get Started</Button>
                   </Link>
                 </CardContent>
               </Card>
