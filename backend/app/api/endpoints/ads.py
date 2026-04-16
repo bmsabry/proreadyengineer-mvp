@@ -34,6 +34,8 @@ from app.schemas.advertising import (
     AdSubmissionRequest,
     AdSubmissionResponse,
     AdUpdateRequest,
+    AdminAdCreateRequest,
+    AdminAdEditRequest,
     AdminAdReviewRequest,
     AdminAdReviewResponse,
     AdvertisementPublicResponse,
@@ -715,6 +717,211 @@ async def review_ad(
         reviewed_at=ad.reviewed_at,
         message=message,
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin: Create Ad on behalf of a provider
+# ---------------------------------------------------------------------------
+
+@router.post("/admin/ads/create", response_model=AdSubmissionResponse)
+async def admin_create_ad(
+    data: AdminAdCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin creates an advertisement for a registered provider.
+
+    Uses LLM3 to scrape the provider's website and/or supplied text to
+    generate structured ad content. The ad is auto-approved (active).
+    """
+    from app.models.advertising import Advertisement
+    from app.models.enums import AdStatus
+    from app.models.provider import Provider
+
+    # Verify provider exists
+    provider_result = await db.execute(
+        select(Provider).where(Provider.id == data.provider_id)
+    )
+    provider = provider_result.scalar_one_or_none()
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not found")
+
+    # Gather content
+    website_text: str | None = None
+    source_url = data.website_url or provider.website
+
+    if source_url:
+        if not source_url.startswith("http"):
+            source_url = "https://" + source_url
+        try:
+            website_text = await _fetch_website_for_ad(source_url)
+        except Exception as exc:
+            logger.warning("Admin ad website fetch failed url=%s err=%s", source_url, exc)
+
+    if not website_text and not data.description_text:
+        raise HTTPException(
+            status_code=422,
+            detail="Provider has no website and no description text was provided.",
+        )
+
+    # LLM3 extraction
+    try:
+        extracted = await _extract_ad_content(
+            db,
+            website_text=website_text,
+            description_text=data.description_text,
+            page_type=data.page_type,
+        )
+    except Exception as exc:
+        logger.error("Admin ad LLM extraction failed: %s", exc)
+        raise HTTPException(status_code=422, detail=f"LLM extraction failed: {exc}")
+
+    headline = extracted.get("headline", provider.name or "Advertisement")
+    promo_summary = extracted.get("promotional_summary") or extracted.get("value_proposition", "")
+
+    # Find the user associated with this provider (if any)
+    from app.models.provider import ProviderMembership
+    membership_result = await db.execute(
+        select(ProviderMembership.user_id).where(
+            ProviderMembership.provider_id == data.provider_id,
+            ProviderMembership.membership_status == "active",
+        ).limit(1)
+    )
+    advertiser_user_id = membership_result.scalar_one_or_none() or current_user.id
+
+    now = datetime.utcnow()
+    ad = Advertisement(
+        id=uuid.uuid4(),
+        advertiser_user_id=advertiser_user_id,
+        provider_id=data.provider_id,
+        page_type=data.page_type,
+        title=headline[:200],
+        promotional_text=promo_summary[:2000] if promo_summary else None,
+        outbound_url=data.outbound_url or source_url,
+        ad_status=AdStatus.ACTIVE,  # Admin-created → auto-approved
+        llm_extracted_content=extracted,
+        source_website_url=source_url,
+        click_count=0,
+        impression_count=0,
+        reviewed_by_user_id=current_user.id,
+        reviewed_at=now,
+        started_at=now,
+        admin_review_notes="Auto-approved: created by admin",
+    )
+    db.add(ad)
+    await db.commit()
+    await db.refresh(ad)
+
+    return AdSubmissionResponse(
+        ad_id=ad.id,
+        ad_status=ad.ad_status,
+        title=ad.title,
+        promotional_text=ad.promotional_text,
+        llm_extracted_content=extracted,
+        message="Ad created and auto-approved by admin.",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Admin: Edit Ad
+# ---------------------------------------------------------------------------
+
+@router.patch("/admin/ads/{ad_id}", response_model=AdvertisementResponse)
+async def admin_edit_ad(
+    ad_id: str,
+    data: AdminAdEditRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin edits any field on an advertisement."""
+    from app.models.advertising import Advertisement
+
+    result = await db.execute(
+        select(Advertisement).where(Advertisement.id == ad_id)
+    )
+    ad = result.scalar_one_or_none()
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+
+    update_data = data.model_dump(exclude_unset=True)
+
+    # Handle status changes
+    if "ad_status" in update_data:
+        new_status = update_data["ad_status"]
+        if new_status == "active" and not ad.started_at:
+            ad.started_at = datetime.utcnow()
+
+    for field, value in update_data.items():
+        setattr(ad, field, value)
+
+    await db.commit()
+    await db.refresh(ad)
+
+    return AdvertisementResponse.model_validate(ad)
+
+
+# ---------------------------------------------------------------------------
+# Admin: Delete Ad
+# ---------------------------------------------------------------------------
+
+@router.delete("/admin/ads/{ad_id}")
+async def admin_delete_ad(
+    ad_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin permanently deletes an advertisement."""
+    from app.models.advertising import Advertisement
+
+    result = await db.execute(
+        select(Advertisement).where(Advertisement.id == ad_id)
+    )
+    ad = result.scalar_one_or_none()
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+
+    await db.delete(ad)
+    await db.commit()
+
+    return {"message": "Ad deleted", "ad_id": ad_id}
+
+
+# ---------------------------------------------------------------------------
+# Admin: Reactivate Ad
+# ---------------------------------------------------------------------------
+
+@router.post("/admin/ads/{ad_id}/reactivate", response_model=AdvertisementResponse)
+async def admin_reactivate_ad(
+    ad_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Admin reactivates a paused, cancelled, or rejected ad."""
+    from app.models.advertising import Advertisement
+    from app.models.enums import AdStatus
+
+    result = await db.execute(
+        select(Advertisement).where(Advertisement.id == ad_id)
+    )
+    ad = result.scalar_one_or_none()
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+
+    if ad.ad_status == AdStatus.ACTIVE:
+        raise HTTPException(status_code=400, detail="Ad is already active")
+
+    ad.ad_status = AdStatus.ACTIVE
+    if not ad.started_at:
+        ad.started_at = datetime.utcnow()
+    ad.ended_at = None
+    ad.reviewed_by_user_id = current_user.id
+    ad.reviewed_at = datetime.utcnow()
+    ad.admin_review_notes = (ad.admin_review_notes or "") + f"\nReactivated by admin at {datetime.utcnow().isoformat()}"
+
+    await db.commit()
+    await db.refresh(ad)
+
+    return AdvertisementResponse.model_validate(ad)
 
 
 # ---------------------------------------------------------------------------

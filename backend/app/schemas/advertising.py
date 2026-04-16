@@ -205,6 +205,29 @@ class AdminAdReviewResponse(BaseSchema):
     message: str
 
 
+# === Admin Ad Create ===
+
+class AdminAdCreateRequest(BaseSchema):
+    """Admin creates an ad for a registered provider."""
+    provider_id: int = Field(..., description="ID of the registered provider")
+    page_type: str = Field(..., pattern="^(software-providers|featured-firms)$")
+    website_url: Optional[str] = Field(None, max_length=500)
+    description_text: Optional[str] = Field(None, max_length=10000)
+    outbound_url: Optional[str] = Field(None, max_length=500)
+
+
+class AdminAdEditRequest(BaseSchema):
+    """Admin edits any ad field."""
+    title: Optional[str] = Field(None, max_length=200)
+    promotional_text: Optional[str] = Field(None, max_length=2000)
+    outbound_url: Optional[str] = Field(None, max_length=500)
+    optional_price_text: Optional[str] = Field(None, max_length=100)
+    page_type: Optional[str] = Field(None, pattern="^(software-providers|featured-firms)$")
+    ad_status: Optional[str] = Field(None)
+    image_s3_key: Optional[str] = None
+    admin_review_notes: Optional[str] = Field(None, max_length=2000)
+
+
 # === Click Tracking ===
 
 class AdClickRequest(BaseSchema):
