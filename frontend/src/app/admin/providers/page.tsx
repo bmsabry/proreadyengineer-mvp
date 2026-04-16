@@ -18,6 +18,7 @@ interface AdminProvider {
   firm_name: string | null;
   city: string | null;
   state: string | null;
+  email_addresses: string | string[] | null;
   business_evaluation_tier: string | null;
   primary_specialty: string | null;
   is_engineering_service: number | null;
@@ -768,7 +769,7 @@ export default function AdminProvidersPage() {
               <TableHeader>
                 <TableRow className="bg-slate-50">
                   <TableHead className="font-semibold">Firm Name</TableHead>
-                  <TableHead className="font-semibold">Location</TableHead>
+                  <TableHead className="font-semibold">Email</TableHead>
                   <TableHead className="font-semibold">Tier</TableHead>
                   <TableHead className="font-semibold">Primary Specialty</TableHead>
                   <TableHead className="font-semibold">Website</TableHead>
@@ -786,7 +787,7 @@ export default function AdminProvidersPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-slate-600 text-sm">
-                      {[p.city, p.state].filter(Boolean).join(', ') || '—'}
+                      {(Array.isArray(p.email_addresses) ? p.email_addresses[0] : p.email_addresses) || '—'}
                     </TableCell>
                     <TableCell>
                       {p.business_evaluation_tier ? (
