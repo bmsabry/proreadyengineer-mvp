@@ -2,6 +2,7 @@
 export interface User {
   id: string;
   email: string;
+  email_verified?: boolean;
   roles: ('customer' | 'provider' | 'advertiser' | 'admin')[];
   is_super_admin?: boolean;
   can_review_claims?: boolean;

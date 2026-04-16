@@ -169,6 +169,10 @@ function RegisterPageContent() {
         localStorage.setItem('access_token', accessToken);
       }
 
+      // Check if email verification is required (non-invite registrations)
+      const regResponse = regRes?.data as { email_verification_required?: boolean; user?: { email?: string } } | undefined;
+      const needsVerification = regResponse?.email_verification_required === true;
+
       if (hasInvite && inviteToken) {
         try {
           const redeemRes = await api.auth.redeemInvite(inviteToken);
@@ -181,6 +185,9 @@ function RegisterPageContent() {
         } catch {
           router.push('/provider/dashboard');
         }
+      } else if (needsVerification) {
+        // Redirect to check-email page instead of login
+        router.push(`/check-email?email=${encodeURIComponent(fd.email)}`);
       } else {
         router.push('/login?registered=1');
       }

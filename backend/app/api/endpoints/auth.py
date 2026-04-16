@@ -54,24 +54,15 @@ async def register(
             detail=str(e)
         )
 
-    access_token = create_access_token(user.id)
-    refresh_token = create_refresh_token(user.id)
-
-    await create_refresh_token_record(
-        db, user.id, refresh_token,
-        get_client_ip(request), request.headers.get("user-agent", "")
-    )
-
     from app.core.config import settings
     is_production = settings.is_production
     cookie_secure = is_production
     cookie_samesite = "none" if is_production else "lax"
-    response.set_cookie(key="access_token", value=access_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=3600)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=604800)
 
     # ATOMIC INVITE TOKEN PROCESSING
     # Store linked_provider_id on User record AND create ProviderMembership
     # This is bulletproof because linked_provider_id is stored in the SAME transaction
+    has_valid_invite = False
     if getattr(data, 'invite_token', None):
         import logging as _log
         _logger = _log.getLogger(__name__)
@@ -82,6 +73,7 @@ async def register(
             from sqlalchemy import select as _sel
             invite_payload = verify_invite_token(data.invite_token)
             if invite_payload:
+                has_valid_invite = True
                 provider_id = int(invite_payload["provider_id"])
                 _logger.info(f"Invite token verified: provider_id={provider_id}")
 
@@ -115,9 +107,14 @@ async def register(
                 if "provider" not in (user.roles or []):
                     user.roles = list(user.roles or []) + ["provider"]
 
+                # INVITED PROVIDERS: auto-verify email (they already proved ownership by responding to invite)
+                user.email_verified = True
+                user.email_verify_token_hash = None
+                user.email_verify_token_expires_at = None
+
                 await db.commit()
                 await db.refresh(user)
-                _logger.info(f"Invite processing committed successfully for user {user.email}")
+                _logger.info(f"Invite processing committed successfully for user {user.email} (email auto-verified)")
             else:
                 _logger.warning(f"Invite token verification returned None for user {user.email}")
                 # Even if token verification fails, try to extract provider_id from JWT payload
@@ -128,9 +125,14 @@ async def register(
                     _raw = _jwt.decode(data.invite_token, _settings.SECRET_KEY, algorithms=["HS256"], options={"verify_exp": False})
                     if _raw.get("provider_id"):
                         user.linked_provider_id = int(_raw["provider_id"])
+                        # Still auto-verify: they came from an invite email even if expired
+                        user.email_verified = True
+                        user.email_verify_token_hash = None
+                        user.email_verify_token_expires_at = None
+                        has_valid_invite = True
                         await db.commit()
                         await db.refresh(user)
-                        _logger.info(f"Stored linked_provider_id={user.linked_provider_id} from expired token")
+                        _logger.info(f"Stored linked_provider_id={user.linked_provider_id} from expired token (email auto-verified)")
                 except Exception as _jwt_err:
                     _logger.warning(f"Failed to extract provider_id from expired token: {_jwt_err}")
         except Exception as _inv_err:
@@ -138,11 +140,29 @@ async def register(
             _log2.getLogger(__name__).error(f"INVITE PROCESSING FAILED for user {user.email}: {_inv_err}", exc_info=True)
             # Non-fatal: registration still succeeds, profile page will use linked_provider_id fallback
 
+    # Determine if email verification is pending
+    email_verification_required = settings.REQUIRE_EMAIL_VERIFICATION and not user.email_verified
+
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token(user.id)
+
+    await create_refresh_token_record(
+        db, user.id, refresh_token,
+        get_client_ip(request), request.headers.get("user-agent", "")
+    )
+
+    # Only set auth cookies if email is verified (or verification not required)
+    # Unverified users must verify email before they can log in
+    if not email_verification_required:
+        response.set_cookie(key="access_token", value=access_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=3600)
+        response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=cookie_secure, samesite=cookie_samesite, max_age=604800)
 
     return RegisterResponse(
         user=user,
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=access_token if not email_verification_required else "",
+        refresh_token=refresh_token if not email_verification_required else "",
+        email_verification_required=email_verification_required,
+        message="Please check your email to verify your account." if email_verification_required else "Registration successful",
     )
 
 
@@ -160,6 +180,14 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password"
+        )
+
+    # Block login for unverified customers
+    from app.core.config import settings as _login_settings
+    if _login_settings.REQUIRE_EMAIL_VERIFICATION and not user.email_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="email_not_verified"
         )
 
     access_token = create_access_token(user.id)
@@ -184,6 +212,7 @@ async def login(
     user_response = UserResponse(
         id=user.id,
         email=user.email,
+        email_verified=getattr(user, 'email_verified', True),
         first_name=user.first_name,
         last_name=user.last_name,
         full_name=getattr(user, 'full_name', None),
@@ -250,6 +279,7 @@ async def refresh_token(
     user_response = UserResponse(
         id=user.id,
         email=user.email,
+        email_verified=getattr(user, 'email_verified', True),
         first_name=user.first_name,
         last_name=user.last_name,
         full_name=getattr(user, 'full_name', None),
@@ -676,3 +706,46 @@ async def verify_email(
             detail="Verification link expired or invalid. Please register again."
         )
     return {"message": "Email verified! You can now log in."}
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+@limiter.limit("3/minute")
+@router.post("/resend-verification")
+async def resend_verification(
+    request: Request,
+    data: ResendVerificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Resend email verification link. Rate-limited to 3/minute."""
+    import secrets
+    import hashlib
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select as _sel
+
+    result = await db.execute(
+        _sel(User).where(User.email == data.email.lower().strip())
+    )
+    user = result.scalar_one_or_none()
+
+    # Always return success to prevent email enumeration
+    if not user or user.email_verified:
+        return {"message": "If the email exists and is unverified, a new verification link has been sent."}
+
+    # Generate fresh token
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    user.email_verify_token_hash = token_hash
+    user.email_verify_token_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    await db.commit()
+
+    try:
+        from app.services.email_service import send_email_verification
+        await send_email_verification(user.email, raw_token, db=db)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("Failed to resend verification email to %s", user.email)
+
+    return {"message": "If the email exists and is unverified, a new verification link has been sent."}

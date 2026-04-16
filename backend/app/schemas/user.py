@@ -57,6 +57,7 @@ class UserResponse(BaseSchema):
     locked_until: Optional[datetime] = None
     monthly_search_count: int = 0
     search_count_reset_at: Optional[datetime] = None
+    email_verified: bool = True
     last_login_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

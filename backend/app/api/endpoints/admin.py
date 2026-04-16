@@ -3598,6 +3598,18 @@ async def admin_payment_analytics(
     except Exception:
         total_failed_30d = 0
 
+    # Total refunded amount
+    total_refunded = 0.0
+    try:
+        res = await db.execute(
+            select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
+                PaymentAttempt.payment_status == 'refunded',
+            )
+        )
+        total_refunded = float(res.scalar() or 0) / 100.0
+    except Exception:
+        total_refunded = 0.0
+
     monthly_series: List[Dict[str, Any]] = []
     try:
         from sqlalchemy import and_
@@ -3677,6 +3689,7 @@ async def admin_payment_analytics(
         'total_this_month': total_this_month,
         'total_pending': total_pending,
         'total_failed_30d': total_failed_30d,
+        'total_refunded': total_refunded,
         'monthly_series': monthly_series,
         'by_purpose': by_purpose,
         'by_purpose_all': by_purpose_all,
@@ -4282,6 +4295,275 @@ async def admin_force_complete_payment(
         "fulfillment": fulfillment_result,
         "fulfillment_error": fulfillment_error,
     }
+
+
+from pydantic import BaseModel as _RefundBaseModel
+
+
+class _RefundRequest(_RefundBaseModel):
+    reason: str
+    reverse_fulfillment: bool = True
+
+
+@router.post("/admin/payments/{payment_id}/refund")
+async def admin_refund_payment(
+    payment_id: str,
+    body: _RefundRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> Dict[str, Any]:
+    """Issue a Stripe refund for a completed payment and optionally reverse fulfillment.
+
+    Supports:
+    - rfq_unlock  → revokes RFQUnlock record (status → refunded)
+    - nda_fee     → cancels RFQNDA record (status → cancelled)
+    - search_subscription → cancels Subscription record
+    - provider_annual_subscription → cancels Subscription record
+    Creates an audit log entry for every refund.
+    """
+    import logging
+    import stripe as _stripe
+    import uuid as _uuid
+
+    _log = logging.getLogger(__name__)
+
+    if not body.reason or len(body.reason.strip()) < 3:
+        raise HTTPException(status_code=422, detail="A reason is required for refund audit trail")
+
+    # ── look up payment ──────────────────────────────────────────────────
+    try:
+        pa_uuid = _uuid.UUID(payment_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payment_id format")
+
+    result = await db.execute(select(PaymentAttempt).where(PaymentAttempt.id == pa_uuid))
+    pa = result.scalar_one_or_none()
+    if not pa:
+        raise HTTPException(status_code=404, detail="Payment attempt not found")
+
+    if pa.payment_status == PaymentStatus.REFUNDED:
+        return {"status": "already_refunded", "payment_id": payment_id}
+
+    if pa.payment_status not in (PaymentStatus.COMPLETED, PaymentStatus.INITIATED, PaymentStatus.PROCESSING):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot refund a payment with status '{pa.payment_status}'. Only completed/initiated payments can be refunded.",
+        )
+
+    # ── call Stripe Refund API ───────────────────────────────────────────
+    stripe_refund_id = None
+    stripe_error = None
+
+    # We need a Stripe payment intent ID to issue the refund
+    external_pid = pa.external_payment_id  # payment_intent ID
+    external_cid = pa.external_checkout_id  # checkout session ID
+
+    if external_pid or external_cid:
+        try:
+            _stripe.api_key = settings.STRIPE_SECRET_KEY
+            if not _stripe.api_key:
+                raise HTTPException(status_code=500, detail="Stripe API key not configured")
+
+            # If we only have checkout_session_id, retrieve the payment_intent from it
+            payment_intent_id = external_pid
+            if not payment_intent_id and external_cid:
+                try:
+                    session = _stripe.checkout.Session.retrieve(external_cid)
+                    payment_intent_id = session.payment_intent
+                except Exception as se:
+                    _log.warning("Could not retrieve checkout session %s: %s", external_cid, se)
+
+            if payment_intent_id:
+                refund = _stripe.Refund.create(
+                    payment_intent=payment_intent_id,
+                    reason="requested_by_customer",
+                    metadata={
+                        "admin_user_id": str(current_user.id),
+                        "admin_reason": body.reason[:200],
+                        "payment_attempt_id": str(pa.id),
+                    },
+                )
+                stripe_refund_id = refund.id
+                _log.info("Stripe refund created: %s for payment_intent %s", refund.id, payment_intent_id)
+            else:
+                stripe_error = "No payment_intent found — Stripe refund skipped. Mark as refunded in records only."
+                _log.warning("No payment_intent for PA %s — Stripe refund skipped", pa.id)
+        except _stripe.error.InvalidRequestError as e:
+            # e.g. "charge already refunded"
+            stripe_error = str(e)
+            _log.warning("Stripe refund API error for PA %s: %s", pa.id, e)
+        except Exception as e:
+            stripe_error = str(e)
+            _log.error("Stripe refund failed for PA %s: %s", pa.id, e, exc_info=True)
+    else:
+        stripe_error = "No external Stripe IDs on this payment — record-only refund."
+
+    # ── update payment status ────────────────────────────────────────────
+    before_status = pa.payment_status
+    pa.payment_status = PaymentStatus.REFUNDED
+    pa.extra_data = pa.extra_data or {}
+    pa.extra_data["refund"] = {
+        "refunded_at": datetime.utcnow().isoformat(),
+        "refunded_by": str(current_user.id),
+        "reason": body.reason,
+        "stripe_refund_id": stripe_refund_id,
+        "stripe_error": stripe_error,
+    }
+
+    # ── reverse fulfillment ──────────────────────────────────────────────
+    reversal_result = "no_reversal_requested"
+    reversal_error = None
+
+    if body.reverse_fulfillment:
+        try:
+            reversal_result = await _reverse_fulfillment(db, pa, _log)
+        except Exception as re:
+            reversal_error = str(re)
+            reversal_result = "reversal_failed"
+            _log.error("Fulfillment reversal failed for PA %s: %s", pa.id, re, exc_info=True)
+
+    # ── audit log ────────────────────────────────────────────────────────
+    try:
+        audit = AuditLog(
+            actor_user_id=current_user.id,
+            entity_type="payment_attempt",
+            entity_id=str(pa.id),
+            action="refund",
+            before_state={"payment_status": str(before_status)},
+            after_state={"payment_status": "refunded"},
+            metadata={
+                "reason": body.reason,
+                "stripe_refund_id": stripe_refund_id,
+                "stripe_error": stripe_error,
+                "reversal": reversal_result,
+                "reversal_error": reversal_error,
+                "amount_usd": float(pa.amount or 0) / 100.0,
+                "purpose": pa.purpose,
+            },
+        )
+        db.add(audit)
+    except Exception:
+        pass
+
+    await db.commit()
+
+    return {
+        "status": "refunded",
+        "payment_id": payment_id,
+        "purpose": pa.purpose,
+        "amount_usd": float(pa.amount or 0) / 100.0,
+        "stripe_refund_id": stripe_refund_id,
+        "stripe_error": stripe_error,
+        "reversal": reversal_result,
+        "reversal_error": reversal_error,
+    }
+
+
+async def _reverse_fulfillment(db: AsyncSession, pa: PaymentAttempt, _log) -> str:
+    """Reverse the fulfillment action for a refunded payment.
+
+    Returns a string describing what was reversed.
+    """
+    from app.models.enums import UnlockStatus as _US, NdaStatus as _NS, SubscriptionStatus as _SS
+    import uuid as _uuid
+
+    purpose = pa.purpose
+    related_id = pa.related_entity_id
+
+    # ── RFQ unlock → revoke access ───────────────────────────────────────
+    if purpose == "rfq_unlock" and related_id:
+        from app.models.rfq import RFQUnlock
+        result = await db.execute(
+            select(RFQUnlock).where(
+                RFQUnlock.payment_attempt_id == pa.id,
+            )
+        )
+        unlock = result.scalar_one_or_none()
+        if not unlock:
+            # Fallback: find by rfq_id + most recent unlock
+            result2 = await db.execute(
+                select(RFQUnlock).where(
+                    RFQUnlock.rfq_id == related_id,
+                    RFQUnlock.unlock_status == _US.UNLOCKED,
+                ).order_by(RFQUnlock.unlocked_at.desc()).limit(1)
+            )
+            unlock = result2.scalar_one_or_none()
+
+        if unlock and unlock.unlock_status == _US.UNLOCKED:
+            unlock.unlock_status = _US.REFUNDED
+            _log.info("RFQUnlock %s revoked (status → refunded)", unlock.id)
+            return "rfq_unlock_revoked"
+        elif unlock and unlock.unlock_status == _US.REFUNDED:
+            return "rfq_unlock_already_revoked"
+        else:
+            return "rfq_unlock_not_found"
+
+    # ── NDA fee → cancel NDA record ──────────────────────────────────────
+    if purpose == "nda_fee" and related_id:
+        from app.models.nda import RFQNDA
+        result = await db.execute(
+            select(RFQNDA).where(
+                RFQNDA.rfq_id == related_id,
+            ).order_by(RFQNDA.created_at.desc()).limit(1)
+        )
+        nda = result.scalar_one_or_none()
+        if nda and nda.nda_status not in (_NS.FULLY_SIGNED, _NS.CANCELLED):
+            old_status = nda.nda_status
+            nda.nda_status = _NS.CANCELLED
+            _log.info("RFQNDA %s cancelled (was %s) due to refund", nda.id, old_status)
+            return f"nda_cancelled (was {old_status})"
+        elif nda and nda.nda_status == _NS.FULLY_SIGNED:
+            _log.warning("RFQNDA %s is fully_signed — cannot auto-cancel. Manual review needed.", nda.id)
+            return "nda_fully_signed_manual_review_needed"
+        elif nda and nda.nda_status == _NS.CANCELLED:
+            return "nda_already_cancelled"
+        else:
+            return "nda_record_not_found"
+
+    # ── Subscription → cancel ────────────────────────────────────────────
+    if purpose in ("search_subscription", "provider_annual_subscription", "provider_profile_subscription", "advertisement_subscription"):
+        from app.models.payment import Subscription
+        user_id = pa.initiated_by_user_id
+        if user_id:
+            sub_type_map = {
+                "search_subscription": "search_tier_1",
+                "provider_annual_subscription": "provider_annual",
+                "provider_profile_subscription": "provider_profile",
+                "advertisement_subscription": "advertisement",
+            }
+            sub_type = sub_type_map.get(purpose)
+            if sub_type:
+                result = await db.execute(
+                    select(Subscription).where(
+                        Subscription.user_id == user_id,
+                        Subscription.subscription_type == sub_type,
+                        Subscription.subscription_status == _SS.ACTIVE,
+                    ).order_by(Subscription.current_period_start.desc()).limit(1)
+                )
+                sub = result.scalar_one_or_none()
+                if sub:
+                    sub.subscription_status = _SS.CANCELLED
+                    sub.cancelled_at = datetime.utcnow()
+                    _log.info("Subscription %s cancelled due to refund", sub.id)
+
+                    # Also cancel in Stripe if external subscription ID exists
+                    if sub.external_subscription_id:
+                        try:
+                            import stripe as _s2
+                            _s2.api_key = settings.STRIPE_SECRET_KEY
+                            _s2.Subscription.cancel(sub.external_subscription_id)
+                            _log.info("Stripe subscription %s cancelled", sub.external_subscription_id)
+                        except Exception as se:
+                            _log.warning("Could not cancel Stripe subscription %s: %s", sub.external_subscription_id, se)
+
+                    return f"subscription_{sub_type}_cancelled"
+                else:
+                    return f"subscription_{sub_type}_not_found_or_already_cancelled"
+        return "subscription_no_user_linked"
+
+    return f"no_reversal_logic_for_{purpose}"
+
+
 @router.post("/admin/payments/bulk-resolve-nda-initiated")
 async def admin_bulk_resolve_nda_initiated(
     db: AsyncSession = Depends(get_db),

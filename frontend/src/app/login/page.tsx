@@ -119,7 +119,13 @@ function LoginPageContent() {
       }
       toast.success('Logged in successfully');
     } catch (error: any) {
-      const msg = error?.response?.data?.detail || error?.message || 'Invalid email or password';
+      const detail = error?.response?.data?.detail || '';
+      if (detail === 'email_not_verified') {
+        // Redirect to check-email page with the email for resend capability
+        router.push(`/check-email?email=${encodeURIComponent(email)}`);
+        return;
+      }
+      const msg = detail || error?.message || 'Invalid email or password';
       toast.error(msg);
     } finally {
       setIsSubmitting(false);

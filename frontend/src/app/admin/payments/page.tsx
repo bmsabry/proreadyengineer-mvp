@@ -20,6 +20,7 @@ interface AnalyticsData {
   total_revenue: number;
   total_this_month: number;
   total_failed_30d: number;
+  total_refunded?: number;
   monthly_series: { month: string; revenue: number }[];
   by_purpose: { purpose: string; total: number; count: number }[];
   by_purpose_all?: { purpose: string; total: number; count: number }[];
@@ -459,12 +460,13 @@ function RenderCard(props: RenderCardProps) {
   );
 }
 
-type TabKey = 'all' | 'completed' | 'failed';
+type TabKey = 'all' | 'completed' | 'failed' | 'refunded';
 
 const TAB_STATUS: { [k: string]: string | undefined } = {
   all: undefined,
   completed: 'completed',
   failed: 'failed',
+  refunded: 'refunded',
 };
 
 const PURPOSES = [
@@ -521,6 +523,11 @@ export default function AdminPaymentsPage() {
   const [fulfillMsg, setFulfillMsg] = useState(null as string | null);
   const [reconcileReport, setReconcileReport] = useState(null as ReconcileReportData | null);
   const [showReconcileModal, setShowReconcileModal] = useState(false);
+  const [refundTarget, setRefundTarget] = useState(null as Transaction | null);
+  const [refundReason, setRefundReason] = useState('');
+  const [refundReverse, setRefundReverse] = useState(true);
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundResult, setRefundResult] = useState(null as { status: string; stripe_refund_id?: string; stripe_error?: string; reversal?: string; reversal_error?: string; amount_usd?: number } | null);
 
   const fetchAnalytics = useCallback(() => {
     setAnalyticsLoading(true);
@@ -598,7 +605,7 @@ export default function AdminPaymentsPage() {
     fetchTransactions(txPage, activeTab, filterPurpose, filterDateFrom, filterDateTo);
   }, [txPage, activeTab, filterPurpose, filterDateFrom, filterDateTo, fetchTransactions]);
 
-  const handleTabChange = (tab: string) => { setActiveTab(tab as ('all' | 'completed' | 'failed')); setTxPage(1); };
+  const handleTabChange = (tab: string) => { setActiveTab(tab as TabKey); setTxPage(1); };
 
   const handleFilterApply = () => {
     setTxPage(1);
@@ -682,9 +689,43 @@ export default function AdminPaymentsPage() {
     }
   };
 
+  const handleRefundOpen = (tx: Transaction) => {
+    setRefundTarget(tx);
+    setRefundReason('');
+    setRefundReverse(true);
+    setRefundResult(null);
+  };
+
+  const handleRefundSubmit = async () => {
+    if (!refundTarget || !refundReason.trim() || refundLoading) return;
+    setRefundLoading(true);
+    setRefundResult(null);
+    try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
+      const res = await fetch(API_BASE + '/api/v1/admin/payments/' + refundTarget.id + '/refund', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+        body: JSON.stringify({ reason: refundReason.trim(), reverse_fulfillment: refundReverse }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setRefundResult(data);
+        fetchAnalytics();
+        fetchTransactions(txPage, activeTab, filterPurpose, filterDateFrom, filterDateTo);
+      } else {
+        setRefundResult({ status: 'error', stripe_error: data.detail || 'Refund failed' });
+      }
+    } catch (ex) {
+      setRefundResult({ status: 'error', stripe_error: String(ex) });
+    } finally {
+      setRefundLoading(false);
+    }
+  };
+
   const totalRevenue = analytics ? fmtCurrency(analytics.total_revenue) : '-';
   const revenueThisMonth = analytics ? fmtCurrency(analytics.total_this_month) : '-';
   const failed30d = analytics ? String(analytics.total_failed_30d) : '-';
+  const refundedTotal = analytics ? fmtCurrency(analytics.total_refunded ?? 0) : '-';
   const monthlySeries = analytics?.monthly_series ?? [];
   const byPurpose = analytics?.by_purpose ?? [];
   const grandTotal = analytics?.total_revenue ?? 0;
@@ -717,6 +758,7 @@ export default function AdminPaymentsPage() {
     { key: 'all', label: 'All' },
     { key: 'completed', label: 'Completed' },
     { key: 'failed', label: 'Failed' },
+    { key: 'refunded', label: 'Refunded' },
   ];
 
   if (authLoading) {
@@ -754,10 +796,11 @@ export default function AdminPaymentsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <KpiCard title="Total Revenue Collected" value={analyticsLoading ? '...' : totalRevenue} icon={DollarSign} colorClass="text-emerald-600" bgClass="bg-emerald-50" />
         <KpiCard title="Revenue This Month" value={analyticsLoading ? '...' : revenueThisMonth} icon={TrendingUp} colorClass="text-blue-600" bgClass="bg-blue-50" />
         <KpiCard title="Failed (30d)" value={analyticsLoading ? '...' : failed30d} icon={XCircle} colorClass="text-red-600" bgClass="bg-red-50" />
+        <KpiCard title="Total Refunded" value={analyticsLoading ? '...' : refundedTotal} icon={RefreshCw} colorClass="text-amber-600" bgClass="bg-amber-50" />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -854,12 +897,19 @@ export default function AdminPaymentsPage() {
                     <td className="px-4 py-3 text-gray-600 max-w-[160px] truncate">{userStr}</td>
                     <td className="px-4 py-3 text-gray-600">{providerStr}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">{paymentIdStr}</td>
-                    <td className="px-4 py-3">
-                      {tx.payment_status === 'completed' && (tx.purpose === 'provider_annual_subscription' || tx.purpose === 'full_profile_edit_unlock' || tx.purpose === 'search_subscription') && (
-                        <button onClick={() => handleForceFulfill(tx.id, tx.purpose)} disabled={fulfillLoadingId === tx.id} style={{ padding: '2px 10px', fontSize: '12px', fontWeight: 500, background: fulfillLoadingId === tx.id ? '#e0e7ff' : '#4f46e5', color: fulfillLoadingId === tx.id ? '#4f46e5' : 'white', borderRadius: '4px', border: 'none', cursor: 'pointer' }}>
-                          {fulfillLoadingId === tx.id ? 'Running...' : 'Force Fulfill'}
-                        </button>
-                      )}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        {tx.payment_status === 'completed' && (tx.purpose === 'provider_annual_subscription' || tx.purpose === 'full_profile_edit_unlock' || tx.purpose === 'search_subscription') && (
+                          <button onClick={() => handleForceFulfill(tx.id, tx.purpose)} disabled={fulfillLoadingId === tx.id} style={{ padding: '2px 10px', fontSize: '12px', fontWeight: 500, background: fulfillLoadingId === tx.id ? '#e0e7ff' : '#4f46e5', color: fulfillLoadingId === tx.id ? '#4f46e5' : 'white', borderRadius: '4px', border: 'none', cursor: 'pointer' }}>
+                            {fulfillLoadingId === tx.id ? 'Running...' : 'Force Fulfill'}
+                          </button>
+                        )}
+                        {(tx.payment_status === 'completed' || tx.payment_status === 'initiated') && (
+                          <button onClick={() => handleRefundOpen(tx)} className="px-2.5 py-0.5 text-xs font-medium bg-red-50 text-red-700 border border-red-200 rounded hover:bg-red-100 transition-colors">
+                            Refund
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -884,6 +934,123 @@ export default function AdminPaymentsPage() {
           <RenderCard data={renderData} loading={renderLoading} onRefresh={fetchRender} />
         </div>
       </div>
+
+      {/* ── Refund Modal ──────────────────────────────────────────── */}
+      {refundTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full">
+            <div className="p-6 border-b">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-gray-900">Refund Payment</h2>
+                <button onClick={() => { setRefundTarget(null); setRefundResult(null); }} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+              </div>
+              <p className="text-sm text-gray-500 mt-1">This will issue a Stripe refund and update internal records.</p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Payment info */}
+              <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Purpose</span>
+                  <span className="font-medium text-gray-900">{fmtPurpose(refundTarget.purpose)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Amount</span>
+                  <span className="font-bold text-gray-900">{fmtCurrency(refundTarget.amount)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">User</span>
+                  <span className="text-gray-700">{refundTarget.user_email || refundTarget.user_name || '-'}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Date</span>
+                  <span className="text-gray-700">{fmtDate(refundTarget.initiated_at)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Status</span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusBadgeClass(refundTarget.payment_status)}`}>
+                    {refundTarget.payment_status.charAt(0).toUpperCase() + refundTarget.payment_status.slice(1)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Reason */}
+              {!refundResult && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Reason for refund <span className="text-red-500">*</span></label>
+                    <textarea
+                      value={refundReason}
+                      onChange={(e) => setRefundReason(e.target.value)}
+                      placeholder="e.g. Customer charged twice, unlock did not work, provider was inactive..."
+                      rows={3}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-400"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <input
+                      id="refundReverse"
+                      type="checkbox"
+                      checked={refundReverse}
+                      onChange={(e) => setRefundReverse(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                    />
+                    <label htmlFor="refundReverse" className="text-sm text-gray-700 cursor-pointer">
+                      Reverse fulfillment (revoke unlock, cancel NDA/subscription)
+                    </label>
+                  </div>
+                </>
+              )}
+
+              {/* Result */}
+              {refundResult && (
+                <div className={`rounded-lg p-4 text-sm ${refundResult.status === 'refunded' || refundResult.status === 'already_refunded' ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                  <p className={`font-semibold ${refundResult.status === 'refunded' || refundResult.status === 'already_refunded' ? 'text-green-800' : 'text-red-800'}`}>
+                    {refundResult.status === 'refunded' ? 'Refund processed successfully' : refundResult.status === 'already_refunded' ? 'Payment was already refunded' : 'Refund failed'}
+                  </p>
+                  {refundResult.stripe_refund_id && (
+                    <p className="text-green-700 mt-1">Stripe Refund ID: <span className="font-mono">{refundResult.stripe_refund_id}</span></p>
+                  )}
+                  {refundResult.stripe_error && (
+                    <p className="text-amber-700 mt-1">Note: {refundResult.stripe_error}</p>
+                  )}
+                  {refundResult.reversal && refundResult.reversal !== 'no_reversal_requested' && (
+                    <p className="text-gray-700 mt-1">Fulfillment reversal: {refundResult.reversal.replace(/_/g, ' ')}</p>
+                  )}
+                  {refundResult.reversal_error && (
+                    <p className="text-red-700 mt-1">Reversal error: {refundResult.reversal_error}</p>
+                  )}
+                  {refundResult.amount_usd && (
+                    <p className="text-gray-700 mt-1">Amount: ${refundResult.amount_usd.toFixed(2)}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 p-4 border-t">
+              {!refundResult ? (
+                <>
+                  <button onClick={() => setRefundTarget(null)} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">Cancel</button>
+                  <button
+                    onClick={handleRefundSubmit}
+                    disabled={refundLoading || !refundReason.trim()}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {refundLoading ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</>
+                    ) : (
+                      <>Issue Refund ({fmtCurrency(refundTarget.amount)})</>
+                    )}
+                  </button>
+                </>
+              ) : (
+                <button onClick={() => { setRefundTarget(null); setRefundResult(null); }} className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200">Close</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showReconcileModal && reconcileReport && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

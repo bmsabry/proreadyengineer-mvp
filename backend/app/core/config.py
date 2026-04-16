@@ -112,8 +112,8 @@ class Settings(BaseSettings):
     # Security - CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
 
-    # Security - Email Verification (toggle OFF by default so testing still works)
-    REQUIRE_EMAIL_VERIFICATION: bool = False
+    # Security - Email Verification
+    REQUIRE_EMAIL_VERIFICATION: bool = True
 
 
     @field_validator("DATABASE_URL", mode="before")

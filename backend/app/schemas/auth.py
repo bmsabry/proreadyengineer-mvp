@@ -87,6 +87,7 @@ class RegisterResponse(BaseSchema):
     expires_in: int = 900
     user: UserResponse
     message: str = "Registration successful"
+    email_verification_required: bool = False
 
 class AuthMeResponse(ResponseSchema):
     """Current user profile response."""
