@@ -306,7 +306,7 @@ async def submit_ad(
         description_text=data.description_text,
         page_type=data.page_type,
         advertiser_email=current_user.email or "",
-        advertiser_name=current_user.name or current_user.email or "Advertiser",
+        advertiser_name=current_user.full_name or current_user.email or "Advertiser",
     )
 
     return AdSubmissionResponse(
