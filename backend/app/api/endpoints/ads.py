@@ -152,25 +152,30 @@ async def _process_ad_in_background(ad_id: uuid.UUID, source_url: Optional[str],
     from app.models.advertising import Advertisement
     from app.models.enums import AdStatus
 
-    from app.db.session import AsyncSessionLocal
-
     async with AsyncSessionLocal() as bg_db:
         try:
             # Crawl the full website — all pages, same as admin "add firm"
             website_text: str | None = None
             if source_url:
+                logger.info("Ad bg starting crawl ad_id=%s url=%s", ad_id, source_url)
                 try:
-                    website_text = await _fetch_full_website_for_ad(source_url)
-                    logger.info("Ad bg crawl done url=%s chars=%d", source_url, len(website_text or ""))
+                    raw = await _fetch_full_website_for_ad(source_url)
+                    website_text = raw if raw and raw.strip() else None
+                    logger.info("Ad bg crawl done ad_id=%s url=%s chars=%d",
+                                ad_id, source_url, len(website_text or ""))
                 except Exception as exc:
-                    logger.warning("Ad bg crawl failed url=%s err=%s", source_url, exc)
+                    logger.warning("Ad bg crawl failed ad_id=%s url=%s err=%s", ad_id, source_url, exc)
+
+            # If crawl returned nothing but we have a description, use that alone
+            if not website_text and description_text:
+                logger.info("Ad %s crawl empty — using description_text only", ad_id)
 
             if not website_text and not description_text:
-                logger.error("Ad %s has no content — marking failed", ad_id)
+                logger.error("Ad %s has no content (url=%s) — marking rejected", ad_id, source_url)
                 await bg_db.execute(
                     update(Advertisement)
                     .where(Advertisement.id == ad_id)
-                    .values(ad_status=AdStatus.INACTIVE,
+                    .values(ad_status=AdStatus.REJECTED,
                             title="Content extraction failed — please re-submit with a description")
                 )
                 await bg_db.commit()
