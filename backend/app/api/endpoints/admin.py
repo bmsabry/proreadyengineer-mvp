@@ -3118,6 +3118,7 @@ async def admin_list_providers(
                 "business_evaluation_tier": p.business_evaluation_tier,
                 "primary_specialty": p.primary_specialty,
                 "is_engineering_service": p.is_engineering_service,
+                "email_addresses": p.email_addresses,
                 "website": p.website,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
             }
