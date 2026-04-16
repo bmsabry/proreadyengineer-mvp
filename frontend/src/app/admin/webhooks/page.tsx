@@ -124,7 +124,15 @@ export default function AdminWebhooksPage() {
 
   const statusCounts = events.reduce((acc, e) => {
     const s = e.processing_status.toLowerCase();
-    acc[s] = (acc[s] || 0) + 1;
+    // Map backend enum values to display categories
+    if (s === 'completed') {
+      acc.processed = (acc.processed || 0) + 1;
+    } else if (s === 'failed') {
+      acc.failed = (acc.failed || 0) + 1;
+    } else {
+      // received, verified, processing, retrying → all count as pending
+      acc.pending = (acc.pending || 0) + 1;
+    }
     return acc;
   }, {} as Record<string, number>);
 

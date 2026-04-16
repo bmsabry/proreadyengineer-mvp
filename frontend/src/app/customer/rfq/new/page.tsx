@@ -20,8 +20,10 @@ const RFQ_DRAFT_KEY = 'rfq_draft';
 const tollgateOptions = [
   { value: 'TG0', label: 'TG0: Idea Generation' },
   { value: 'TG1', label: 'TG1: Basic Engineering' },
+  { value: 'TG2', label: 'TG2: Concept Validation' },
   { value: 'TG3', label: 'TG3: Intermediate Analysis' },
   { value: 'TG4', label: 'TG4: Full Scale Modeling' },
+  { value: 'TG5', label: 'TG5: Pre-Production Testing' },
   { value: 'TG6', label: 'TG6: Full System Testing' },
   { value: 'All', label: 'All Phases' },
   { value: 'DontKnow', label: "Don't Know" },

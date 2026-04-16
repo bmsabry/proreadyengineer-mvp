@@ -58,6 +58,7 @@ export default function ProviderProfilePage() {
   const [provider, setProvider] = useState(null as Provider | null);
   const [isLoading, setIsLoading] = useState(true);
   const [isInviteFlow, setIsInviteFlow] = useState(false);
+  const [linkFailed, setLinkFailed] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const router = useRouter();
   const [fullEditStatus, setFullEditStatus] = useState(null as { paid: boolean; provider_id: string | null } | null);
@@ -113,19 +114,29 @@ export default function ProviderProfilePage() {
       });
     }
 
-    async function fetchProvider() {
+    async function fetchProvider(retryCount = 0) {
       const pendingToken = typeof window !== 'undefined'
         ? localStorage.getItem('pendingInviteToken')
         : null;
       if (pendingToken) {
         setIsInviteFlow(true);
         try { await api.auth.redeemInvite(pendingToken); }
-        catch (redeemErr) { console.warn('[Profile] Invite redemption failed:', redeemErr); }
+        catch (redeemErr) {
+          console.warn('[Profile] Invite redemption failed:', redeemErr);
+          // If invite redemption itself failed, don't keep retrying
+          if (didMount) {
+            setIsInviteFlow(false);
+            setLinkFailed(true);
+            setIsLoading(false);
+          }
+          return;
+        }
       }
       try {
         const response = await api.providers.getProfile();
         if (response.data && didMount) {
           applyProfileData(response.data);
+          setIsInviteFlow(false);
           if (pendingToken) {
             localStorage.removeItem('pendingInviteToken');
             localStorage.removeItem('pendingInviteRfqId');
@@ -133,8 +144,19 @@ export default function ProviderProfilePage() {
         }
       } catch (err) {
         console.warn('[Profile] No provider profile found');
+        // If invite flow, retry up to 2 times with a delay (backend may still be linking)
+        if (pendingToken && retryCount < 2 && didMount) {
+          setTimeout(function() { fetchProvider(retryCount + 1); }, 2000);
+          return;
+        }
+        // After retries exhausted or no invite flow, show failure state
+        if (didMount) {
+          setIsInviteFlow(false);
+          if (pendingToken) setLinkFailed(true);
+        }
       } finally {
-        if (didMount) setIsLoading(false);
+        // Only clear loading when we're not going to retry
+        if (didMount && !(pendingToken && retryCount < 2)) setIsLoading(false);
       }
     }
 
@@ -325,13 +347,35 @@ export default function ProviderProfilePage() {
                 <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <Building2 className="w-8 h-8 text-blue-600" />
                 </div>
-                {isInviteFlow || (user?.roles || []).includes('provider') ? (
+                {isInviteFlow ? (
                   <>
                     <h3 className="text-lg font-semibold mb-2">Linking Your Firm&hellip;</h3>
                     <p className="text-muted-foreground text-sm mb-6">
-                      Your engineering firm is being linked to your account. Please refresh in a moment.
+                      Your engineering firm is being linked to your account. This may take a moment.
                     </p>
                     <Button onClick={function() { window.location.reload(); }} variant="default">Refresh Page</Button>
+                  </>
+                ) : linkFailed ? (
+                  <>
+                    <h3 className="text-lg font-semibold mb-2">Firm Linking Failed</h3>
+                    <p className="text-muted-foreground text-sm mb-6">
+                      We couldn&apos;t link your firm automatically. You can search for your firm to claim it, or try refreshing.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      <Button onClick={function() { router.push('/provider/claim'); }} variant="default">Search &amp; Claim Your Firm</Button>
+                      <Button onClick={function() { window.location.reload(); }} variant="outline">Refresh Page</Button>
+                    </div>
+                  </>
+                ) : (user?.roles || []).includes('provider') ? (
+                  <>
+                    <h3 className="text-lg font-semibold mb-2">No Firm Linked Yet</h3>
+                    <p className="text-muted-foreground text-sm mb-6">
+                      Your account is not yet linked to an engineering firm. Search for your firm to claim it, or add a new one.
+                    </p>
+                    <div className="flex flex-col gap-3">
+                      <Button onClick={function() { router.push('/provider/claim'); }} variant="default">Search &amp; Claim Your Firm</Button>
+                      <Button onClick={function() { router.push('/provider/add-firm'); }} variant="outline">Add New Firm</Button>
+                    </div>
                   </>
                 ) : (
                   <>

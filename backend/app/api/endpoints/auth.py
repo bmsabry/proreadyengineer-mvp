@@ -289,6 +289,7 @@ async def logout(
     db: AsyncSession = Depends(get_db),
 ):
     """Logout current user (revoke refresh token from cookie). Does not require auth so incognito/expired sessions work."""
+    from app.core.config import settings
     is_production = settings.is_production
     cookie_secure = is_production
     cookie_samesite = "none" if is_production else "lax"
@@ -328,6 +329,7 @@ async def logout_all(
 ):
     """Logout from all devices."""
     await revoke_all_user_tokens(db, current_user.id)
+    from app.core.config import settings
     is_production = settings.is_production
     cookie_secure = is_production
     cookie_samesite = "none" if is_production else "lax"
