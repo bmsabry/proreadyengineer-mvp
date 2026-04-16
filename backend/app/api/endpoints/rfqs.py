@@ -353,6 +353,99 @@ async def nda_checkout(
     }
 
 
+@router.post("/rfqs/{rfq_id}/nda/verify-payment")
+async def nda_verify_payment(
+    rfq_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Verify NDA fee payment by cross-referencing Stripe and update PaymentAttempt status.
+
+    Called by the frontend after Stripe redirects back to /nda/{id}/sign?paid=true.
+    Mirrors the RFQ unlock verify-payment pattern: queries Stripe directly so the
+    PaymentAttempt record is updated even if the webhook hasn't arrived yet.
+    """
+    import logging as _logging
+    import uuid as _uuid
+    _log = _logging.getLogger(__name__)
+
+    try:
+        from sqlalchemy import select
+        from app.models.payment import PaymentAttempt
+        from app.models.enums import PaymentStatus
+        from app.services.config_service import get_runtime_config as _grc
+        from datetime import datetime, timezone
+        import stripe
+
+        # Step 1: Parse rfq_id
+        try:
+            rfq_uuid = _uuid.UUID(rfq_id)
+        except (ValueError, AttributeError):
+            return {"verified": False, "reason": "Invalid RFQ ID"}
+
+        # Step 2: Find the most recent NDA fee PaymentAttempt for this rfq+user
+        result = await db.execute(
+            select(PaymentAttempt)
+            .where(
+                PaymentAttempt.related_entity_id == rfq_uuid,
+                PaymentAttempt.purpose == "nda_fee",
+                PaymentAttempt.initiated_by_user_id == current_user.id,
+            )
+            .order_by(PaymentAttempt.initiated_at.desc())
+            .limit(1)
+        )
+        payment = result.scalar_one_or_none()
+
+        if not payment:
+            _log.warning("nda-verify-payment: No NDA payment found for rfq=%s user=%s", rfq_id, current_user.id)
+            return {"verified": False, "reason": "No NDA payment record found."}
+
+        # Step 3: Already completed — nothing to do
+        if str(payment.payment_status) == str(PaymentStatus.COMPLETED):
+            _log.info("nda-verify-payment: Already COMPLETED for rfq=%s", rfq_id)
+            return {"verified": True, "reason": "Payment already verified"}
+
+        # Step 4: Query Stripe directly using stored session ID
+        stripe_session_id = payment.external_payment_id
+        if not stripe_session_id:
+            _log.error("nda-verify-payment: No Stripe session ID for payment %s", payment.id)
+            return {"verified": False, "reason": "Payment session not found."}
+
+        cfg = await _grc(db)
+        stripe.api_key = cfg.get('STRIPE_SECRET_KEY', '') or ''
+        if not stripe.api_key:
+            return {"verified": False, "reason": "Payment system not configured."}
+
+        try:
+            checkout_session = stripe.checkout.Session.retrieve(stripe_session_id)
+            _log.info("nda-verify-payment: Stripe session %s: payment_status=%s",
+                      stripe_session_id, checkout_session.payment_status)
+        except Exception as e:
+            _log.error("nda-verify-payment: Failed to retrieve Stripe session %s: %s", stripe_session_id, e)
+            return {"verified": False, "reason": "Could not verify payment with Stripe."}
+
+        # Step 5: Check if paid
+        if checkout_session.payment_status != "paid":
+            _log.info("nda-verify-payment: Session %s not paid: %s", stripe_session_id, checkout_session.payment_status)
+            return {"verified": False, "reason": f"Payment status: {checkout_session.payment_status}"}
+
+        # Step 6: PAID — update PaymentAttempt to COMPLETED
+        _log.info("nda-verify-payment: Session %s PAID — updating PaymentAttempt", stripe_session_id)
+        payment.payment_status = PaymentStatus.COMPLETED
+        payment.confirmed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+        return {"verified": True, "reason": "Payment verified and confirmed"}
+
+    except Exception as e:
+        _log.exception("nda-verify-payment: Unexpected error: %s", e)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return {"verified": False, "reason": f"Verification error: {type(e).__name__}: {e}"}
+
+
 @router.get("/rfqs/{rfq_id}/status", response_model=RFQStatusResponse)
 async def get_rfq_status(
     rfq_id: str,

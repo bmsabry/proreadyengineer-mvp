@@ -52,10 +52,13 @@ function CustomerNdaSignContent() {
       .catch(() => setSubStatus({ has_active: false, nda_credits_remaining: 0 }));
   }, [authLoading]);
 
-  // Step 3: After Stripe payment redirect (?paid=true), submit RFQ
+  // Step 3: After Stripe payment redirect (?paid=true), verify payment and submit RFQ
   useEffect(() => {
     if (!isPaidReturn || authLoading || submitCalledRef.current) return;
     submitCalledRef.current = true;
+    // Verify payment with Stripe so PaymentAttempt status updates from Initiated to Completed
+    // (belt-and-suspenders: webhook may also do this, but this ensures it happens immediately)
+    api.rfqs.ndaVerifyPayment(rfqId).catch(() => {});
     api.rfqs.submit(rfqId).catch(() => {});
   }, [isPaidReturn, authLoading, rfqId]);
 

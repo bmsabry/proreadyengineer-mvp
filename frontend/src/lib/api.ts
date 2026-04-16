@@ -301,8 +301,11 @@ const rfqs = {
   fileComplete: (rfqId: string, s3Key: string) => 
     apiClient.post(`/rfqs/${rfqId}/files/complete`, { s3_key: s3Key }),
   
-  ndaCheckout: (rfqId: string) => 
+  ndaCheckout: (rfqId: string) =>
     apiClient.post<{ checkout_url: string; payment_attempt_id: string }>(`/rfqs/${rfqId}/nda/checkout`),
+
+  ndaVerifyPayment: (rfqId: string) =>
+    apiClient.post<{ verified: boolean; reason: string }>(`/rfqs/${rfqId}/nda/verify-payment`),
 
   ndaInitiate: (rfqId: string) =>
     apiClient.post<{ signing_url: string; document_id?: string; status?: string }>(`/rfqs/${rfqId}/nda/initiate`),
