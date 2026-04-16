@@ -150,7 +150,8 @@ class User(Base):
         "Subscription", back_populates="user"
     )
     advertisements: Mapped[List["Advertisement"]] = relationship(
-        "Advertisement", back_populates="advertiser_user"
+        "Advertisement", back_populates="advertiser_user",
+        foreign_keys="Advertisement.advertiser_user_id"
     )
     tier_evaluation_requests: Mapped[List["TierEvaluationRequest"]] = relationship(
         "TierEvaluationRequest", back_populates="requested_by_user", foreign_keys="TierEvaluationRequest.requested_by_user_id"

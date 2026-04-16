@@ -125,7 +125,8 @@ class Advertisement(Base):
         "AdSlot", back_populates="advertisements"
     )
     advertiser_user: Mapped["User"] = relationship(
-        "User", back_populates="advertisements"
+        "User", back_populates="advertisements",
+        foreign_keys=[advertiser_user_id]
     )
     provider: Mapped[Optional["Provider"]] = relationship(
         "Provider", back_populates="advertisements"
