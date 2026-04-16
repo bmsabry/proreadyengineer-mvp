@@ -49,14 +49,26 @@ function AdvertiseInner() {
       return;
     }
 
+    // Auto-prepend https:// if user entered a URL without protocol
+    const normalizeUrl = (url: string) => {
+      if (!url) return null;
+      const trimmed = url.trim();
+      if (!trimmed) return null;
+      if (/^https?:\/\//i.test(trimmed)) return trimmed;
+      return `https://${trimmed}`;
+    };
+
+    const normalizedWebsite = normalizeUrl(websiteUrl);
+    const normalizedOutbound = normalizeUrl(outboundUrl);
+
     setIsSubmitting(true);
     try {
       const { apiClient } = await import('@/lib/api');
       const resp = await apiClient.post('/ads/submit', {
         page_type: pageType,
-        website_url: websiteUrl || null,
+        website_url: normalizedWebsite,
         description_text: descriptionText || null,
-        outbound_url: outboundUrl || websiteUrl || null,
+        outbound_url: normalizedOutbound || normalizedWebsite,
       });
       setResult(resp.data);
     } catch (err: any) {
@@ -249,10 +261,10 @@ function AdvertiseInner() {
               Website URL <span className="font-normal text-slate-400">(optional)</span>
             </label>
             <input
-              type="url"
+              type="text"
               value={websiteUrl}
               onChange={e => setWebsiteUrl(e.target.value)}
-              placeholder="https://your-company.com"
+              placeholder="www.your-company.com"
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
             />
             <p className="text-xs text-slate-400 mt-1">We&apos;ll scrape your site to auto-populate your ad content.</p>
@@ -280,10 +292,10 @@ function AdvertiseInner() {
               Click-Through URL <span className="font-normal text-slate-400">(optional)</span>
             </label>
             <input
-              type="url"
+              type="text"
               value={outboundUrl}
               onChange={e => setOutboundUrl(e.target.value)}
-              placeholder="https://your-company.com/product (defaults to website URL)"
+              placeholder="www.your-company.com/product (defaults to website URL)"
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
             />
             <p className="text-xs text-slate-400 mt-1">Where should ad clicks redirect? Defaults to your website URL.</p>
