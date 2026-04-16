@@ -67,43 +67,61 @@ async def create_rfq(
     await db.commit()
     await db.refresh(rfq)
 
-    # If a document was uploaded during search, link it as an RFQFile
+    # ------- Link uploaded documents as RFQFile records -------
+    mime_map = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc": "application/msword",
+        "txt": "text/plain", "md": "text/markdown", "csv": "text/csv",
+        "dwg": "application/acad", "dxf": "application/dxf",
+        "step": "model/step", "stp": "model/step",
+        "iges": "model/iges", "igs": "model/iges",
+        "sldprt": "application/octet-stream", "sldasm": "application/octet-stream",
+        "catpart": "application/octet-stream", "catproduct": "application/octet-stream",
+        "stl": "model/stl",
+        "x_t": "application/octet-stream", "x_b": "application/octet-stream",
+        "prt": "application/octet-stream", "asm": "application/octet-stream",
+    }
+
+    # Multi-file path (new): list of {filename, s3_key, is_cad}
+    doc_s3_keys = getattr(data, "document_s3_keys", None) or []
+    # Single-file backward-compat path
     doc_key = getattr(data, "document_s3_key", None)
-    if doc_key:
+    if doc_key and not doc_s3_keys:
+        # Convert single key to list format for uniform handling
+        filename = doc_key.split("/")[-1] if "/" in doc_key else doc_key
+        doc_s3_keys = [{"filename": filename, "s3_key": doc_key, "is_cad": False}]
+
+    linked_any = False
+    for file_info in doc_s3_keys:
         try:
-            import os as _os
-            filename = doc_key.split("/")[-1] if "/" in doc_key else doc_key
+            s3_key = file_info.get("s3_key") or ""
+            filename = file_info.get("filename") or (s3_key.split("/")[-1] if "/" in s3_key else s3_key)
             ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
-            mime_map = {
-                "pdf": "application/pdf",
-                "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                "doc": "application/msword",
-                "txt": "text/plain",
-                "md": "text/markdown",
-            }
             mime = mime_map.get(ext, "application/octet-stream")
             rfq_file = RFQFile(
                 rfq_id=rfq.id,
-                s3_key=doc_key,
+                s3_key=s3_key,
                 original_filename=filename,
                 mime_type=mime,
-                file_size_bytes=0,  # Size unknown at this point
+                file_size_bytes=0,
                 uploaded_by_user_id=user.id if user else None,
             )
             db.add(rfq_file)
-            await db.commit()
-            logger.info(f"[RFQ] Linked search document to RFQ {rfq.id}: {doc_key}")
+            linked_any = True
+            logger.info(f"[RFQ] Linked document to RFQ {rfq.id}: {s3_key}")
         except Exception as e:
             logger.warning(f"[RFQ] Failed to link document to RFQ (non-fatal): {e}")
 
-    # If document_extracted_text is provided but no S3 key exists,
-    # create an RFQFile record with the text stored inline so providers can download it.
+    if linked_any:
+        rfq.has_documents = True
+        await db.commit()
+
+    # Inline text fallback: if no S3 files but extracted text exists
     extracted_text = getattr(data, "document_extracted_text", None)
-    if not doc_key and extracted_text:
+    if not linked_any and extracted_text:
         try:
             rfq.has_documents = True
-            # Create an RFQFile record to store the extracted text
-            # s3_key='text:inline' is a special marker meaning no real S3 object exists
             text_file = RFQFile(
                 rfq_id=rfq.id,
                 s3_key="text:inline",

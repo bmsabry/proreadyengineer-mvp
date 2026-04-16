@@ -31,8 +31,9 @@ class RFQCreateRequest(BaseSchema):
     urgency: Optional[str] = Field(None, pattern="^(High|Intermediate|Low)$")
     tollgate_phases: list[str] = Field(default_factory=list)  # TG0, TG1, TG3, TG4, TG6, All, Don't Know
     nda_required: bool = False
-    document_s3_key: Optional[str] = Field(None, description="S3 key of document uploaded during search, to be linked as RFQ attachment")
-    document_extracted_text: Optional[str] = Field(None, description="Extracted text from uploaded document when S3 is not available")
+    document_s3_key: Optional[str] = Field(None, description="S3 key of primary document uploaded during search (backward-compat)")
+    document_s3_keys: Optional[list[dict]] = Field(None, description="List of {filename, s3_key, is_cad} for multi-file uploads")
+    document_extracted_text: Optional[str] = Field(None, description="Extracted text from uploaded document(s) when S3 is not available")
 
 
 class RFQUpdateRequest(BaseSchema):

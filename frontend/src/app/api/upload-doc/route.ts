@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
 
     const contentType = backendRes.headers.get('content-type') || '';
     if (!backendRes.ok) {
-      let detail = 'Failed to analyze document';
+      let detail = 'Failed to analyze documents';
       if (contentType.includes('application/json')) {
         const errData = await backendRes.json().catch(() => ({}));
         detail = errData.detail || detail;

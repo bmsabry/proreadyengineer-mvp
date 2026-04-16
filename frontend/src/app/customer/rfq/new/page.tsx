@@ -41,6 +41,15 @@ function CreateRFQForm() {
     }
     return null;
   });
+  const [docS3Files] = useState<Array<{filename: string; s3_key: string; is_cad: boolean}>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = sessionStorage.getItem('docSearchFiles');
+        return raw ? JSON.parse(raw) : [];
+      } catch { return []; }
+    }
+    return [];
+  });
   const [docExtractedText] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('docSearchExtractedText');
@@ -121,11 +130,13 @@ function CreateRFQForm() {
     try {
       const response = await api.rfqs.create({
         ...formData,
-        ...(docS3Key ? { document_s3_key: docS3Key } : {}),
+        ...(docS3Files.length > 0 ? { document_s3_keys: docS3Files } : {}),
+        ...(docS3Key && docS3Files.length === 0 ? { document_s3_key: docS3Key } : {}),
         ...(docExtractedText ? { document_extracted_text: docExtractedText } : {}),
       });
       rfqId = response.data.id;
       if (docS3Key) sessionStorage.removeItem('docSearchS3Key');
+      sessionStorage.removeItem('docSearchFiles');
       sessionStorage.removeItem('docSearchExtractedText');
     } catch (error: any) {
       const msg = error.response?.data?.detail || 'Failed to create RFQ. Please check your details and try again.';

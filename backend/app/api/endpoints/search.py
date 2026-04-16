@@ -389,71 +389,151 @@ async def search_query(
 
 @router.post("/extract-and-describe")
 async def extract_and_describe(
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Extract text from uploaded document and use LLM to generate a search query."""
-    import io as _io
+    """Extract text from uploaded documents and use LLM to generate a search query.
 
-    filename = file.filename or ""
-    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    allowed_exts = {"pdf", "docx", "doc", "txt", "md"}
-    if ext not in allowed_exts:
+    Accepts up to 5 files. Text-readable files (PDF, DOCX, TXT) are extracted
+    and summarised by LLM3. CAD/engineering files (DWG, STEP, IGES, etc.) are
+    stored in S3 and their metadata is passed to the LLM for context, but no
+    text extraction is attempted on binary CAD formats.
+    """
+    import io as _io
+    import re as _re
+
+    if len(files) > 5:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file type .{ext}. Please upload PDF, DOCX, or TXT.",
+            detail="Maximum 5 files allowed per upload.",
         )
 
-    try:
-        content = await file.read()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
+    # --------------- extension / type classification ---------------
+    TEXT_EXTS = {"pdf", "docx", "doc", "txt", "md", "csv"}
+    CAD_EXTS = {
+        "dwg", "dxf",                          # 2D CAD
+        "step", "stp", "iges", "igs",           # 3D interchange
+        "sldprt", "sldasm",                     # SolidWorks
+        "catpart", "catproduct",                # CATIA
+        "stl",                                  # mesh / 3D-print
+        "x_t", "x_b",                           # Parasolid
+        "prt", "asm",                           # NX / Creo
+    }
+    ALLOWED_EXTS = TEXT_EXTS | CAD_EXTS
+    MIME_MAP = {
+        "pdf": "application/pdf",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "doc": "application/msword",
+        "txt": "text/plain", "md": "text/markdown", "csv": "text/csv",
+        "dwg": "application/acad", "dxf": "application/dxf",
+        "step": "model/step", "stp": "model/step",
+        "iges": "model/iges", "igs": "model/iges",
+        "sldprt": "application/octet-stream", "sldasm": "application/octet-stream",
+        "catpart": "application/octet-stream", "catproduct": "application/octet-stream",
+        "stl": "model/stl",
+        "x_t": "application/octet-stream", "x_b": "application/octet-stream",
+        "prt": "application/octet-stream", "asm": "application/octet-stream",
+    }
+    CAD_LABELS = {
+        "dwg": "AutoCAD 2D drawing", "dxf": "DXF 2D drawing",
+        "step": "STEP 3D model", "stp": "STEP 3D model",
+        "iges": "IGES 3D model", "igs": "IGES 3D model",
+        "sldprt": "SolidWorks part", "sldasm": "SolidWorks assembly",
+        "catpart": "CATIA part", "catproduct": "CATIA assembly",
+        "stl": "STL mesh", "x_t": "Parasolid model", "x_b": "Parasolid model",
+        "prt": "NX/Creo part", "asm": "NX/Creo assembly",
+    }
 
-    if len(content) > 26_214_400:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File too large. Maximum 25 MB.",
-        )
+    # --------------- read & classify each file ---------------
+    file_records: list[dict] = []  # {filename, ext, content, is_cad}
+    for f in files:
+        fname = f.filename or ""
+        ext = fname.lower().rsplit(".", 1)[-1] if "." in fname else ""
+        if ext not in ALLOWED_EXTS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported file type .{ext} ({fname}). Accepted: PDF, DOCX, TXT, DWG, STEP, IGES, SolidWorks, CATIA, STL.",
+            )
+        try:
+            content = await f.read()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read {fname}: {e}")
+        if len(content) > 26_214_400:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File {fname} too large. Maximum 25 MB per file.",
+            )
+        file_records.append({
+            "filename": fname, "ext": ext, "content": content,
+            "is_cad": ext in CAD_EXTS,
+        })
 
-    # Extract text in-memory
-    extracted_text = ""
-    try:
-        if ext == "pdf":
-            import pypdf as PyPDF2
-            reader = PyPDF2.PdfReader(_io.BytesIO(content))
-            parts = []
-            for page in reader.pages:
-                t = page.extract_text() or ""
-                if t.strip():
-                    parts.append(t)
-            extracted_text = "\n".join(parts)
-        elif ext == "docx":
-            from docx import Document as DocxDoc
-            doc = DocxDoc(_io.BytesIO(content))
-            parts = [p.text for p in doc.paragraphs if p.text.strip()]
-            extracted_text = "\n".join(parts)
-        else:
-            extracted_text = content.decode("utf-8", errors="ignore")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Text extraction failed: {e}")
+    # --------------- extract text from readable files ---------------
+    text_sections: list[str] = []
+    cad_descriptions: list[str] = []
 
-    if not extracted_text.strip():
+    for rec in file_records:
+        ext, content, fname = rec["ext"], rec["content"], rec["filename"]
+        if rec["is_cad"]:
+            label = CAD_LABELS.get(ext, f".{ext} engineering file")
+            cad_descriptions.append(f"{fname} ({label})")
+            continue
+
+        extracted = ""
+        try:
+            if ext == "pdf":
+                import pypdf as PyPDF2
+                reader = PyPDF2.PdfReader(_io.BytesIO(content))
+                parts = []
+                for page in reader.pages:
+                    t = page.extract_text() or ""
+                    if t.strip():
+                        parts.append(t)
+                extracted = "\n".join(parts)
+            elif ext == "docx":
+                from docx import Document as DocxDoc
+                doc = DocxDoc(_io.BytesIO(content))
+                parts = [p.text for p in doc.paragraphs if p.text.strip()]
+                extracted = "\n".join(parts)
+            else:
+                extracted = content.decode("utf-8", errors="ignore")
+        except Exception as e:
+            logger.warning(f"[DOC_EXTRACT] Text extraction failed for {fname}: {e}")
+            continue
+
+        if extracted.strip():
+            if len(file_records) > 1:
+                text_sections.append(f"=== Document: {fname} ===\n{extracted.strip()}")
+            else:
+                text_sections.append(extracted.strip())
+
+    combined_text = "\n\n".join(text_sections)
+
+    if not combined_text.strip() and not cad_descriptions:
         raise HTTPException(
             status_code=422,
-            detail="No text could be extracted. Ensure the document contains readable text.",
+            detail="No text could be extracted from any file. Ensure at least one document contains readable text, or upload CAD files alongside a text document.",
         )
 
-    text_for_llm = extracted_text
+    # --------------- build file-type metadata header for LLM ---------------
+    metadata_lines: list[str] = []
+    for rec in file_records:
+        if rec["is_cad"]:
+            label = CAD_LABELS.get(rec["ext"], f".{rec['ext']} file")
+            metadata_lines.append(f"- {rec['filename']}: {label} (binary, no text extracted)")
+        else:
+            size_kb = len(rec["content"]) / 1024
+            metadata_lines.append(f"- {rec['filename']}: text document ({size_kb:.0f} KB)")
+    file_manifest = "Files provided by customer:\n" + "\n".join(metadata_lines)
 
-    # Use LLM to generate concise search description
-    # Priority: LLM3 (Document Collapse) -> LLM2 (Firm Ranking) -> raw text fallback
+    # --------------- LLM3 summarisation ---------------
     ai_query = ""
+    config = {}
     try:
         from app.services.config_service import get_runtime_config as _get_runtime_config
         from openai import AsyncOpenAI
         config = await _get_runtime_config(db)
 
-        # Use LLM3 (Document Collapse) keys first; fall back to LLM2 if not configured
         doc_api_key = config.get("DOC_LLM_API_KEY") or ""
         if doc_api_key:
             llm_api_key = doc_api_key
@@ -464,63 +544,101 @@ async def extract_and_describe(
             llm_api_key = config.get("OPENAI_API_KEY") or ""
             llm_base_url = config.get("OPENAI_API_BASE") or "https://api.deepinfra.com/v1/openai"
             llm_model = config.get("OPENAI_LLM_MODEL") or "moonshotai/Kimi-K2.5"
-            logger.info("[DOC_LLM] LLM3 not configured, falling back to LLM2 (Firm Ranking) for document summarization")
+            logger.info("[DOC_LLM] LLM3 not configured, falling back to LLM2 (Firm Ranking)")
 
         if not llm_api_key:
-            logger.warning("[DOC_LLM] No API key configured for document summarization, will use raw text fallback")
             raise ValueError("No LLM API key configured")
 
         client = AsyncOpenAI(api_key=llm_api_key, base_url=llm_base_url)
+
         system_prompt = (
-            "You are an engineering project analyst. A customer uploaded a mechanical engineering "
-            "scope of work document. Extract and summarize in 2-4 concise technical sentences "
-            "suitable as a search query for finding an engineering service provider. "
-            "Cover: (1) analysis type such as CFD, FEA, thermal, structural, or fatigue analysis; "
-            "(2) the application or system being analyzed; "
-            "(3) preparatory work required such as CAD modeling, meshing, or test setup; "
-            "(4) applicable compliance standards such as ASME, MIL-SPEC, FAA, or API. "
-            "Be specific and technical. Do not include company names or prices."
+            "You are a senior mechanical engineering project analyst working for a B2B marketplace "
+            "that matches customers with engineering service providers.\n\n"
+            "A customer uploaded project documents seeking an engineering firm. Your job is to "
+            "extract a rich, search-optimised summary (4-8 sentences) that will be used to find "
+            "the best-matching provider. The downstream search scores providers on: specialty, "
+            "capabilities, software tools, industry domain, project similarity, and certifications.\n\n"
+            "Extract and include ALL of the following that are present or can be inferred:\n"
+            "1. ENGINEERING DISCIPLINE — e.g. mechanical design, structural analysis, thermal-fluid, "
+            "dynamics/vibration, fatigue/fracture, manufacturing engineering, process engineering.\n"
+            "2. SPECIFIC SERVICES NEEDED — e.g. FEA, CFD, hand calculations, design optimisation, "
+            "prototype development, testing, failure analysis, reverse engineering, tolerance analysis.\n"
+            "3. SOFTWARE TOOLS — name every tool mentioned or clearly implied (e.g. ANSYS Mechanical, "
+            "SolidWorks, CATIA, Abaqus, STAR-CCM+, COMSOL, HyperMesh, AutoCAD, NX, Creo, MATLAB). "
+            "If CAD files were uploaded (STEP, DWG, SolidWorks, etc.), infer the associated tools.\n"
+            "4. INDUSTRY / APPLICATION DOMAIN — e.g. oil & gas, aerospace, automotive, medical devices, "
+            "power generation, HVAC, marine, defence, semiconductor, consumer products.\n"
+            "5. CODES, STANDARDS & CERTIFICATIONS — e.g. ASME BPVC Section VIII, API 650, AWS D1.1, "
+            "MIL-STD, FAA DER, ISO 13485, NACE, AISC, ACI, EN 13445.\n"
+            "6. MATERIALS & PROCESSES — e.g. carbon steel, Inconel, titanium, composites, welding, "
+            "CNC machining, casting, forging, additive manufacturing, heat treatment.\n"
+            "7. PROJECT PHASE — e.g. concept design, detailed engineering, prototyping, qualification "
+            "testing, production support. Reference tollgate phases if mentioned (TG0-TG6).\n"
+            "8. COMPLEXITY SIGNALS — pressure, temperature, load cases, safety factors, critical "
+            "dimensions, regulatory submissions, multi-physics coupling.\n\n"
+            "CRITICAL RULES:\n"
+            "- NEVER include company names, personal names, email addresses, phone numbers, "
+            "physical addresses, or any identifying information about the customer.\n"
+            "- NEVER include pricing, cost estimates, or budget figures.\n"
+            "- Be specific and technical. Use exact standard numbers (e.g. 'ASME Section VIII Div 2' "
+            "not just 'pressure vessel code'). Name exact software (e.g. 'ANSYS Fluent' not just 'CFD').\n"
+            "- If the document is vague, infer the most likely disciplines and tools from context.\n"
+            "- Write in plain technical English suitable as a search query."
         )
+
+        # Build user message with file manifest + extracted text
+        user_parts = [file_manifest]
+        if combined_text.strip():
+            # Limit text to ~12k chars to stay within token budgets
+            text_for_llm = combined_text[:12000]
+            user_parts.append(f"\nExtracted document text:\n\n{text_for_llm}")
+        if cad_descriptions:
+            user_parts.append(
+                "\nCAD/engineering files uploaded (binary, no text): "
+                + ", ".join(cad_descriptions)
+                + "\nInfer required software tools and engineering capabilities from these file types."
+            )
+        user_parts.append("\nSearch query:")
+        user_message = "\n".join(user_parts)
+
         response = await client.chat.completions.create(
             model=llm_model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Document:\n\n{text_for_llm}\n\nSearch query:"},
+                {"role": "user", "content": user_message},
             ],
-            
             temperature=0.3,
         )
         msg = response.choices[0].message
         ai_query = (msg.content or "").strip()
         if not ai_query and hasattr(msg, "reasoning_content"):
             ai_query = (getattr(msg, "reasoning_content", "") or "").strip()
+
+        # ---- Post-processing: strip any leaked PII ----
+        # Remove emails, phone numbers, and common address patterns
+        ai_query = _re.sub(r'[\w.+-]+@[\w-]+\.[\w.-]+', '[REDACTED]', ai_query)
+        ai_query = _re.sub(r'(\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', '[REDACTED]', ai_query)
         logger.info(f"[DOC_LLM] Document summarization successful, query length: {len(ai_query)}")
     except Exception as e:
         logger.warning(f"[DOC_LLM] LLM summarization failed: {e}. Will use raw text fallback.")
 
-    # Fallback: use beginning of extracted text
+    # Fallback: use beginning of extracted text (also redacted)
     if not ai_query:
-        ai_query = extracted_text.strip()
+        ai_query = combined_text.strip()[:2000] if combined_text.strip() else "Engineering CAD files uploaded: " + ", ".join(cad_descriptions)
 
-    # Upload document to S3 so it can be linked to an RFQ later
+    # --------------- upload all files to S3 ---------------
+    s3_keys: list[dict] = []  # [{filename, s3_key, is_cad}]
     s3_error_msg: str = ""
-    # Uses runtime DB config for AWS credentials (not static env vars)
-    s3_key = None
     try:
         import uuid as _uuid_mod
         import boto3 as _boto3
         from botocore.config import Config as _BotoConfig
-        ext_lower = ext.lower() if ext else "bin"
-        mime_map = {"pdf": "application/pdf", "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                   "doc": "application/msword", "txt": "text/plain", "md": "text/markdown"}
-        content_type = mime_map.get(ext_lower, "application/octet-stream")
-        # Read AWS credentials from runtime DB config (same source as admin settings)
         aws_access_key = config.get("AWS_ACCESS_KEY_ID") or ""
         aws_secret_key = config.get("AWS_SECRET_ACCESS_KEY") or ""
         aws_region = config.get("AWS_REGION") or "us-east-1"
         bucket_name = config.get("AWS_S3_BUCKET") or settings.S3_BUCKET_NAME or ""
         if not aws_access_key or not aws_secret_key or not bucket_name:
-            raise ValueError(f"AWS S3 not configured in admin settings (key_set={bool(aws_access_key)}, bucket={bucket_name})")
+            raise ValueError(f"AWS S3 not configured (key_set={bool(aws_access_key)}, bucket={bucket_name})")
         s3_client = _boto3.client(
             "s3",
             aws_access_key_id=aws_access_key,
@@ -528,26 +646,38 @@ async def extract_and_describe(
             region_name=aws_region,
             config=_BotoConfig(signature_version="s3v4"),
         )
-        s3_key = f"rfq-documents/{_uuid_mod.uuid4()}/{filename}"
-        s3_client.put_object(
-            Bucket=bucket_name,
-            Key=s3_key,
-            Body=content,
-            ContentType=content_type,
-        )
-        logger.info(f"[DOC_UPLOAD] Document uploaded to S3: {s3_key} (bucket={bucket_name})")
+        upload_group_id = str(_uuid_mod.uuid4())
+        for rec in file_records:
+            content_type = MIME_MAP.get(rec["ext"], "application/octet-stream")
+            s3_key = f"rfq-documents/{upload_group_id}/{rec['filename']}"
+            s3_client.put_object(
+                Bucket=bucket_name, Key=s3_key,
+                Body=rec["content"], ContentType=content_type,
+            )
+            s3_keys.append({
+                "filename": rec["filename"],
+                "s3_key": s3_key,
+                "is_cad": rec["is_cad"],
+            })
+            logger.info(f"[DOC_UPLOAD] Uploaded {rec['filename']} to S3: {s3_key}")
     except Exception as s3_err:
         s3_error_msg = str(s3_err)
-        logger.warning(f"[DOC_UPLOAD] Failed to upload document to S3: {s3_error_msg}")
-        s3_key = None
+        logger.warning(f"[DOC_UPLOAD] S3 upload failed: {s3_error_msg}")
+
+    # Build backward-compatible response (single s3_key) + new multi-file fields
+    primary_s3_key = s3_keys[0]["s3_key"] if s3_keys else None
 
     return {
         "query": ai_query,
-        "extracted_text": extracted_text,
-        "extracted_text_preview": extracted_text[:500],
-        "filename": filename,
-        "s3_key": s3_key,
-        "s3_error": s3_error_msg if s3_key is None else None,
+        "extracted_text": combined_text,
+        "extracted_text_preview": combined_text[:500],
+        "filename": file_records[0]["filename"] if file_records else "",
+        "s3_key": primary_s3_key,
+        "s3_error": s3_error_msg if not s3_keys else None,
+        # New multi-file fields
+        "files": s3_keys,
+        "file_count": len(file_records),
+        "cad_files": cad_descriptions,
     }
 
 

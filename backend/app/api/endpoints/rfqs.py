@@ -19,6 +19,22 @@ from app.services.payment_service import create_payment_intent
 router = APIRouter()
 
 
+def _redact_pii(text: str, business_name: str = "") -> str:
+    """Strip emails, phone numbers, and the customer's business name from teaser text."""
+    import re
+    if not text:
+        return text
+    # Remove email addresses
+    text = re.sub(r'[\w.+-]+@[\w-]+\.[\w.-]+', '[redacted]', text)
+    # Remove phone numbers (US / international)
+    text = re.sub(r'(\+?1?[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})', '[redacted]', text)
+    # Remove the customer's own company name (case-insensitive, whole word)
+    if business_name and len(business_name) >= 3:
+        escaped = re.escape(business_name)
+        text = re.sub(rf'\b{escaped}\b', '[Company]', text, flags=re.IGNORECASE)
+    return text
+
+
 @router.post("/rfqs", response_model=RFQResponse, status_code=status.HTTP_201_CREATED)
 async def create_rfq_endpoint(
     data: RFQCreateRequest,
@@ -718,7 +734,9 @@ async def get_provider_teasers(
             derived_status = "pending"
 
         desc = rfq.project_description or ""
+        biz = rfq.business_name or ""
         preview = (desc[:300] + "...") if len(desc) > 300 else desc
+        preview = _redact_pii(preview, biz)
         teasers.append({
             "rfq_id": rfq_id_str,
             "status": derived_status,
@@ -778,7 +796,9 @@ async def get_rfq_teaser(
     nda_status_val = (nda_row.value if hasattr(nda_row, "value") else str(nda_row)) if nda_row else ("not_required" if not rfq.nda_required else "payment_pending")
 
     desc = rfq.project_description or ""
+    biz = rfq.business_name or ""
     preview = (desc[:300] + "...") if len(desc) > 300 else desc
+    preview = _redact_pii(preview, biz)
 
     return {
         "rfq_id": rfq_id,
@@ -1131,6 +1151,7 @@ async def get_unlock_status(
 
     desc = rfq.project_description or ""
     preview = (desc[:300] + "...") if len(desc) > 300 else desc
+    preview = _redact_pii(preview, rfq.business_name or "")
 
     # Fetch latest NDA status for this RFQ
     from app.models.nda import RFQNDA as _RFQNDA
