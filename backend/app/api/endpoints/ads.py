@@ -135,44 +135,59 @@ IMPORTANT:
     return json.loads(content)
 
 
-async def _fetch_website_for_ad(url: str) -> str:
-    """Fetch a SINGLE page of website text for ad content extraction.
+def _build_provider_profile_text(provider) -> str:
+    """Build a rich text summary from the provider's already-crawled profile data."""
+    parts: list[str] = []
 
-    Lightweight — only fetches the provided URL (no deep crawl).
-    The admin deep-crawl fetches up to 25 pages which times out on
-    Render's 30-second request limit.
-    """
-    import httpx
-    from html.parser import HTMLParser
+    if provider.firm_name:
+        parts.append(f"Company: {provider.firm_name}")
+    if provider.business_description:
+        parts.append(f"Description: {provider.business_description}")
+    if provider.primary_specialty:
+        parts.append(f"Primary Specialty: {provider.primary_specialty}")
+    if provider.specialties:
+        parts.append(f"Specialties: {', '.join(provider.specialties)}")
+    if provider.secondary_specialties:
+        parts.append(f"Secondary Specialties: {', '.join(provider.secondary_specialties)}")
+    if provider.capabilities:
+        parts.append(f"Capabilities: {', '.join(provider.capabilities)}")
+    if provider.software_tools:
+        parts.append(f"Software Tools: {', '.join(provider.software_tools)}")
+    if provider.certifications:
+        parts.append(f"Certifications: {', '.join(provider.certifications)}")
+    if provider.equipment:
+        parts.append(f"Equipment: {', '.join(provider.equipment)}")
+    if provider.notable_clients:
+        parts.append(f"Notable Clients: {provider.notable_clients}")
+    if provider.proven_experience_industries_served:
+        parts.append(f"Industries Served: {', '.join(provider.proven_experience_industries_served)}")
+    if provider.proven_experience_notable_projects:
+        parts.append(f"Notable Projects: {', '.join(provider.proven_experience_notable_projects)}")
+    if provider.proven_experience_case_studies:
+        parts.append(f"Case Studies: {', '.join(provider.proven_experience_case_studies)}")
+    if provider.proven_experience_years_in_business:
+        parts.append(f"Years in Business: {provider.proven_experience_years_in_business}")
+    if provider.proven_experience_project_count:
+        parts.append(f"Project Count: {provider.proven_experience_project_count}")
+    if provider.business_evaluation_employee_count:
+        parts.append(f"Employee Count: {provider.business_evaluation_employee_count}")
+    if provider.business_evaluation_tier:
+        parts.append(f"Business Tier: {provider.business_evaluation_tier}")
+    if provider.website:
+        parts.append(f"Website: {provider.website}")
+    if provider.city and provider.state:
+        parts.append(f"Location: {provider.city}, {provider.state}")
+    if provider.phone:
+        parts.append(f"Phone: {provider.phone}")
+    if provider.email_addresses:
+        emails = provider.email_addresses if isinstance(provider.email_addresses, list) else [provider.email_addresses]
+        parts.append(f"Email: {', '.join(emails[:3])}")
+    if provider.online_presence_linkedin_url:
+        parts.append(f"LinkedIn: {provider.online_presence_linkedin_url}")
+    if provider.team_summary:
+        parts.append(f"Team: {provider.team_summary}")
 
-    class _TextExtractor(HTMLParser):
-        def __init__(self):
-            super().__init__()
-            self._parts: list = []
-            self._skip = False
-        def handle_starttag(self, tag, attrs):
-            if tag in ("script", "style", "nav", "footer", "head", "noscript"):
-                self._skip = True
-        def handle_endtag(self, tag):
-            if tag in ("script", "style", "nav", "footer", "head", "noscript"):
-                self._skip = False
-        def handle_data(self, data):
-            if not self._skip and data.strip():
-                self._parts.append(data.strip())
-
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; ProReadyBot/1.0)"}
-    async with httpx.AsyncClient(headers=headers, timeout=15.0,
-                                  follow_redirects=True, verify=False) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-
-    parser = _TextExtractor()
-    try:
-        parser.feed(resp.text)
-    except Exception:
-        pass
-    text = " ".join(parser._parts)
-    return text[:60000] if text else ""
+    return "\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
@@ -207,46 +222,38 @@ async def submit_ad(
     if membership_row:
         provider_id = membership_row
 
-    # --- Gather content ---
-    website_text: str | None = None
+    # --- Gather content from existing provider profile ---
     source_url = data.website_url
+    if source_url and not source_url.startswith("http"):
+        source_url = "https://" + source_url
 
-    # If they provided a website, scrape it
-    if source_url:
-        if not source_url.startswith("http"):
-            source_url = "https://" + source_url
-        try:
-            website_text = await _fetch_website_for_ad(source_url)
-        except Exception as exc:
-            logger.warning("Ad website fetch failed url=%s err=%s", source_url, exc)
-            # Non-fatal — proceed with description_text only
-
-    # If provider has a website on file and none was supplied, try that
-    if not website_text and provider_id:
+    # Pull the provider's already-crawled profile data from the database
+    # (extracted by the "add firm" workflow — business_description, capabilities,
+    # specialties, certifications, notable_clients, proven_experience, etc.)
+    profile_text: str | None = None
+    if provider_id:
         provider_result = await db.execute(
-            select(Provider.website).where(Provider.id == provider_id)
+            select(Provider).where(Provider.id == provider_id)
         )
-        existing_website = provider_result.scalar_one_or_none()
-        if existing_website and not source_url:
-            source_url = existing_website
-            if not source_url.startswith("http"):
-                source_url = "https://" + source_url
-            try:
-                website_text = await _fetch_website_for_ad(source_url)
-            except Exception as exc:
-                logger.warning("Ad provider website fetch failed url=%s err=%s", source_url, exc)
+        provider_obj = provider_result.scalar_one_or_none()
+        if provider_obj:
+            profile_text = _build_provider_profile_text(provider_obj)
+            if not source_url and provider_obj.website:
+                source_url = provider_obj.website
+                if not source_url.startswith("http"):
+                    source_url = "https://" + source_url
 
-    if not website_text and not data.description_text:
+    if not profile_text and not data.description_text:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Provide either a website URL or description text for ad generation.",
+            detail="No provider profile data found. Please provide a description or ensure your firm profile has been set up.",
         )
 
-    # --- LLM3 extraction ---
+    # --- LLM3 ad generation from existing profile data ---
     try:
         extracted = await _extract_ad_content(
             db,
-            website_text=website_text,
+            website_text=profile_text,
             description_text=data.description_text,
             page_type=data.page_type,
         )
