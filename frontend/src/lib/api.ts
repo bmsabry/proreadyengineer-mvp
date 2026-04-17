@@ -761,3 +761,66 @@ export const customerRfqApi = {
     return res.json();
   },
 };
+
+// --- Help Assistant API ----------------------------------------------------
+
+export interface HelpStatus {
+  authenticated: boolean;
+  has_access: boolean;
+  reason: 'admin' | 'paid_subscription' | 'not_authenticated' | 'no_active_subscription' | string;
+  remaining_today: number | null;
+  daily_limit: number;
+}
+
+export interface HelpChatTurn {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface HelpChatResponse {
+  reply: string;
+  error?: string | null;
+  remaining_today?: number | null;
+}
+
+export const helpApi = {
+  status: async (): Promise<HelpStatus> => {
+    const res = await fetch(`${API_URL}/api/v1/help/status`, {
+      method: 'GET', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (\!res.ok) throw new Error(`help status failed: ${res.status}`);
+    return res.json();
+  },
+  manual: async (): Promise<{ markdown: string }> => {
+    const res = await fetch(`${API_URL}/api/v1/help/manual`, {
+      method: 'GET', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (\!res.ok) throw new Error(`help manual failed: ${res.status}`);
+    return res.json();
+  },
+  chat: async (message: string, history: HelpChatTurn[]): Promise<HelpChatResponse> => {
+    const res = await fetch(`${API_URL}/api/v1/help/chat`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history }),
+    });
+    if (res.status === 402) {
+      const body = await res.json().catch(() => ({}));
+      const err: Error & { code?: number; detail?: unknown } = new Error('subscription_required');
+      err.code = 402;
+      err.detail = body?.detail;
+      throw err;
+    }
+    if (res.status === 429) {
+      const body = await res.json().catch(() => ({}));
+      const err: Error & { code?: number; detail?: unknown } = new Error('rate_limited');
+      err.code = 429;
+      err.detail = body?.detail;
+      throw err;
+    }
+    if (\!res.ok) throw new Error(`help chat failed: ${res.status}`);
+    return res.json();
+  },
+};

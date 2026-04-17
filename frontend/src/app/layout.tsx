@@ -5,6 +5,7 @@ import { Toaster } from '@/components/ui/toaster';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { ConfigProvider } from '@/contexts/ConfigContext';
 import { SetupWrapper } from '@/components/setup/SetupWrapper';
+import HelpChatWidget from '@/components/help/HelpChatWidget';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -29,6 +30,7 @@ export default function RootLayout({
           <AuthProvider>
             {children}
             <SetupWrapper />
+            <HelpChatWidget />
             <Toaster />
           </AuthProvider>
         </ConfigProvider>

@@ -29,6 +29,7 @@ from app.api.endpoints import (
     ads_router,
     admin_router,
     campaigns_router,
+    help_router,
 )
 from app.api.endpoints.internal import router as internal_router
 
@@ -192,6 +193,7 @@ def create_application() -> FastAPI:
     app.include_router(admin_router, prefix="/api/v1", tags=["Admin"])
     app.include_router(campaigns_router, prefix="/api/v1", tags=["Campaigns"])
     app.include_router(support_router, prefix="/api/v1", tags=["Support"])
+    app.include_router(help_router, prefix="/api/v1", tags=["Help"])
     app.include_router(internal_router, prefix="/api/v1", tags=["internal"])
     # ALSO register internal router at root prefix so BOTH URLs work:
     # /internal/cron/dispatch-rfq-batches (Render cron job historical URL)

@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
+import HelpTip from '@/components/ui/HelpTip';
 import { Search, Users, Building2, Megaphone, LogOut, LayoutDashboard, Cpu, ChevronRight } from 'lucide-react';
 
 function Footer() {
@@ -154,6 +155,7 @@ export default function LandingPage() {
                 <Button type="submit" className="h-14 px-8 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold shadow-sm transition-colors duration-150 flex-shrink-0">
                   Search
                 </Button>
+                <span className="flex items-center pl-1"><HelpTip id="search.query" size={18} /></span>
               </form>
               <p className="mt-4 text-sm text-slate-400">
                 Or{' '}

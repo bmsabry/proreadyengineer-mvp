@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import HelpTip from '@/components/ui/HelpTip';
 import { toast } from 'sonner';
 import { ChevronLeft, ArrowRight, Lock, CheckCircle2 } from 'lucide-react';
 
@@ -287,8 +288,9 @@ function CreateRFQForm() {
             </h2>
             <div className="space-y-5">
               <div>
-                <Label htmlFor="description" className="text-sm font-medium text-slate-700 mb-1.5 block">
+                <Label htmlFor="description" className="text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
                   Project Description *
+                  <HelpTip id="rfq.description" />
                 </Label>
                 <Textarea
                   id="description"
@@ -321,8 +323,9 @@ function CreateRFQForm() {
                 </Select>
               </div>
               <div>
-                <Label className="text-sm font-medium text-slate-700 mb-2 block">
+                <Label className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   Tollgate Phases
+                  <HelpTip id="rfq.tollgate" />
                 </Label>
                 <p className="text-xs text-slate-500 mb-3">Select all phases relevant to your project. You don&apos;t need to complete every phase.</p>
                 <div className="grid grid-cols-2 gap-2">
@@ -377,6 +380,7 @@ function CreateRFQForm() {
                 <div className="flex items-center gap-2 mb-1">
                   <Lock className="w-4 h-4 text-slate-500 flex-shrink-0" />
                   <span className="text-sm font-semibold text-slate-800">Require NDA</span>
+                  <HelpTip id="rfq.nda" />
                   <span className="text-xs font-medium bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">+$10 handling fee</span>
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
