@@ -4,7 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Building2, Search, Loader2, ExternalLink, CheckCircle, Sparkles } from 'lucide-react';
 
-const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://proreadyengineer-api.onrender.com/api/v1';
+// Normalize API base so `${apiBase}/ads/...` always produces `.../api/v1/ads/...`
+// regardless of whether NEXT_PUBLIC_API_URL is set with or without the /api/v1 suffix.
+const _rawApiBase = process.env.NEXT_PUBLIC_API_URL || 'https://proreadyengineer-api.onrender.com';
+const apiBase = _rawApiBase.replace(/\/+$/, '').replace(/\/api\/v1$/, '') + '/api/v1';
 
 function getAuthHeaders(): HeadersInit {
   const h: Record<string, string> = { 'Content-Type': 'application/json' };
