@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
-import { api } from '@/lib/api';
+import { api, apiClient } from '@/lib/api';
 import { RFQTeaser, Quote } from '@/types';
 import { formatDate } from '@/lib/utils';
 import {
@@ -69,17 +69,25 @@ interface ProviderAd {
 function AdvertisementStatusCard() {
   const [ads, setAds] = useState<ProviderAd[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const fetchAds = async () => {
     try {
-      const { apiClient } = await import('@/lib/api');
       const resp = await apiClient.get('/advertiser/ads/me');
-      setAds(Array.isArray(resp.data) ? resp.data : []);
-    } catch {
-      // silent - user may not have any ads yet
+      const list = Array.isArray(resp.data) ? resp.data : [];
+      setAds(list);
+      setFetchError(null);
+      // eslint-disable-next-line no-console
+      console.log('[AdStatusCard] /advertiser/ads/me returned', list.length, 'ad(s)', list.map((a: any) => ({ id: a.id, ad_status: a.ad_status, title: a.title })));
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail || err?.message || 'unknown error';
+      setFetchError(`HTTP ${status ?? '?'}: ${detail}`);
+      // eslint-disable-next-line no-console
+      console.error('[AdStatusCard] fetch failed', err);
     } finally {
       setLoading(false);
     }
@@ -109,9 +117,8 @@ function AdvertisementStatusCard() {
     setCheckoutLoading(true);
     setCheckoutError(null);
     try {
-      const { apiClient } = await import('@/lib/api');
       const resp = await apiClient.post(`/ads/${adId}/checkout-session`);
-      const data = resp.data || {};
+      const data = resp.data;
       if (data.already_paid) {
         window.location.reload();
         return;
@@ -128,8 +135,34 @@ function AdvertisementStatusCard() {
     }
   };
 
-  // Still loading / no ad at all -> show the original static CTA.
-  if (loading || !ad) {
+  // ── Loading shimmer ────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center gap-3">
+        <Loader2 className="h-4 w-4 text-slate-400 animate-spin shrink-0" />
+        <p className="text-xs text-slate-500">Loading ad status…</p>
+      </div>
+    );
+  }
+
+  // ── Error state — show explicit diagnostic so we never silently
+  //    fall back to a static CTA when the endpoint is failing.
+  if (fetchError) {
+    return (
+      <div className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 flex items-start gap-2">
+        <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold text-red-700">Could not load ad status</p>
+          <p className="text-[10px] text-red-600 truncate">{fetchError}</p>
+          <button type="button" onClick={() => { setLoading(true); fetchAds(); }} className="text-[10px] text-red-700 font-semibold underline mt-1">Retry</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No ads at all — show a clearly-NEW CTA (different text from the old
+  //    static one so we can tell at a glance whether the new code shipped).
+  if (!ad) {
     return (
       <Link href="/provider/advertise">
         <div className="mt-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50 p-3 flex items-center gap-3 hover:shadow-sm hover:border-violet-300 transition-all cursor-pointer group">
@@ -137,8 +170,8 @@ function AdvertisementStatusCard() {
             <Megaphone className="h-4 w-4 text-violet-600" />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-bold text-slate-900 group-hover:text-violet-700 transition-colors">Advertise with Us</p>
-            <p className="text-[10px] text-slate-500">Promote your services - $50/month</p>
+            <p className="text-xs font-bold text-slate-900 group-hover:text-violet-700 transition-colors">Start an ad ($50/mo)</p>
+            <p className="text-[10px] text-slate-500">No ads yet — click to create one</p>
           </div>
           <ArrowRight className="h-3.5 w-3.5 text-violet-400 group-hover:text-violet-600 transition-colors shrink-0" />
         </div>
