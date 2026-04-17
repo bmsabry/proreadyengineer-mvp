@@ -51,6 +51,16 @@ export default function LandingPage() {
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    // Providers can't search for/hire other engineering firms. Send them to their dashboard.
+    if (user) {
+      const roles = user.roles || [];
+      const isProvider = roles.includes('provider');
+      const isCustomerOrAdmin = roles.includes('customer') || roles.includes('admin');
+      if (isProvider && !isCustomerOrAdmin) {
+        router.push('/provider/dashboard');
+        return;
+      }
+    }
     if (searchQuery.trim()) {
       router.push(`/search?q=${encodeURIComponent(searchQuery)}`);
     }

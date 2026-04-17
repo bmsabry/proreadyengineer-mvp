@@ -86,6 +86,18 @@ function SearchPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { user, logout } = useAuth();
+
+  // Block providers from using customer project search
+  useEffect(() => {
+    if (user) {
+      const roles = user.roles || [];
+      const isCustomerOrAdmin = roles.includes('customer') || roles.includes('admin');
+      const isProvider = roles.includes('provider');
+      if (isProvider && !isCustomerOrAdmin) {
+        router.replace('/provider/dashboard');
+      }
+    }
+  }, [user, router]);
   const initialQuery = searchParams.get("q") || "";
   const rfqMode = searchParams.get("rfq") === "1";
   const [query, setQuery] = useState(initialQuery);

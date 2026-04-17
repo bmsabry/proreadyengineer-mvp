@@ -147,3 +147,22 @@ def get_client_ip(request: Request) -> str:
 
 # Alias for compatibility with endpoint imports
 get_current_user_optional = get_optional_user
+
+def reject_provider_only(current_user):
+    """
+    Raise 403 if the current user is a provider who is NOT also a customer or admin.
+    Anonymous (None) users are allowed. Customer/admin users are allowed.
+    Used to gate customer-only actions (RFQ submission, project search) so providers
+    cannot shop the marketplace using their provider account.
+    """
+    if current_user is None:
+        return
+    roles = set(current_user.roles or [])
+    is_provider = "provider" in roles
+    is_customer_or_admin = "customer" in roles or "admin" in roles
+    if is_provider and not is_customer_or_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Provider accounts cannot submit RFQs or search for firms. Please use a customer account.",
+        )
+

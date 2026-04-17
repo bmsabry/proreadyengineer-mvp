@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import {
@@ -69,6 +70,19 @@ function getFileCategory(file: File): string {
 
 export default function UploadPage() {
   const router = useRouter();
+  const { user } = useAuth();
+
+  // Block providers from uploading project specs for search
+  useEffect(() => {
+    if (user) {
+      const roles = user.roles || [];
+      const isCustomerOrAdmin = roles.includes('customer') || roles.includes('admin');
+      const isProvider = roles.includes('provider');
+      if (isProvider && !isCustomerOrAdmin) {
+        router.replace('/provider/dashboard');
+      }
+    }
+  }, [user, router]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);

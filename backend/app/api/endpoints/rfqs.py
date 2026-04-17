@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 
-from app.api.deps import get_db, get_current_active_user, get_current_user, get_current_user_optional, get_client_ip
+from app.api.deps import get_db, get_current_active_user, get_current_user, get_current_user_optional, get_client_ip, reject_provider_only
 from app.schemas.rfq import (
     RFQCreateRequest, RFQResponse, RFQStatusResponse,
     RFQMatchResponse, RFQFileUploadResponse,
@@ -42,6 +42,7 @@ async def create_rfq_endpoint(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Create a new RFQ (anonymous or authenticated)."""
+    reject_provider_only(current_user)
     from sqlalchemy.orm import selectinload
     from app.models.rfq import RFQ as _RFQ
     rfq = await create_rfq(db, data, current_user)

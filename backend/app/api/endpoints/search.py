@@ -18,7 +18,7 @@ from fastapi import UploadFile, File, APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_client_ip, get_current_user_optional, get_db
+from app.api.deps import get_client_ip, get_current_user_optional, get_db, reject_provider_only
 from app.core.config import settings
 from app.models.provider import Provider
 from app.models.search import SearchRequest as SearchRequestModel
@@ -243,6 +243,7 @@ async def search_query(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Search providers with natural language query."""
+    reject_provider_only(current_user)
     global _last_search_error
 
     user_id = current_user.id if current_user else None
@@ -693,6 +694,7 @@ async def upload_initiate(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """Get presigned URL for document upload."""
+    reject_provider_only(current_user)
     import uuid
     key = f"search-uploads/{current_user.id if current_user else 'anon'}/{uuid.uuid4()}/{filename}"
     url_data = generate_upload_url(key, content_type)
