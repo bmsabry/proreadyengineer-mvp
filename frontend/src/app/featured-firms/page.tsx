@@ -268,23 +268,33 @@ export default function FeaturedFirmsPage() {
   const [isSearchResult, setIsSearchResult] = useState(false);
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [diagnostics, setDiagnostics] = useState<any>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const PAGE_SIZE = 24;
 
   const fetchAds = useCallback(async (p: number) => {
     setLoading(true);
+    setFetchError(null);
     try {
       const res = await fetch(`${apiBase}/ads/featured-firms?page=${p}&page_size=${PAGE_SIZE}`, {
         credentials: 'include',
         headers: getAuthHeaders(),
       });
-      if (res.ok) {
+      if (!res.ok) {
+        setFetchError(`HTTP ${res.status}: ${res.statusText}`);
+      } else {
         const data = await res.json();
         const list: Ad[] = data.advertisements ?? data.ads ?? data.items ?? [];
         setAds(list);
         setTotalCount(data.total_count ?? list.length);
+        setDiagnostics(data.diagnostics ?? null);
         setIsSearchResult(false);
+        // eslint-disable-next-line no-console
+        console.log('[featured-firms] fetch ok, ads:', list.length, 'diagnostics:', data.diagnostics);
       }
-    } catch (err) {
+    } catch (err: any) {
+      const msg = err?.message || 'unknown error';
+      setFetchError(msg);
       console.error('Failed to load featured firm ads:', err);
     } finally {
       setLoading(false);
@@ -416,20 +426,62 @@ export default function FeaturedFirmsPage() {
             <span className="ml-4 text-slate-500">Loading featured firms&hellip;</span>
           </div>
         ) : ads.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <Building2 className="h-12 w-12 text-slate-300 mb-4" />
-            <h3 className="text-lg font-bold text-slate-700 mb-2">
-              {isSearchResult ? 'No matching firms found' : 'No featured firms yet'}
-            </h3>
-            <p className="text-sm text-slate-500 mb-6 max-w-md">
-              {isSearchResult
-                ? 'Try a different search term or browse all firms.'
-                : 'Be the first to feature your engineering firm here!'}
-            </p>
-            {isSearchResult && (
-              <button onClick={handleClearSearch} className="text-sm text-[#0F2B54] font-medium hover:underline">
-                View all firms
-              </button>
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            {fetchError ? (
+              <>
+                <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mb-4">
+                  <svg className="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                </div>
+                <h3 className="text-lg font-bold text-slate-700 mb-2">Could not load featured firms</h3>
+                <p className="text-sm text-red-600 mb-6 max-w-md">{fetchError}</p>
+                <button onClick={() => fetchAds(1)} className="text-sm text-[#0F2B54] font-semibold hover:underline">Retry</button>
+              </>
+            ) : (
+              <>
+                <Building2 className="h-12 w-12 text-slate-300 mb-4" />
+                <h3 className="text-lg font-bold text-slate-700 mb-2">
+                  {isSearchResult ? 'No matching firms found' : 'No featured firms yet'}
+                </h3>
+                <p className="text-sm text-slate-500 mb-4 max-w-md">
+                  {isSearchResult
+                    ? 'Try a different search term or browse all firms.'
+                    : 'Be the first to feature your engineering firm here!'}
+                </p>
+                {!isSearchResult && diagnostics && diagnostics.total_in_db > 0 && (
+                  <div className="mt-2 max-w-lg w-full text-left bg-amber-50 border border-amber-200 rounded-xl p-4">
+                    <p className="text-xs font-bold text-amber-900 uppercase tracking-wider mb-2">Status</p>
+                    <p className="text-sm text-amber-900 mb-3">
+                      There {diagnostics.total_in_db === 1 ? 'is' : 'are'} <strong>{diagnostics.total_in_db}</strong> ad{diagnostics.total_in_db === 1 ? '' : 's'} in the system but none are currently published. Ads appear here once they reach <code className="bg-amber-100 px-1 py-0.5 rounded text-[11px]">active</code> status.
+                    </p>
+                    <div className="text-xs text-amber-800">
+                      <p className="font-semibold mb-1">Current ad statuses:</p>
+                      <ul className="space-y-0.5">
+                        {Object.entries(diagnostics.status_counts as Record<string, number>).map(([k, v]) => (
+                          <li key={k} className="flex justify-between">
+                            <code className="bg-amber-100 px-1.5 py-0.5 rounded text-[11px]">{k}</code>
+                            <span className="font-semibold">{v}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      {(diagnostics.status_counts?.reserved_checkout_pending ?? 0) > 0 && (
+                        <p className="mt-3 text-amber-900">A payment was started but the Stripe webhook did not fire to activate it. Admin: verify <code className="bg-amber-100 px-1 py-0.5 rounded text-[11px]">STRIPE_WEBHOOK_SECRET</code> on Render.</p>
+                      )}
+                      {(diagnostics.status_counts?.pending_review ?? 0) > 0 && (
+                        <p className="mt-3 text-amber-900">Ad{(diagnostics.status_counts.pending_review as number) === 1 ? ' is' : 's are'} waiting for admin review.</p>
+                      )}
+                      {(diagnostics.status_counts?.processing ?? 0) > 0 && (
+                        <p className="mt-3 text-amber-900">Ad{(diagnostics.status_counts.processing as number) === 1 ? ' is' : 's are'} still being generated by the LLM.</p>
+                      )}
+                    </div>
+                    <p className="mt-3 text-[10px] text-amber-700/70 font-mono">{diagnostics.endpoint_version}</p>
+                  </div>
+                )}
+                {isSearchResult && (
+                  <button onClick={handleClearSearch} className="text-sm text-[#0F2B54] font-medium hover:underline mt-4">
+                    View all firms
+                  </button>
+                )}
+              </>
             )}
           </div>
         ) : (

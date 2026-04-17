@@ -680,6 +680,63 @@ async def get_software_provider_ads(
     }
 
 
+@router.get("/ads/_status_summary")
+async def ads_status_summary(db: AsyncSession = Depends(get_db)):
+    """PUBLIC diagnostic. Lists how many ads are in each status and each
+    page_type, plus the N most recently touched ads (title/status/
+    page_type only, no PII). Lets us debug 'my ad is active but not
+    showing' from a browser without admin access.
+
+    Includes an `endpoint_version` string so we can verify which build
+    of the backend is actually serving.
+    """
+    from app.models.advertising import Advertisement
+    from app.models.enums import AdStatus
+
+    status_counts: dict = {}
+    for st in AdStatus:
+        r = await db.execute(
+            select(func.count()).select_from(Advertisement).where(
+                Advertisement.ad_status == st.value
+            )
+        )
+        c = r.scalar() or 0
+        if c:
+            status_counts[st.value] = c
+
+    page_type_counts: dict = {}
+    r = await db.execute(
+        select(Advertisement.page_type, func.count()).group_by(Advertisement.page_type)
+    )
+    for pt, c in r.all():
+        page_type_counts[pt or "<null>"] = c
+
+    r = await db.execute(
+        select(Advertisement)
+        .order_by(Advertisement.created_at.desc())
+        .limit(10)
+    )
+    recents = []
+    for a in r.scalars().all():
+        recents.append({
+            "id": str(a.id),
+            "title": (a.title or "")[:80],
+            "ad_status": str(a.ad_status),
+            "page_type": a.page_type,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "started_at": a.started_at.isoformat() if a.started_at else None,
+        })
+
+    return {
+        "endpoint_version": "v3_2026_04_17_show_all_active_with_diagnostics",
+        "status_counts": status_counts,
+        "page_type_counts": page_type_counts,
+        "recent_ads": recents,
+        "total_ads": sum(status_counts.values()),
+        "active_count": status_counts.get("active", 0),
+    }
+
+
 @router.get("/ads/featured-firms")
 async def get_featured_firm_ads(
     page: int = Query(1, ge=1),
@@ -725,11 +782,32 @@ async def get_featured_firm_ads(
         )
         await db.commit()
 
+    # Always include a small diagnostics block so /featured-firms empty state
+    # can tell the user WHY there are no ads (deploy not live, no active ads
+    # yet, ads still in reserved_checkout_pending because Stripe webhook did
+    # not fire, etc.). This makes the empty state actionable instead of a
+    # dead end.
+    diag_status_counts: dict = {}
+    for st in AdStatus:
+        r = await db.execute(
+            select(func.count()).select_from(Advertisement).where(
+                Advertisement.ad_status == st.value
+            )
+        )
+        c = r.scalar() or 0
+        if c:
+            diag_status_counts[st.value] = c
+
     return {
         "advertisements": [_to_public_response(a) for a in ads],
         "total_count": total,
         "page": page,
         "page_size": page_size,
+        "diagnostics": {
+            "endpoint_version": "v3_2026_04_17_show_all_active",
+            "status_counts": diag_status_counts,
+            "total_in_db": sum(diag_status_counts.values()),
+        },
     }
 
 
