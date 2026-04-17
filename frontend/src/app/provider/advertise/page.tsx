@@ -31,6 +31,8 @@ function AdvertiseInner() {
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   // Load existing ads
   useEffect(() => {
@@ -205,14 +207,7 @@ function AdvertiseInner() {
     );
   }
 
-  // Success / status-feedback state (persistent until dismissed).
-  // Once an ad is submitted, we stay on this screen and poll; if the admin
-  // approves or rejects it the screen updates in place. User must click
-  // Dismiss to return to the submission form (persisted via localStorage so
-  // that a refresh does not lose the approval/rejection message).
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
-
+  // Success / status-feedback state persists until dismissed.
   const startAdCheckout = async (adId: string) => {
     if (!adId) return;
     setCheckoutLoading(true);
