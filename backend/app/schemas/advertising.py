@@ -11,7 +11,7 @@ from app.schemas.base import BaseSchema, ResponseSchema
 
 # Ad enums as Literals
 AdStatus = Literal[
-    "empty", "pending_review", "reserved_checkout_pending",
+    "empty", "processing", "pending_review", "reserved_checkout_pending",
     "active", "paused", "cancelled", "expired", "rejected",
 ]
 
