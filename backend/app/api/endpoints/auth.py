@@ -141,6 +141,88 @@ async def register(
             _log2.getLogger(__name__).error(f"INVITE PROCESSING FAILED for user {user.email}: {_inv_err}", exc_info=True)
             # Non-fatal: registration still succeeds, profile page will use linked_provider_id fallback
 
+
+    # ---------------------------------------------------------------
+    # Directory self-claim path (no invite_token, but provider_id was
+    # sent from the register form after the user searched-and-selected
+    # their firm). Link the user to that provider ONLY if the register
+    # email matches one of the directory email addresses on file for
+    # that provider. This is safe because the match proves the caller
+    # controls the email the directory has listed for that firm.
+    # ---------------------------------------------------------------
+    if not has_valid_invite and getattr(data, "provider_id", None):
+        import logging as _log
+        _logger = _log.getLogger(__name__)
+        try:
+            from app.models.provider import (
+                Provider as _Prov,
+                ProviderMembership as _Mbr,
+                MembershipRole as _Role,
+                MembershipStatus as _MStat,
+            )
+            from sqlalchemy import select as _sel
+            prov_row = (
+                await db.execute(_sel(_Prov).where(_Prov.id == int(data.provider_id)))
+            ).scalar_one_or_none()
+            if prov_row is not None:
+                reg_email = (user.email or "").strip().lower()
+                directory_emails = [
+                    (e or "").strip().lower()
+                    for e in (prov_row.email_addresses or [])
+                    if e
+                ]
+                if reg_email and reg_email in directory_emails:
+                    # Link the user to the provider
+                    try:
+                        user.linked_provider_id = prov_row.id
+                    except Exception as _col_err:
+                        _logger.warning(
+                            "Could not set linked_provider_id during self-claim: %s",
+                            _col_err,
+                        )
+                    existing = (
+                        await db.execute(
+                            _sel(_Mbr).where(
+                                _Mbr.user_id == user.id,
+                                _Mbr.provider_id == prov_row.id,
+                            )
+                        )
+                    ).scalar_one_or_none()
+                    if not existing:
+                        db.add(
+                            _Mbr(
+                                provider_id=prov_row.id,
+                                user_id=user.id,
+                                membership_role=_Role.OWNER,
+                                status=_MStat.ACTIVE,
+                                created_by=user.id,
+                                invite_email=user.email,
+                            )
+                        )
+                    if "provider" not in (user.roles or []):
+                        user.roles = list(user.roles or []) + ["provider"]
+                    # Directory-email match is a strong signal — auto-verify
+                    user.email_verified = True
+                    user.email_verify_token_hash = None
+                    user.email_verify_token_expires_at = None
+                    await db.commit()
+                    await db.refresh(user)
+                    _logger.info(
+                        "Self-claim link succeeded: user=%s provider=%s",
+                        user.email, prov_row.id,
+                    )
+                else:
+                    _logger.warning(
+                        "Self-claim refused: register email %s not in provider %s directory emails %s",
+                        reg_email, prov_row.id, directory_emails,
+                    )
+        except Exception as _sc_err:
+            import logging as _log2
+            _log2.getLogger(__name__).error(
+                "Self-claim processing failed for user %s: %s",
+                user.email, _sc_err, exc_info=True,
+            )
+
     # Determine if email verification is pending
     email_verification_required = settings.REQUIRE_EMAIL_VERIFICATION and not user.email_verified
 

@@ -243,6 +243,9 @@ function RegisterPageContent() {
       }
       if (fd.company_name.trim()) body.company_name = fd.company_name.trim();
       if (fd.phone.trim()) body.phone = fd.phone.trim();
+      if (selectedProvider && selectedProvider.id) {
+        body.provider_id = selectedProvider.id;
+      }
 
       const regRes = await api.auth.register(body as unknown as Parameters<typeof api.auth.register>[0]);
       const regData = regRes?.data as { access_token?: string } | undefined;

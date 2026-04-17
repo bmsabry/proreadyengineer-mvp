@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
@@ -445,7 +445,7 @@ interface UserSubscription {
 }
 
 function ProviderAnalyticsPanel({
-  teasers, quotes, hasMembership, user, contactedRfqIds, providerSubStatus, userSubs,
+  teasers, quotes, hasMembership, user, contactedRfqIds, providerSubStatus, userSubs, onCancelSub,
 }: {
   teasers: RFQTeaser[];
   quotes: Quote[];
@@ -454,7 +454,10 @@ function ProviderAnalyticsPanel({
   contactedRfqIds: string[];
   providerSubStatus?: { has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null } | null;
   userSubs: UserSubscription[];
+  onCancelSub: (id: string) => Promise<void>;
 }) {
+  const [cancellingId, setCancellingId] = React.useState<string | null>(null);
+
   const CLOSED_STATUSES = ['customer_selected_provider', 'closed_no_selection', 'cancelled'];
 
   const totalReceived = teasers.length;
@@ -687,6 +690,31 @@ function ProviderAnalyticsPanel({
                         <p className="mt-1 text-[10px] text-amber-700 leading-snug">{sub.warning}</p>
                       )}
                     </div>
+                    <div className="flex-shrink-0">
+                      {sub.cancel_at ? (
+                        <span className="text-[10px] text-amber-600 font-semibold">Cancelling</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={cancellingId === sub.id}
+                          onClick={async () => {
+                            const confirmMsg = sub.billing_interval === 'one_time'
+                              ? 'Pause this ad now? It will no longer be shown.'
+                              : `Cancel ${sub.label}? You\'ll keep access until the end of the current billing period.`;
+                            if (typeof window !== 'undefined' && !window.confirm(confirmMsg)) return;
+                            setCancellingId(sub.id);
+                            try {
+                              await onCancelSub(sub.id);
+                            } finally {
+                              setCancellingId(null);
+                            }
+                          }}
+                          className="text-[10px] font-semibold text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {cancellingId === sub.id ? 'Cancelling...' : 'Cancel'}
+                        </button>
+                      )}
+                    </div>
                   </li>
                 );
               })}
@@ -740,6 +768,21 @@ function ProviderDashboardInner() {
     cancel_at: string | null;
   } | null>(null);
   const [userSubs, setUserSubs] = useState<UserSubscription[]>([]);
+
+  const handleCancelSub = async (id: string) => {
+    try {
+      const res = await api.billing.cancelUserSubscriptionById(id);
+      const fresh = await api.billing.getUserSubscriptions().catch(() => null);
+      if (fresh && fresh.data) setUserSubs(fresh.data.subscriptions || []);
+      const msg = res.data?.effective === 'immediate'
+        ? 'Subscription cancelled.'
+        : 'Cancellation scheduled. You keep access until the end of the current billing period.';
+      try { const { toast } = await import('sonner'); toast.success(msg); } catch { /* no-op */ }
+    } catch (err: any) {
+      try { const { toast } = await import('sonner'); toast.error(err?.response?.data?.detail || 'Failed to cancel subscription.'); } catch { /* no-op */ }
+    }
+  };
+
   const [isLoading, setIsLoading] = useState(true);
   const [contactedRfqIds, setContactedRfqIds] = useState<string[]>([]);
   const [paymentBanner, setPaymentBanner] = useState<string | null>(null);
@@ -884,6 +927,7 @@ function ProviderDashboardInner() {
               contactedRfqIds={contactedRfqIds}
               providerSubStatus={providerSubStatus}
               userSubs={userSubs}
+              onCancelSub={handleCancelSub}
             />
           </div>
           {/* RFQ Cards */}

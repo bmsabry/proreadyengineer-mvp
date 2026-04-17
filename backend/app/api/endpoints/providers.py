@@ -96,6 +96,43 @@ async def get_provider_profile(
                 provider_id_to_link = dispatch.provider_id
                 _logger.info(f"Found dispatch email match: provider_id={provider_id_to_link}")
 
+        # 4. Directory email-match fallback: if the user's login email appears
+        #    in any Provider.email_addresses list, auto-link to that provider.
+        #    This self-heals users who registered via the search-and-claim form
+        #    on a build that predated the register-time linking path.
+        if not provider_id_to_link:
+            from sqlalchemy import func as _fn, cast as _cast, String as _Str
+            try:
+                email_lc = (current_user.email or "").strip().lower()
+                if email_lc:
+                    # JSON column — cast to text and substring-match the
+                    # quoted email. We follow up with an in-Python verify
+                    # so we never link on a partial match.
+                    cand_rows = (
+                        await db.execute(
+                            select(Provider).where(
+                                _fn.lower(_cast(Provider.email_addresses, _Str)).like(
+                                    f'%"{email_lc}"%'
+                                )
+                            ).limit(5)
+                        )
+                    ).scalars().all()
+                    for cand in cand_rows:
+                        emails_lc = [
+                            (e or "").strip().lower()
+                            for e in (cand.email_addresses or [])
+                            if e
+                        ]
+                        if email_lc in emails_lc:
+                            provider_id_to_link = cand.id
+                            _logger.info(
+                                f"Directory email-match self-heal: "
+                                f"user {current_user.email} -> provider {cand.id}"
+                            )
+                            break
+            except Exception as _em_err:
+                _logger.warning(f"Email-match fallback failed: {_em_err}")
+
         if provider_id_to_link:
             # Verify provider exists
             provider_check = await db.execute(

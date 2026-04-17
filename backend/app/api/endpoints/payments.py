@@ -489,6 +489,91 @@ async def cancel_subscription(
     }
 
 
+@router.post("/billing/cancel-user-subscription-by-id")
+async def cancel_user_subscription_by_id(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Cancel a specific subscription (or legacy ad) the user owns.
+
+    The id is the `id` returned by GET /billing/user-subscriptions. For
+    real Subscription rows it is the row UUID; for legacy one-time ads
+    it is prefixed "legacy-ad-<ad_uuid>".
+
+    Body: { "id": "<id>" }
+
+    Behaviour:
+      - Real Stripe subscription: sets cancel_at_period_end=True so the
+        user keeps access until the end of the current billing period.
+      - Legacy one-time ad: immediately pauses the ad (ad_status=CANCELLED).
+    """
+    import stripe as _stripe
+    import asyncio
+    from datetime import datetime, timezone
+    from sqlalchemy import select as _sel
+    from app.models.payment import Subscription
+    from app.models.advertising import Advertisement
+    from app.models.enums import AdStatus
+    from app.services.config_service import get_runtime_config as _grc
+
+    body = await request.json()
+    raw_id = str(body.get("id") or "").strip()
+    if not raw_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="id is required")
+
+    # Legacy ad path: id looks like "legacy-ad-<uuid>"
+    if raw_id.startswith("legacy-ad-"):
+        ad_id_str = raw_id[len("legacy-ad-"):]
+        ad_row = (
+            await db.execute(_sel(Advertisement).where(Advertisement.id == ad_id_str))
+        ).scalar_one_or_none()
+        if not ad_row or ad_row.advertiser_user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
+        ad_row.ad_status = AdStatus.CANCELLED
+        await db.commit()
+        return {"success": True, "cancel_at": None, "effective": "immediate"}
+
+    # Normal path: Subscription row
+    sub = (
+        await db.execute(_sel(Subscription).where(Subscription.id == raw_id))
+    ).scalar_one_or_none()
+    if not sub or sub.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Subscription not found")
+
+    if not sub.external_subscription_id:
+        # Local-only sub (no Stripe id yet) — mark as cancelled at period end
+        # so the renewal webhook can't re-activate it.
+        from app.models.enums import SubscriptionStatus
+        sub.subscription_status = SubscriptionStatus.CANCELLED
+        await db.commit()
+        return {"success": True, "cancel_at": None, "effective": "immediate"}
+
+    _cfg = await _grc(db)
+    _stripe.api_key = _cfg.get("STRIPE_SECRET_KEY", "") or ""
+    if not _stripe.api_key:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Stripe not configured")
+
+    stripe_sub = await asyncio.to_thread(
+        _stripe.Subscription.modify,
+        sub.external_subscription_id,
+        cancel_at_period_end=True,
+    )
+
+    cancel_at_ts = getattr(stripe_sub, "cancel_at", None)
+    cancel_at_dt = (
+        datetime.fromtimestamp(cancel_at_ts, tz=timezone.utc) if cancel_at_ts else None
+    )
+    sub.cancel_at = cancel_at_dt
+    await db.commit()
+
+    return {
+        "success": True,
+        "cancel_at": cancel_at_dt.isoformat() if cancel_at_dt else None,
+        "effective": "period_end",
+    }
+
+
 @router.post("/billing/reactivate-subscription")
 async def reactivate_subscription(
     request: Request,

@@ -504,6 +504,11 @@ const billing = {
     apiClient.post<{ success: boolean; cancel_at: string | null }>('/billing/cancel-subscription', { subscription_type: subscriptionType }),
   reactivateSubscription: (subscriptionType: string) =>
     apiClient.post<{ success: boolean }>('/billing/reactivate-subscription', { subscription_type: subscriptionType }),
+  cancelUserSubscriptionById: (id: string) =>
+    apiClient.post<{ success: boolean; cancel_at: string | null; effective: 'period_end' | 'immediate' }>(
+      '/billing/cancel-user-subscription-by-id',
+      { id },
+    ),
 };
 
 // Admin API
