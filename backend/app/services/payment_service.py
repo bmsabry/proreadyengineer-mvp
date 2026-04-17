@@ -156,6 +156,7 @@ async def create_stripe_checkout_session(
     success_url: str,
     cancel_url: str,
     metadata: Optional[dict] = None,
+    recurring_interval: Optional[str] = None,
 ) -> dict[str, Any]:
     """Create a Stripe Checkout Session that redirects to Stripe-hosted payment page.
 
@@ -304,24 +305,45 @@ async def create_stripe_checkout_session(
                     # Fall through to create new session below, updating the existing record
 
     # Step 5: No existing payment attempt, OR existing one is FAILED/REFUNDED/DISPUTED
-    # For FAILED payments, update existing record; otherwise create new
+    # For FAILED payments, update existing record; otherwise create new.
+    # If recurring_interval is set (e.g. 'month'), use mode='subscription'
+    # so Stripe bills the customer automatically every period.
+    price_data_block = {
+        "currency": currency.lower(),
+        "product_data": {
+            "name": _get_payment_product_name(purpose),
+            "description": _get_payment_description(
+                purpose, related_entity_type, str(related_id)
+            ),
+        },
+        "unit_amount": amount,
+    }
+    session_mode = "payment"
+    subscription_extra: dict = {}
+    if recurring_interval:
+        price_data_block["recurring"] = {"interval": recurring_interval}
+        session_mode = "subscription"
+        # Propagate metadata to the underlying Stripe Subscription so the
+        # subscription.* webhooks can resolve back to our DB rows.
+        subscription_extra = {
+            "subscription_data": {
+                "metadata": {
+                    "purpose": purpose,
+                    "user_id": str(user.id),
+                    "related_entity_type": related_entity_type,
+                    "related_id": str(related_id),
+                    **(metadata or {}),
+                },
+            }
+        }
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             line_items=[{
-                "price_data": {
-                    "currency": currency.lower(),
-                    "product_data": {
-                        "name": _get_payment_product_name(purpose),
-                        "description": _get_payment_description(
-                            purpose, related_entity_type, str(related_id)
-                        ),
-                    },
-                    "unit_amount": amount,
-                },
+                "price_data": price_data_block,
                 "quantity": 1,
             }],
-            mode="payment",
+            mode=session_mode,
             success_url=success_url,
             cancel_url=cancel_url,
             customer_email=user.email,
@@ -332,6 +354,7 @@ async def create_stripe_checkout_session(
                 "related_id": str(related_id),
                 **(metadata or {}),
             },
+            **subscription_extra,
         )
     except stripe.error.StripeError as e:
         raise RuntimeError(f"Stripe error: {e}")
@@ -479,7 +502,7 @@ async def _handle_checkout_session_completed(
         return
 
     # --- Route to fulfillment function based on purpose ---
-    await fulfill_payment_purpose(db, payment)
+    await fulfill_payment_purpose(db, payment, stripe_session=session)
 
 
 async def _fulfill_checkout_rfq_unlock(
@@ -1193,6 +1216,7 @@ async def handle_paypal_webhook(db: AsyncSession, payload: dict) -> None:
 async def fulfill_payment_purpose(
     db: AsyncSession,
     payment: PaymentAttempt,
+    stripe_session: Optional[dict] = None,
 ) -> None:
     """Fulfill payment based on its purpose.
 
@@ -1218,7 +1242,7 @@ async def fulfill_payment_purpose(
         await _fulfill_search_subscription(db, related_id, payment)
 
     elif purpose == "advertisement_subscription":
-        await _fulfill_advertisement_subscription(db, related_id)
+        await _fulfill_advertisement_subscription(db, related_id, stripe_session=stripe_session, payment=payment)
 
     elif purpose == "full_profile_edit_unlock":
         await _fulfill_full_profile_edit_unlock(db, payment)
@@ -1369,20 +1393,95 @@ async def _fulfill_search_subscription(
 async def _fulfill_advertisement_subscription(
     db: AsyncSession,
     ad_id: uuid.UUID,
+    stripe_session: Optional[dict] = None,
+    payment: Optional[PaymentAttempt] = None,
 ) -> None:
     """Fulfill advertisement subscription.
 
-    Args:
-        db: Database session.
-        ad_id: Advertisement UUID.
+    1. Flip the ad_status to ACTIVE and set started_at.
+    2. Upsert a Subscription row of type ADVERTISEMENT linked to the
+       user + ad. When the checkout was done in mode='subscription',
+       the Stripe subscription id is on session['subscription']; we
+       stash it in external_subscription_id so the
+       customer.subscription.updated / .deleted / invoice.paid
+       webhooks can find and update this row on each renewal.
+    3. When legacy mode='payment' was used (no stripe subscription),
+       we still create a Subscription row so the provider dashboard
+       can display the subscription; but external_subscription_id
+       stays NULL (it won't auto-renew — the one-time price only
+       covers the current month).
     """
+    _log = logging.getLogger(__name__)
     from app.models import AdStatus, Advertisement
+    from app.models.enums import SubscriptionStatus, SubscriptionType
 
     ad = await db.get(Advertisement, ad_id)
-    if ad:
-        ad.ad_status = AdStatus.ACTIVE
-        ad.started_at = datetime.utcnow()
-        await db.commit()
+    if not ad:
+        _log.warning("advertisement_subscription: Advertisement %s not found", ad_id)
+        return
+
+    now = datetime.utcnow()
+    ad.ad_status = AdStatus.ACTIVE
+    ad.started_at = now
+
+    stripe_sub_id = None
+    if stripe_session and isinstance(stripe_session, dict):
+        stripe_sub_id = stripe_session.get("subscription") or None
+    if stripe_sub_id:
+        ad.stripe_subscription_id = stripe_sub_id
+
+    # Upsert a Subscription row so the dashboard can show the plan.
+    # Prefer matching by stripe subscription id; fall back to (user, ad).
+    owner_user_id = ad.advertiser_user_id
+    if payment and getattr(payment, 'initiated_by_user_id', None):
+        owner_user_id = payment.initiated_by_user_id
+
+    existing = None
+    if stripe_sub_id:
+        r = await db.execute(
+            select(Subscription).where(
+                Subscription.external_subscription_id == stripe_sub_id,
+            )
+        )
+        existing = r.scalar_one_or_none()
+    if existing is None:
+        r = await db.execute(
+            select(Subscription).where(
+                Subscription.advertisement_id == ad_id,
+                Subscription.subscription_type == SubscriptionType.ADVERTISEMENT,
+            ).order_by(Subscription.id.desc()).limit(1)
+        )
+        existing = r.scalar_one_or_none()
+
+    if existing is None:
+        sub_row = Subscription(
+            user_id=owner_user_id,
+            provider_id=ad.provider_id,
+            advertisement_id=ad_id,
+            provider_name="stripe",
+            external_subscription_id=stripe_sub_id,
+            subscription_type=SubscriptionType.ADVERTISEMENT,
+            subscription_status=SubscriptionStatus.ACTIVE,
+            current_period_start=now,
+            # best-effort 30 days; webhook invoice.paid will overwrite
+            # with the real Stripe period boundaries.
+            current_period_end=now + timedelta(days=30),
+        )
+        db.add(sub_row)
+    else:
+        existing.subscription_status = SubscriptionStatus.ACTIVE
+        if stripe_sub_id and not existing.external_subscription_id:
+            existing.external_subscription_id = stripe_sub_id
+        if not existing.current_period_start:
+            existing.current_period_start = now
+        if not existing.current_period_end:
+            existing.current_period_end = now + timedelta(days=30)
+
+    await db.commit()
+    _log.info(
+        "advertisement_subscription: ad=%s active; stripe_sub=%s; subscription row upserted",
+        ad_id, stripe_sub_id or "<legacy one-time>",
+    )
 
 
 async def create_subscription(

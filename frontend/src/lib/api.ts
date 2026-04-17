@@ -480,6 +480,26 @@ const billing = {
     apiClient.get<{ has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null }>('/billing/subscription-status'),
   getProviderSubscriptionStatus: () =>
     apiClient.get<{ has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null }>('/billing/provider-subscription-status'),
+  // Lists ALL active subscriptions (Annual Professional, Monthly Advertisement, etc.)
+  // so the dashboard can reflect every plan the user is subscribed to.
+  getUserSubscriptions: () =>
+    apiClient.get<{
+      subscriptions: Array<{
+        id: string;
+        type: string;
+        label: string;
+        status: string;
+        current_period_end: string | null;
+        current_period_start: string | null;
+        cancel_at: string | null;
+        billing_interval: 'month' | 'year' | 'one_time';
+        amount_display: string | null;
+        has_stripe_subscription: boolean;
+        advertisement_id: string | null;
+        warning?: string;
+      }>;
+      count: number;
+    }>('/billing/user-subscriptions'),
   cancelSubscription: (subscriptionType: string) =>
     apiClient.post<{ success: boolean; cancel_at: string | null }>('/billing/cancel-subscription', { subscription_type: subscriptionType }),
   reactivateSubscription: (subscriptionType: string) =>

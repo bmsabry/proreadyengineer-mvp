@@ -64,6 +64,117 @@ async def get_provider_subscription_status(
         "current_period_end": sub.current_period_end.isoformat() if sub and sub.current_period_end else None,
         "cancel_at": sub.cancel_at.isoformat() if sub and sub.cancel_at else None,
     }
+@router.get("/billing/user-subscriptions")
+async def get_user_subscriptions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Return ALL active subscriptions the current user holds.
+
+    Drives the "Subscription" line in the provider / customer dashboard so
+    it reflects every plan (Annual Professional, Monthly Advertisement,
+    Search tier, etc.) instead of only provider_annual.
+
+    Each item has:
+      - type: internal SubscriptionType value
+      - label: human-readable plan name
+      - status: active | past_due | cancelled | trialing
+      - current_period_end: ISO string (next renewal / expiry date)
+      - cancel_at: ISO string if cancel_at_period_end is set
+      - billing_interval: 'month' | 'year' | 'one_time'
+      - amount_display: e.g. '$50/mo', '$1,000/yr'
+
+    Also synthesizes a pseudo-entry for any ACTIVE Advertisement the user
+    owns that has no Subscription row yet (a legacy one-time ad). The
+    pseudo-entry is tagged billing_interval='one_time' so the dashboard
+    can tell the user the ad will NOT auto-renew until they re-subscribe.
+    """
+    from sqlalchemy import select as _select
+    from app.models.payment import Subscription
+    from app.models.advertising import Advertisement
+    from app.models.enums import AdStatus, SubscriptionStatus, SubscriptionType
+
+    # 1) Active subscription rows.
+    result = await db.execute(
+        _select(Subscription)
+        .where(
+            Subscription.user_id == current_user.id,
+            Subscription.subscription_status.in_([
+                SubscriptionStatus.ACTIVE,
+                SubscriptionStatus.PAST_DUE,
+                SubscriptionStatus.TRIALING,
+            ]),
+        )
+        .order_by(Subscription.created_at.desc() if hasattr(Subscription, 'created_at') else Subscription.id.desc())
+    )
+    subs = list(result.scalars().all())
+
+    # A map so we can detect ads already covered by a subscription row.
+    ads_with_subscription = {
+        sub.advertisement_id for sub in subs if sub.advertisement_id
+    }
+
+    def _plan_display(st: str):
+        return {
+            SubscriptionType.PROVIDER_ANNUAL.value: ("Annual Professional", "year", "$1,000/yr"),
+            SubscriptionType.ADVERTISEMENT.value: ("Monthly Advertisement", "month", "$50/mo"),
+            SubscriptionType.SEARCH_TIER_1.value: ("Search Tier 1", "month", None),
+            SubscriptionType.SEARCH_TIER_2.value: ("Search Tier 2", "month", None),
+            SubscriptionType.PROVIDER_PROFILE.value: ("Provider Profile", "month", None),
+        }.get(st, (st.replace("_", " ").title(), "month", None))
+
+    items = []
+    for sub in subs:
+        st_val = sub.subscription_type.value if hasattr(sub.subscription_type, 'value') else str(sub.subscription_type)
+        label, interval, amount = _plan_display(st_val)
+        items.append({
+            "id": str(sub.id),
+            "type": st_val,
+            "label": label,
+            "status": sub.subscription_status.value if hasattr(sub.subscription_status, 'value') else str(sub.subscription_status),
+            "current_period_end": sub.current_period_end.isoformat() if sub.current_period_end else None,
+            "current_period_start": sub.current_period_start.isoformat() if sub.current_period_start else None,
+            "cancel_at": sub.cancel_at.isoformat() if sub.cancel_at else None,
+            "billing_interval": interval,
+            "amount_display": amount,
+            "has_stripe_subscription": bool(sub.external_subscription_id),
+            "advertisement_id": str(sub.advertisement_id) if sub.advertisement_id else None,
+        })
+
+    # 2) Synthesize entries for active Advertisements not tied to a Sub row.
+    ad_result = await db.execute(
+        _select(Advertisement).where(
+            Advertisement.advertiser_user_id == current_user.id,
+            Advertisement.ad_status == AdStatus.ACTIVE,
+        )
+    )
+    for ad in ad_result.scalars().all():
+        if ad.id in ads_with_subscription:
+            continue
+        items.append({
+            "id": f"legacy-ad-{ad.id}",
+            "type": "advertisement_legacy",
+            "label": "Monthly Advertisement",
+            "status": "active",
+            "current_period_end": None,
+            "current_period_start": ad.started_at.isoformat() if ad.started_at else None,
+            "cancel_at": None,
+            # The legacy ad was a one-time $50 payment, so it will NOT
+            # auto-renew next month. Flag it so the dashboard can warn.
+            "billing_interval": "one_time",
+            "amount_display": "$50 (one-time)",
+            "has_stripe_subscription": False,
+            "advertisement_id": str(ad.id),
+            "warning": (
+                "This ad was paid with a one-time $50 charge and will NOT "
+                "renew automatically. Cancel and recreate to switch to "
+                "monthly auto-renewing billing."
+            ),
+        })
+
+    return {"subscriptions": items, "count": len(items)}
+
+
 @router.get("/billing/subscription-status")
 async def get_subscription_status(
     db: AsyncSession = Depends(get_db),

@@ -1097,7 +1097,7 @@ async def create_ad_checkout_session(
     session_info = await create_stripe_checkout_session(
         db=db,
         purpose="advertisement_subscription",
-        amount=5000,  # $50.00 in cents
+        amount=5000,  # $50.00 in cents billed monthly
         currency="usd",
         user=current_user,
         related_entity_type="advertisement",
@@ -1105,6 +1105,9 @@ async def create_ad_checkout_session(
         success_url=success_url,
         cancel_url=cancel_url,
         metadata={"ad_id": str(ad.id), "ad_title": ad.title or ""},
+        # Make Stripe bill the provider automatically every month
+        # instead of taking a one-time $50. Renews until cancelled.
+        recurring_interval="month",
     )
 
     return {

@@ -429,8 +429,23 @@ function AdvertisementStatusCard() {
   );
 }
 
+interface UserSubscription {
+  id: string;
+  type: string;
+  label: string;
+  status: string;
+  current_period_end: string | null;
+  current_period_start: string | null;
+  cancel_at: string | null;
+  billing_interval: 'month' | 'year' | 'one_time';
+  amount_display: string | null;
+  has_stripe_subscription: boolean;
+  advertisement_id: string | null;
+  warning?: string;
+}
+
 function ProviderAnalyticsPanel({
-  teasers, quotes, hasMembership, user, contactedRfqIds, providerSubStatus,
+  teasers, quotes, hasMembership, user, contactedRfqIds, providerSubStatus, userSubs,
 }: {
   teasers: RFQTeaser[];
   quotes: Quote[];
@@ -438,6 +453,7 @@ function ProviderAnalyticsPanel({
   user: any;
   contactedRfqIds: string[];
   providerSubStatus?: { has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null } | null;
+  userSubs: UserSubscription[];
 }) {
   const CLOSED_STATUSES = ['customer_selected_provider', 'closed_no_selection', 'cancelled'];
 
@@ -618,37 +634,63 @@ function ProviderAnalyticsPanel({
             {createdAt ? formatDate(createdAt) : '—'}
           </span>
         </div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
+        <div>
+          <div className="flex items-center gap-1.5 mb-2">
             <CreditCard className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-xs text-slate-500">Subscription</span>
+            <span className="text-xs text-slate-500">Subscriptions</span>
           </div>
-          {providerSubStatus?.has_active && providerSubStatus.subscription_type === 'provider_annual' ? (
-            <div className="flex flex-col items-end gap-0.5">
-              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 border border-blue-200">
-                <Crown className="h-3 w-3" /> Annual Pro
-              </span>
-              {providerSubStatus.current_period_end && (
-                <span className="text-[10px] text-slate-400">
-                  Renews {new Date(providerSubStatus.current_period_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </span>
-              )}
-              {providerSubStatus.cancel_at && (
-                <span className="text-[10px] text-amber-600">
-                  Cancels {new Date(providerSubStatus.cancel_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </span>
-              )}
-            </div>
-          ) : hasMembership ? (
-            <Link href="/provider/profile">
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 hover:bg-emerald-200 transition-colors cursor-pointer">Active</span>
-            </Link>
-          ) : (
+          {userSubs.length === 0 ? (
             <Link href="/provider/upgrade">
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors cursor-pointer">
+              <span className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors cursor-pointer">
                 Inactive — Upgrade
               </span>
             </Link>
+          ) : (
+            <ul className="space-y-2">
+              {userSubs.map((sub) => {
+                const isAnnual = sub.type === 'provider_annual';
+                const isAdSub = sub.type === 'advertisement';
+                const isAdLegacy = sub.type === 'advertisement_legacy';
+                const pillClasses = isAnnual
+                  ? 'bg-blue-100 text-blue-700 border-blue-200'
+                  : (isAdSub || isAdLegacy)
+                  ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                  : 'bg-slate-100 text-slate-700 border-slate-200';
+                const amount = sub.amount_display
+                  || (sub.billing_interval === 'month' ? 'Monthly' : sub.billing_interval === 'year' ? 'Yearly' : 'One-time');
+                const periodLabel = sub.billing_interval === 'one_time'
+                  ? 'Does NOT auto-renew'
+                  : sub.current_period_end
+                  ? `Renews ${new Date(sub.current_period_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                  : null;
+                return (
+                  <li key={sub.id} className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${pillClasses}`}>
+                        {isAnnual && <Crown className="h-3 w-3" />}
+                        {sub.label}
+                      </span>
+                      <div className="mt-0.5 flex flex-wrap gap-x-2">
+                        <span className="text-[10px] text-slate-500 font-medium">{amount}</span>
+                        {periodLabel && (
+                          <span className={`text-[10px] ${sub.billing_interval === 'one_time' ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                            {periodLabel}
+                          </span>
+                        )}
+                        {sub.cancel_at && (
+                          <span className="text-[10px] text-amber-600">
+                            Cancels {new Date(sub.cancel_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          </span>
+                        )}
+                      </div>
+                      {sub.warning && (
+                        <p className="mt-1 text-[10px] text-amber-700 leading-snug">{sub.warning}</p>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       </div>
@@ -697,6 +739,7 @@ function ProviderDashboardInner() {
     current_period_end: string | null;
     cancel_at: string | null;
   } | null>(null);
+  const [userSubs, setUserSubs] = useState<UserSubscription[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [contactedRfqIds, setContactedRfqIds] = useState<string[]>([]);
   const [paymentBanner, setPaymentBanner] = useState<string | null>(null);
@@ -713,10 +756,11 @@ function ProviderDashboardInner() {
     if (!user) return;
     (async () => {
       try {
-        const [tr, qr, sr] = await Promise.all([
+        const [tr, qr, sr, usr] = await Promise.all([
           api.providerRFQ.getTeasers(),
           api.quotes.getForProvider(),
           api.billing.getProviderSubscriptionStatus().catch(() => null),
+          api.billing.getUserSubscriptions().catch(() => null),
         ]);
         const td = (tr as any).data ?? tr;
         const tlist = td?.teasers ?? td ?? [];
@@ -727,6 +771,10 @@ function ProviderDashboardInner() {
         const sd = (sr as any)?.data ?? sr;
         if (sd && typeof sd === 'object' && 'has_active' in sd) {
           setProviderSubStatus(sd);
+        }
+        const usd = (usr as any)?.data ?? usr;
+        if (usd && Array.isArray(usd.subscriptions)) {
+          setUserSubs(usd.subscriptions);
         }
       } catch (e) {
         console.error('Dashboard fetch error:', e);
@@ -754,9 +802,16 @@ function ProviderDashboardInner() {
           // Refresh provider subscription status
           try {
             const _resp_sd = await apiClient.get('/billing/provider-subscription-status');
-        const sd = _resp_sd.data;
+            const sd = _resp_sd.data;
             if (sd && typeof sd === 'object' && 'has_active' in (sd as object)) {
               setProviderSubStatus(sd as typeof providerSubStatus);
+            }
+          } catch {}
+          try {
+            const _resp_us = await apiClient.get('/billing/user-subscriptions');
+            const usd = _resp_us.data;
+            if (usd && Array.isArray(usd.subscriptions)) {
+              setUserSubs(usd.subscriptions);
             }
           } catch {}
         } catch {
@@ -828,6 +883,7 @@ function ProviderDashboardInner() {
               user={user}
               contactedRfqIds={contactedRfqIds}
               providerSubStatus={providerSubStatus}
+              userSubs={userSubs}
             />
           </div>
           {/* RFQ Cards */}
