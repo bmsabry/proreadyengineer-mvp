@@ -757,7 +757,7 @@ export default function AdminPaymentsPage() {
   const custSubtitle = custCount + ' payment' + (custCount !== 1 ? 's' : '') + ' · $20/month';
   const provSubtitle = provCount + ' payment' + (provCount !== 1 ? 's' : '') + ' · $500 edit or $1,000/yr';
   const adTotalStr = '$' + adTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const adSubtitle = adCount + ' payment' + (adCount \!== 1 ? 's' : '') + ' · $50/month';
+  const adSubtitle = adCount + ' payment' + (adCount !== 1 ? 's' : '') + ' · $50/month';
 
   const tabs = [
     { key: 'all', label: 'All' },
