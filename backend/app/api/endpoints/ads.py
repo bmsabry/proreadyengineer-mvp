@@ -1470,3 +1470,35 @@ def _to_public_response(ad) -> dict:
         "click_count": ad.click_count or 0,
         "impression_count": ad.impression_count or 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# ad-blocker-safe aliases
+# ---------------------------------------------------------------------------
+# Some ad-blockers (uBlock, Brave, AdBlock Plus, pi-hole) block any request
+# whose URL contains "/ads/" or "/advertiser/". That silently kills the
+# provider dashboard's ad-status card with "Network Error" in axios.
+# These aliases expose the same handlers at paths that don't match ad-
+# blocker rules. The original /advertiser/ads/* and /ads/* routes are kept
+# for backward compatibility.
+
+@router.get("/me/promotions", response_model=List[AdvertisementResponse])
+async def get_my_promotions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Ad-blocker-safe alias of GET /advertiser/ads/me."""
+    return await get_my_ads(db=db, current_user=current_user)
+
+
+@router.post("/me/promotions/{ad_id}/checkout-session")
+async def create_promotion_checkout_session_alias(
+    ad_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Ad-blocker-safe alias of POST /ads/{ad_id}/checkout-session."""
+    return await create_ad_checkout_session(
+        ad_id=ad_id, db=db, current_user=current_user,
+    )
+

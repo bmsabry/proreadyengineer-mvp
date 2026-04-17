@@ -76,7 +76,7 @@ function AdvertisementStatusCard() {
 
   const fetchAds = async () => {
     try {
-      const resp = await apiClient.get('/advertiser/ads/me');
+      const resp = await apiClient.get('/me/promotions');
       const list = Array.isArray(resp.data) ? resp.data : [];
       setAds(list);
       setFetchError(null);
@@ -117,7 +117,7 @@ function AdvertisementStatusCard() {
     setCheckoutLoading(true);
     setCheckoutError(null);
     try {
-      const resp = await apiClient.post(`/ads/${adId}/checkout-session`);
+      const resp = await apiClient.post(`/me/promotions/${adId}/checkout-session`);
       const data = resp.data;
       if (data.already_paid) {
         window.location.reload();

@@ -38,7 +38,7 @@ function AdvertiseInner() {
     (async () => {
       try {
         const { apiClient } = await import('@/lib/api');
-        const resp = await apiClient.get('/advertiser/ads/me');
+        const resp = await apiClient.get('/me/promotions');
         setMyAds(resp.data ?? []);
       } catch {
         // Ignore — might not have ads yet
@@ -59,7 +59,7 @@ function AdvertiseInner() {
     const tick = async () => {
       try {
         const { apiClient } = await import('@/lib/api');
-        const resp = await apiClient.get('/advertiser/ads/me');
+        const resp = await apiClient.get('/me/promotions');
         if (cancelled) return;
         const ads = resp.data ?? [];
         setMyAds(ads);
@@ -219,7 +219,7 @@ function AdvertiseInner() {
     setCheckoutError(null);
     try {
       const { apiClient } = await import('@/lib/api');
-      const resp = await apiClient.post(`/ads/${adId}/checkout-session`);
+      const resp = await apiClient.post(`/me/promotions/${adId}/checkout-session`);
       const data = resp.data || {};
       if (data.already_paid) {
         // Webhook may still be catching up; refresh once.
