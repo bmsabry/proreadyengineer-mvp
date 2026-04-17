@@ -38,14 +38,14 @@ export default function HelpChatWidget() {
   const hidden = HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
 
   useEffect(() => {
-    if (\!open) return;
+    if (!open) return;
     let cancel = false;
     setLoadingStatus(true);
     helpApi
       .status()
-      .then((s) => { if (\!cancel) setStatus(s); })
-      .catch(() => { if (\!cancel) setStatus(null); })
-      .finally(() => { if (\!cancel) setLoadingStatus(false); });
+      .then((s) => { if (!cancel) setStatus(s); })
+      .catch(() => { if (!cancel) setStatus(null); })
+      .finally(() => { if (!cancel) setLoadingStatus(false); });
     return () => { cancel = true; };
   }, [open, user]);
 
@@ -57,7 +57,7 @@ export default function HelpChatWidget() {
 
   const onSubscribeClick = () => {
     setOpen(false);
-    if (\!user) {
+    if (!user) {
       router.push('/register');
       return;
     }
@@ -71,7 +71,7 @@ export default function HelpChatWidget() {
 
   const onSend = async () => {
     const text = input.trim();
-    if (\!text || sending) return;
+    if (!text || sending) return;
     setError(null);
     setInput('');
     const nextMsgs: Msg[] = [...messages, { role: 'user', content: text }];
@@ -103,7 +103,7 @@ export default function HelpChatWidget() {
   return (
     <>
       {/* Floating bubble */}
-      {\!open && (
+      {!open && (
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -145,10 +145,10 @@ export default function HelpChatWidget() {
             {loadingStatus && (
               <div className="text-center text-xs text-slate-500 py-6">Loading...</div>
             )}
-            {\!loadingStatus && status && \!status.has_access && (
+            {!loadingStatus && status && !status.has_access && (
               <PaywallView status={status} onSubscribe={onSubscribeClick} />
             )}
-            {\!loadingStatus && status && status.has_access && (
+            {!loadingStatus && status && status.has_access && (
               <>
                 {messages.length === 0 && (
                   <div className="text-xs text-slate-600 bg-white border border-slate-200 rounded-lg p-3 mb-3">
@@ -207,7 +207,7 @@ export default function HelpChatWidget() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && \!e.shiftKey) {
+                    if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       onSend();
                     }
@@ -219,7 +219,7 @@ export default function HelpChatWidget() {
                 />
                 <button
                   onClick={onSend}
-                  disabled={sending || \!input.trim()}
+                  disabled={sending || !input.trim()}
                   className="p-2 rounded-lg bg-[#0F2B54] text-white hover:bg-[#143a6f] disabled:opacity-50"
                   aria-label="Send"
                 >
@@ -265,7 +265,7 @@ function PaywallView({ status, onSubscribe }: { status: HelpStatus; onSubscribe:
           <li>Provider Profile monthly or Provider Annual</li>
         </ul>
       </div>
-      {\!authenticated && (
+      {!authenticated && (
         <p className="text-xs text-slate-500 mb-2">Log in first, then pick a plan.</p>
       )}
       <button

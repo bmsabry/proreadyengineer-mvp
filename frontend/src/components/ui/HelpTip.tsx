@@ -42,10 +42,10 @@ export default function HelpTip({
   const effLearn = learnMore ?? entry?.learnMore;
 
   useEffect(() => {
-    if (\!open) return;
+    if (!open) return;
     function onDocClick(e: MouseEvent) {
-      if (\!wrapRef.current) return;
-      if (\!wrapRef.current.contains(e.target as Node)) setOpen(false);
+      if (!wrapRef.current) return;
+      if (!wrapRef.current.contains(e.target as Node)) setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
@@ -58,7 +58,7 @@ export default function HelpTip({
     };
   }, [open]);
 
-  if (\!effBody) {
+  if (!effBody) {
     // Registry miss — render nothing rather than a broken icon.
     return null;
   }
@@ -75,7 +75,7 @@ export default function HelpTip({
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          setOpen((v) => \!v);
+          setOpen((v) => !v);
         }}
         onMouseEnter={() => setOpen(true)}
         onFocus={() => setOpen(true)}
@@ -83,7 +83,7 @@ export default function HelpTip({
           // Only close on blur if focus is leaving the wrapper entirely
           if (
             wrapRef.current &&
-            \!wrapRef.current.contains(e.relatedTarget as Node)
+            !wrapRef.current.contains(e.relatedTarget as Node)
           ) {
             setOpen(false);
           }

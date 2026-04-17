@@ -35,14 +35,14 @@ function renderMarkdown(md: string): string {
 
   for (const raw of lines) {
     const line = raw;
-    if (line.trim().startsWith('```')) { inCode = \!inCode; out.push(inCode ? '<pre class="bg-slate-900 text-slate-100 p-3 rounded-md overflow-x-auto text-xs my-3">' : '</pre>'); continue; }
+    if (line.trim().startsWith('```')) { inCode = !inCode; out.push(inCode ? '<pre class="bg-slate-900 text-slate-100 p-3 rounded-md overflow-x-auto text-xs my-3">' : '</pre>'); continue; }
     if (inCode) { out.push(escapeHtml(line) + '\n'); continue; }
 
     const h = line.match(/^(#{1,6})\s+(.*)$/);
     if (h) { close(); const lvl = h[1].length; out.push(`<h${lvl} class="font-semibold text-slate-900 mt-6 mb-2 ${lvl === 1 ? 'text-2xl' : lvl === 2 ? 'text-xl' : 'text-lg'}">${inlineMd(h[2])}</h${lvl}>`); continue; }
 
     if (/^\s*[-*]\s+/.test(line)) {
-      if (\!inList) { close(); out.push('<ul class="list-disc pl-6 space-y-1 text-slate-700 my-2">'); inList = true; }
+      if (!inList) { close(); out.push('<ul class="list-disc pl-6 space-y-1 text-slate-700 my-2">'); inList = true; }
       out.push(`<li>${inlineMd(line.replace(/^\s*[-*]\s+/, ''))}</li>`);
       continue;
     }
@@ -55,7 +55,7 @@ function renderMarkdown(md: string): string {
     }
 
     if (/^>\s+/.test(line)) {
-      if (\!inBlockquote) { close(); out.push('<blockquote class="border-l-4 border-slate-300 pl-3 text-slate-600 italic my-3">'); inBlockquote = true; }
+      if (!inBlockquote) { close(); out.push('<blockquote class="border-l-4 border-slate-300 pl-3 text-slate-600 italic my-3">'); inBlockquote = true; }
       out.push(`<p>${inlineMd(line.replace(/^>\s+/, ''))}</p>`);
       continue;
     }
@@ -86,8 +86,8 @@ export default function HelpPage() {
         setMarkdown(m.markdown || '');
         setStatus(s);
       })
-      .catch(() => { if (\!cancel) setMarkdown('Could not load the help manual. Please try again later.'); })
-      .finally(() => { if (\!cancel) setLoading(false); });
+      .catch(() => { if (!cancel) setMarkdown('Could not load the help manual. Please try again later.'); })
+      .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, []);
 
@@ -109,7 +109,7 @@ export default function HelpPage() {
 
       <main className="max-w-4xl mx-auto px-6 py-8">
         {/* Chatbot CTA */}
-        {status && \!status.has_access && (
+        {status && !status.has_access && (
           <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 flex items-start gap-3">
             <Lock className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
             <div className="text-sm text-amber-900">
@@ -138,7 +138,7 @@ export default function HelpPage() {
         )}
 
         {loading && <div className="text-sm text-slate-500">Loading manual...</div>}
-        {\!loading && (
+        {!loading && (
           <article
             className="prose prose-slate max-w-none bg-white border border-slate-200 rounded-xl p-6"
             dangerouslySetInnerHTML={{ __html: html }}

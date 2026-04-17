@@ -789,7 +789,7 @@ export const helpApi = {
       method: 'GET', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
     });
-    if (\!res.ok) throw new Error(`help status failed: ${res.status}`);
+    if (!res.ok) throw new Error(`help status failed: ${res.status}`);
     return res.json();
   },
   manual: async (): Promise<{ markdown: string }> => {
@@ -797,7 +797,7 @@ export const helpApi = {
       method: 'GET', credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
     });
-    if (\!res.ok) throw new Error(`help manual failed: ${res.status}`);
+    if (!res.ok) throw new Error(`help manual failed: ${res.status}`);
     return res.json();
   },
   chat: async (message: string, history: HelpChatTurn[]): Promise<HelpChatResponse> => {
@@ -820,7 +820,7 @@ export const helpApi = {
       err.detail = body?.detail;
       throw err;
     }
-    if (\!res.ok) throw new Error(`help chat failed: ${res.status}`);
+    if (!res.ok) throw new Error(`help chat failed: ${res.status}`);
     return res.json();
   },
 };
