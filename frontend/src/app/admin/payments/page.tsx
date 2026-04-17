@@ -286,7 +286,7 @@ function LLMsCard(props: LLMsCardProps) {
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex flex-col gap-3">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #0F2B54, #1a3a6b)' }}>
@@ -742,6 +742,9 @@ export default function AdminPaymentsPage() {
   const provPurposes = ['provider_profile_subscription', 'annual_subscription', 'provider_annual_subscription'];
   const provTotal = byPurposeAll.filter((p) => provPurposes.includes(p.purpose)).reduce((s, p) => s + p.total, 0);
   const provCount = byPurposeAll.filter((p) => provPurposes.includes(p.purpose)).reduce((s, p) => s + p.count, 0);
+  const srcAd = byPurposeAll.find((p) => p.purpose === 'advertisement_subscription');
+  const adTotal = srcAd?.total ?? 0;
+  const adCount = srcAd?.count ?? 0;
   const txItems = txData?.items ?? [];
   const txPages = txData?.pages ?? 1;
   const txTotal = txData?.total ?? 0;
@@ -753,6 +756,8 @@ export default function AdminPaymentsPage() {
   const ndaSubtitle = ndaCount + ' NDA' + (ndaCount !== 1 ? 's' : '') + ' · $10 each';
   const custSubtitle = custCount + ' payment' + (custCount !== 1 ? 's' : '') + ' · $20/month';
   const provSubtitle = provCount + ' payment' + (provCount !== 1 ? 's' : '') + ' · $500 edit or $1,000/yr';
+  const adTotalStr = '$' + adTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const adSubtitle = adCount + ' payment' + (adCount \!== 1 ? 's' : '') + ' · $50/month';
 
   const tabs = [
     { key: 'all', label: 'All' },
@@ -803,26 +808,31 @@ export default function AdminPaymentsPage() {
         <KpiCard title="Total Refunded" value={analyticsLoading ? '...' : refundedTotal} icon={RefreshCw} colorClass="text-amber-600" bgClass="bg-amber-50" />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-3"><span className="text-sm font-medium text-gray-500">RFQ Income</span><span className="p-2 rounded-lg bg-violet-50"><svg className="h-5 w-5 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></span></div>
-          <p className="text-2xl font-bold text-gray-900">{analyticsLoading ? '...' : rfqTotalStr}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-gray-500">RFQ Income</span><span className="p-2 rounded-lg bg-violet-50"><svg className="h-5 w-5 text-violet-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg></span></div>
+          <p className="text-xl font-bold text-gray-900">{analyticsLoading ? '...' : rfqTotalStr}</p>
           <p className="text-xs text-gray-400 mt-1">{analyticsLoading ? '' : rfqSubtitle}</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-3"><span className="text-sm font-medium text-gray-500">NDA Income</span><span className="p-2 rounded-lg bg-rose-50"><svg className="h-5 w-5 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg></span></div>
-          <p className="text-2xl font-bold text-gray-900">{analyticsLoading ? '...' : ndaTotalStr}</p>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-gray-500">NDA Income</span><span className="p-2 rounded-lg bg-rose-50"><svg className="h-5 w-5 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg></span></div>
+          <p className="text-xl font-bold text-gray-900">{analyticsLoading ? '...' : ndaTotalStr}</p>
           <p className="text-xs text-gray-400 mt-1">{analyticsLoading ? '' : ndaSubtitle}</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-3"><span className="text-sm font-medium text-gray-500">Customer Membership</span><span className="p-2 rounded-lg bg-blue-50"><svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg></span></div>
-          <p className="text-2xl font-bold text-gray-900">{analyticsLoading ? '...' : custTotalStr}</p>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-gray-500">Customer Membership</span><span className="p-2 rounded-lg bg-blue-50"><svg className="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg></span></div>
+          <p className="text-xl font-bold text-gray-900">{analyticsLoading ? '...' : custTotalStr}</p>
           <p className="text-xs text-gray-400 mt-1">{analyticsLoading ? '' : custSubtitle}</p>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-3"><span className="text-sm font-medium text-gray-500">Provider Membership</span><span className="p-2 rounded-lg bg-emerald-50"><svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg></span></div>
-          <p className="text-2xl font-bold text-gray-900">{analyticsLoading ? '...' : provTotalStr}</p>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-gray-500">Provider Membership</span><span className="p-2 rounded-lg bg-emerald-50"><svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg></span></div>
+          <p className="text-xl font-bold text-gray-900">{analyticsLoading ? '...' : provTotalStr}</p>
           <p className="text-xs text-gray-400 mt-1">{analyticsLoading ? '' : provSubtitle}</p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+          <div className="flex items-center justify-between mb-2"><span className="text-xs font-medium text-gray-500">Advertisement Income</span><span className="p-2 rounded-lg bg-amber-50"><svg className="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg></span></div>
+          <p className="text-xl font-bold text-gray-900">{analyticsLoading ? '...' : adTotalStr}</p>
+          <p className="text-xs text-gray-400 mt-1">{analyticsLoading ? '' : adSubtitle}</p>
         </div>
       </div>
 

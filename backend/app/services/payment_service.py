@@ -781,10 +781,18 @@ async def _handle_subscription_deleted(
 ) -> None:
     """Handle subscription cancellation.
 
+    Stripe fires customer.subscription.deleted AFTER the final period
+    finishes (for cancel_at_period_end=True) or immediately (for hard
+    cancel). When this fires for an ADVERTISEMENT subscription, the
+    user has received everything they paid for, so the linked
+    Advertisement must come down.
+
     Args:
         db: Database session.
         stripe_subscription: Stripe subscription object.
     """
+    import logging as _log_mod
+    _logd = _log_mod.getLogger(__name__)
     result = await db.execute(
         select(Subscription).where(
             Subscription.external_subscription_id == stripe_subscription["id"]
@@ -795,6 +803,29 @@ async def _handle_subscription_deleted(
     if subscription:
         subscription.subscription_status = SubscriptionStatus.CANCELLED
         subscription.cancelled_at = datetime.utcnow()
+
+        # Deactivate the linked ad (period has ended).
+        if subscription.advertisement_id:
+            try:
+                from app.models.advertising import Advertisement as _Ad
+                from app.models.enums import AdStatus as _AdStatus
+                ad_row = (
+                    await db.execute(
+                        select(_Ad).where(_Ad.id == subscription.advertisement_id)
+                    )
+                ).scalar_one_or_none()
+                if ad_row is not None and ad_row.ad_status != _AdStatus.CANCELLED:
+                    ad_row.ad_status = _AdStatus.CANCELLED
+                    ad_row.ended_at = datetime.utcnow()
+                    _logd.info(
+                        "subscription.deleted: deactivated ad %s after final period",
+                        subscription.advertisement_id,
+                    )
+            except Exception as _ad_err:
+                _logd.error(
+                    "subscription.deleted: failed to deactivate ad %s: %s",
+                    subscription.advertisement_id, _ad_err,
+                )
         await db.commit()
 
 

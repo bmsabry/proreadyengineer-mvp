@@ -1143,12 +1143,16 @@ async def create_ad_checkout(
             detail=f"Ad must be approved before checkout. Current status: {ad.ad_status}",
         )
 
-    from app.services.payment_service import create_payment_intent
-    intent = await create_payment_intent(
-        db, "advertisement_subscription", 5000, "usd", current_user, str(ad.id)
+    # NOTE: Advertisements are a monthly auto-renewing subscription ($50/mo).
+    # The one-time PaymentIntent path was retired because it doesn't renew.
+    # Use POST /ads/{ad_id}/checkout-session instead (Stripe subscription).
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail=(
+            "Ad payments are now a monthly subscription. "
+            "Use /api/v1/ads/{ad_id}/checkout-session to start monthly billing."
+        ),
     )
-
-    return {"client_secret": intent["client_secret"], "payment_intent_id": intent["id"]}
 
 
 # ---------------------------------------------------------------------------
