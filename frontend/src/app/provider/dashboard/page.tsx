@@ -11,6 +11,7 @@ import {
   TrendingUp, FileText, CheckCircle, Clock, XCircle,
   FileSignature, Calendar, ArrowRight, Inbox,
   CreditCard, Bell, Phone, Crown, Megaphone,
+  Loader2, AlertCircle, X,
 } from 'lucide-react';
 
 // ─── Shared UI helpers ────────────────────────────────────────────────────────
@@ -51,6 +52,306 @@ function UrgencyBadge({ urgency }: { urgency?: string }) {
 }
 
 // ─── Analytics Panel ─────────────────────────────────────────────────────────
+
+// --- Advertisement status card (replaces static Advertise CTA) -------------
+
+interface ProviderAd {
+  id: string;
+  title: string;
+  page_type?: string | null;
+  ad_status: string;
+  admin_review_notes?: string | null;
+  reviewed_at?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+}
+
+function AdvertisementStatusCard() {
+  const [ads, setAds] = useState<ProviderAd[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  const fetchAds = async () => {
+    try {
+      const { apiClient } = await import('@/lib/api');
+      const resp = await apiClient.get('/advertiser/ads/me');
+      setAds(Array.isArray(resp.data) ? resp.data : []);
+    } catch {
+      // silent - user may not have any ads yet
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAds();
+    const id = setInterval(fetchAds, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Pick the most-recently-updated ad in a non-terminal state, or the latest
+  // ad overall if none are active.
+  const relevantStatuses = new Set([
+    'processing', 'pending_review', 'reserved_checkout_pending',
+    'active', 'rejected',
+  ]);
+  const relevantAds = ads.filter((a) => relevantStatuses.has(a.ad_status));
+  const ordered = [...(relevantAds.length > 0 ? relevantAds : ads)].sort((a, b) => {
+    const ta = new Date(a.reviewed_at || a.updated_at || a.created_at || 0).getTime();
+    const tb = new Date(b.reviewed_at || b.updated_at || b.created_at || 0).getTime();
+    return tb - ta;
+  });
+  const ad = ordered[0];
+
+  const startCheckout = async (adId: string) => {
+    setCheckoutLoading(true);
+    setCheckoutError(null);
+    try {
+      const { apiClient } = await import('@/lib/api');
+      const resp = await apiClient.post(`/ads/${adId}/checkout-session`);
+      const data = resp.data || {};
+      if (data.already_paid) {
+        window.location.reload();
+        return;
+      }
+      if (data.checkout_url) {
+        window.location.href = data.checkout_url;
+        return;
+      }
+      throw new Error('Checkout URL was not returned by the server.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Unable to start checkout.';
+      setCheckoutError(msg);
+      setCheckoutLoading(false);
+    }
+  };
+
+  // Still loading / no ad at all -> show the original static CTA.
+  if (loading || !ad) {
+    return (
+      <Link href="/provider/advertise">
+        <div className="mt-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50 p-3 flex items-center gap-3 hover:shadow-sm hover:border-violet-300 transition-all cursor-pointer group">
+          <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
+            <Megaphone className="h-4 w-4 text-violet-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-slate-900 group-hover:text-violet-700 transition-colors">Advertise with Us</p>
+            <p className="text-[10px] text-slate-500">Promote your services - $50/month</p>
+          </div>
+          <ArrowRight className="h-3.5 w-3.5 text-violet-400 group-hover:text-violet-600 transition-colors shrink-0" />
+        </div>
+      </Link>
+    );
+  }
+
+  // Status-driven card presentation.
+  const status = ad.ad_status;
+  const isProcessing = status === 'processing';
+  const isPending = status === 'pending_review';
+  const isCheckoutPending = status === 'reserved_checkout_pending';
+  const isActive = status === 'active';
+  const isRejected = status === 'rejected';
+
+  const cardClass = isCheckoutPending
+    ? 'border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 hover:border-amber-400 ring-1 ring-amber-200'
+    : isActive
+      ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 hover:border-emerald-300'
+      : isRejected
+        ? 'border-red-200 bg-gradient-to-r from-red-50 to-orange-50 hover:border-red-300'
+        : isPending
+          ? 'border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50 hover:border-amber-300'
+          : 'border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50 hover:border-violet-300';
+
+  const iconBg = isCheckoutPending
+    ? 'bg-amber-100'
+    : isActive
+      ? 'bg-emerald-100'
+      : isRejected
+        ? 'bg-red-100'
+        : isPending
+          ? 'bg-amber-100'
+          : 'bg-violet-100';
+
+  const Icon = isCheckoutPending
+    ? CreditCard
+    : isActive
+      ? CheckCircle
+      : isRejected
+        ? XCircle
+        : isPending
+          ? Clock
+          : isProcessing
+            ? Loader2
+            : Megaphone;
+
+  const iconColor = isCheckoutPending
+    ? 'text-amber-600'
+    : isActive
+      ? 'text-emerald-600'
+      : isRejected
+        ? 'text-red-600'
+        : isPending
+          ? 'text-amber-600'
+          : 'text-violet-600';
+
+  const title = isCheckoutPending
+    ? 'Approved - Pay to Publish'
+    : isActive
+      ? 'Your ad is live'
+      : isRejected
+        ? 'Ad not approved'
+        : isPending
+          ? 'Pending admin review'
+          : isProcessing
+            ? 'Generating your ad...'
+            : 'Advertise with Us';
+
+  const subtitle = isCheckoutPending
+    ? 'Click to complete the $50/month subscription'
+    : isActive
+      ? `${ad.title} - visible on the directory`
+      : isRejected
+        ? 'Click to view admin feedback'
+        : isPending
+          ? 'Usually reviewed within 1 business day'
+          : isProcessing
+            ? 'This usually takes 1-2 minutes'
+            : 'Promote your services - $50/month';
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setModalOpen(true)}
+        className={`mt-3 w-full text-left rounded-xl border p-3 flex items-center gap-3 hover:shadow-sm transition-all cursor-pointer ${cardClass}`}
+      >
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
+          <Icon className={`h-4 w-4 ${iconColor} ${isProcessing ? 'animate-spin' : ''}`} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-bold text-slate-900 truncate">{title}</p>
+          <p className="text-[10px] text-slate-500 truncate">{subtitle}</p>
+        </div>
+        <ArrowRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+      </button>
+
+      {modalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => setModalOpen(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setModalOpen(false)}
+              className="absolute top-3 right-3 text-slate-400 hover:text-slate-700"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${iconBg}`}>
+                <Icon className={`h-5 w-5 ${iconColor} ${isProcessing ? 'animate-spin' : ''}`} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">{title}</h3>
+                <p className="text-xs text-slate-500 truncate">{ad.title}</p>
+              </div>
+            </div>
+
+            {isProcessing && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
+                <p className="font-semibold mb-1">What happens next:</p>
+                <ol className="list-decimal list-inside space-y-1 text-blue-700 text-xs">
+                  <li>Our AI reads all pages of your website.</li>
+                  <li>Your ad card is professionally generated.</li>
+                  <li>An admin reviews and approves the ad.</li>
+                  <li>You complete the $50/month subscription.</li>
+                  <li>Your ad goes live on the directory.</li>
+                </ol>
+              </div>
+            )}
+
+            {isPending && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                <p className="font-semibold mb-1">Queued for admin review</p>
+                <p className="text-amber-700 text-xs">An admin will review the generated ad copy and approve or reject within 1 business day. We will email you as soon as there is a decision.</p>
+              </div>
+            )}
+
+            {isCheckoutPending && (
+              <div className="space-y-3">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+                  <p className="font-semibold mb-1">Approved - one last step</p>
+                  <p className="text-amber-700 text-xs">Your ad has been approved by our review team. Complete the $50/month subscription to publish it to the public directory. The ad will go live within seconds of a successful payment.</p>
+                </div>
+                {checkoutError && (
+                  <p className="text-red-700 text-xs">{checkoutError}</p>
+                )}
+                <button
+                  type="button"
+                  disabled={checkoutLoading}
+                  onClick={() => startCheckout(ad.id)}
+                  className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-colors disabled:opacity-60"
+                >
+                  {checkoutLoading ? 'Redirecting to Stripe...' : 'Pay & Publish ($50/month)'}
+                </button>
+              </div>
+            )}
+
+            {isActive && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-800">
+                <p className="font-semibold mb-1">Live on the directory</p>
+                <p className="text-emerald-700 text-xs">Your ad is visible to visitors. An email confirmation was sent to your inbox.</p>
+                <Link href={ad.page_type === 'software-providers' ? '/software-providers' : '/featured-firms'}>
+                  <span className="inline-flex items-center gap-1 mt-2 text-emerald-700 underline text-xs">
+                    View the public directory <ArrowRight className="h-3 w-3" />
+                  </span>
+                </Link>
+              </div>
+            )}
+
+            {isRejected && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                <p className="font-semibold mb-1">Admin feedback</p>
+                <p className="text-red-700 text-xs whitespace-pre-wrap">
+                  {ad.admin_review_notes || 'An admin reviewed the ad and decided not to publish it. A detailed email was sent explaining why and what to adjust before resubmitting.'}
+                </p>
+                <Link href="/provider/advertise">
+                  <span className="inline-flex items-center gap-1 mt-2 text-red-700 underline text-xs">
+                    Submit an updated ad <ArrowRight className="h-3 w-3" />
+                  </span>
+                </Link>
+              </div>
+            )}
+
+            <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between gap-2">
+              <Link
+                href="/provider/advertise"
+                className="text-xs text-slate-500 hover:text-slate-800 underline"
+              >
+                Open ad management
+              </Link>
+              <button
+                type="button"
+                onClick={() => setModalOpen(false)}
+                className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 function ProviderAnalyticsPanel({
   teasers, quotes, hasMembership, user, contactedRfqIds, providerSubStatus,
@@ -298,19 +599,8 @@ function ProviderAnalyticsPanel({
             </div>
           </Link>
         </div>
-        {/* Advertise CTA */}
-        <Link href="/provider/advertise">
-          <div className="mt-3 rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50 p-3 flex items-center gap-3 hover:shadow-sm hover:border-violet-300 transition-all cursor-pointer group">
-            <div className="w-8 h-8 rounded-lg bg-violet-100 flex items-center justify-center shrink-0">
-              <Megaphone className="h-4 w-4 text-violet-600" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold text-slate-900 group-hover:text-violet-700 transition-colors">Advertise with Us</p>
-              <p className="text-[10px] text-slate-500">Promote your services — $50/month</p>
-            </div>
-            <ArrowRight className="h-3.5 w-3.5 text-violet-400 group-hover:text-violet-600 transition-colors shrink-0" />
-          </div>
-        </Link>
+        {/* Status-aware Advertise card */}
+        <AdvertisementStatusCard />
       </div>
     </div>
   );
