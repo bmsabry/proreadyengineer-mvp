@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Building2, Search, Loader2, ExternalLink, CheckCircle, Sparkles } from 'lucide-react';
+import { Building2, Search, Loader2, ExternalLink, CheckCircle, Sparkles, Mail } from 'lucide-react';
 
 // Normalize API base so `${apiBase}/ads/...` always produces `.../api/v1/ads/...`
 // regardless of whether NEXT_PUBLIC_API_URL is set with or without the /api/v1 suffix.
@@ -31,10 +31,21 @@ interface Ad {
   llm_extracted_content?: Record<string, any> | null;
   click_count?: number;
   impression_count?: number;
+  company_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  website?: string | null;
 }
 
 function AdCard({ ad }: { ad: Ad }) {
   const content = ad.llm_extracted_content ?? {};
+  const companyName = (
+    ad.company_name ||
+    (content as any).company_name ||
+    ''
+  ).trim();
+  const contactInfo = (content as any).contact_info || {};
+  const email = ad.contact_email || contactInfo.email || null;
 
   const handleClick = async () => {
     // Track click
@@ -70,6 +81,12 @@ function AdCard({ ad }: { ad: Ad }) {
       </div>
 
       <div className="p-5 flex flex-col flex-1">
+        {companyName && (
+          <div className="flex items-center gap-1.5 mb-1">
+            <Building2 className="h-3 w-3 text-violet-600" />
+            <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700 truncate">{companyName}</span>
+          </div>
+        )}
         <h3 className="text-base font-bold text-slate-900 mb-1 line-clamp-2">{ad.title}</h3>
 
         {content.tagline && (
@@ -110,6 +127,17 @@ function AdCard({ ad }: { ad: Ad }) {
 
         {ad.optional_price_text && (
           <p className="text-[#0F2B54] font-semibold text-sm mb-3">{ad.optional_price_text}</p>
+        )}
+
+        {email && (
+          <a
+            href={`mailto:${email}`}
+            onClick={(e) => e.stopPropagation()}
+            className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[#0F2B54] hover:underline truncate"
+          >
+            <Mail className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{email}</span>
+          </a>
         )}
 
         <div className="mt-auto pt-3 border-t border-slate-100">

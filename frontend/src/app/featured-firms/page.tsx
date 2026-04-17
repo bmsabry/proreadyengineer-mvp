@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Building2, Search, Loader2, ExternalLink, CheckCircle, Sparkles, Star, ArrowUpRight, MapPin, Award, Users, Zap } from 'lucide-react';
+import { Building2, Search, Loader2, ExternalLink, CheckCircle, Sparkles, Star, ArrowUpRight, MapPin, Award, Users, Zap, Mail } from 'lucide-react';
 
 // Normalize API base so `${apiBase}/ads/...` always produces `.../api/v1/ads/...`
 // regardless of whether NEXT_PUBLIC_API_URL is set with or without the /api/v1 suffix.
@@ -31,6 +31,11 @@ interface Ad {
   llm_extracted_content?: Record<string, any> | null;
   click_count?: number;
   impression_count?: number;
+  // Enriched public fields set by backend _to_public_response
+  company_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  website?: string | null;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -53,16 +58,34 @@ function pickPreset(id: string) {
   return GRADIENT_PRESETS[h % GRADIENT_PRESETS.length];
 }
 
-function getInitials(title: string): string {
-  const words = title.trim().split(/\s+/);
+function getInitials(name: string): string {
+  // Strip legal-entity suffixes so 'ProReadyEngineer LLC' -> 'PR', not 'PL'.
+  const cleaned = name
+    .replace(/[,.]/g, ' ')
+    .replace(/\b(llc|inc|incorporated|corp|corporation|co|company|ltd|limited|plc|gmbh|llp|pllc|pc|pa|sa|bv|ag)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const words = (cleaned || name).trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'EF';
   if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + (words[words.length - 1][0] || '')).toUpperCase();
+  return (words[0][0] + (words[1][0] || '')).toUpperCase();
 }
 
 function FirmCard({ ad, featured = false }: { ad: Ad; featured?: boolean }) {
   const content = ad.llm_extracted_content ?? {};
   const preset = pickPreset(ad.id);
-  const initials = getInitials(ad.title || 'Engineering Firm');
+  // Use the REAL company name for initials, not the ad headline. The
+  // previous version was deriving initials from the title which produced
+  // nonsense like 'GE' for 'Gas Turbine ... Engineering'.
+  const companyName = (
+    ad.company_name ||
+    (content as any).company_name ||
+    ''
+  ).trim();
+  const initials = getInitials(companyName || ad.title || 'Engineering Firm');
+  const contactInfo = (content as any).contact_info || {};
+  const email = ad.contact_email || contactInfo.email || null;
+  const phone = ad.contact_phone || contactInfo.phone || null;
 
   const handleClick = async () => {
     try {
@@ -84,15 +107,15 @@ function FirmCard({ ad, featured = false }: { ad: Ad; featured?: boolean }) {
         onClick={handleClick}
         className={`group relative overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ${preset.ring} cursor-pointer transition-all hover:shadow-2xl hover:-translate-y-0.5`}
       >
-        {/* Featured ribbon */}
-        <div className="absolute top-5 right-5 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/95 backdrop-blur-sm shadow-md">
-          <Star className="h-3.5 w-3.5 text-amber-900 fill-amber-900" />
-          <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider">Featured</span>
-        </div>
-
         <div className="grid md:grid-cols-5 gap-0">
           {/* Left: Hero image/gradient */}
           <div className={`relative md:col-span-2 bg-gradient-to-br ${preset.hero} p-8 flex items-center justify-center min-h-[260px]`}>
+            {/* Featured ribbon pinned to the hero panel — never overlaps the
+                content panel text regardless of headline length. */}
+            <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400 shadow-md">
+              <Star className="h-3.5 w-3.5 text-amber-900 fill-amber-900" />
+              <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider">Featured</span>
+            </div>
             {ad.image_url ? (
               <img
                 src={ad.image_url}
@@ -114,6 +137,13 @@ function FirmCard({ ad, featured = false }: { ad: Ad; featured?: boolean }) {
 
           {/* Right: Content */}
           <div className="md:col-span-3 p-8 flex flex-col">
+            {/* Company name eyebrow — the REAL firm name, not the ad headline */}
+            {companyName && (
+              <div className="flex items-center gap-2 mb-2">
+                <Building2 className={`h-4 w-4 ${preset.text}`} />
+                <span className={`text-sm font-bold uppercase tracking-wider ${preset.text}`}>{companyName}</span>
+              </div>
+            )}
             <h2 className="text-2xl md:text-3xl font-black text-slate-900 mb-2 leading-tight">
               {ad.title}
             </h2>
@@ -146,6 +176,29 @@ function FirmCard({ ad, featured = false }: { ad: Ad; featured?: boolean }) {
                     <span className="text-sm text-slate-600 leading-snug">{pp}</span>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Contact (email/phone) — this is what the provider paid for:
+                buyers get direct access. */}
+            {(email || phone) && (
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mb-4 pt-3 border-t border-slate-100">
+                {email && (
+                  <a
+                    href={`mailto:${email}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className={`inline-flex items-center gap-1.5 text-sm font-semibold ${preset.text} hover:underline`}
+                  >
+                    <Mail className="h-4 w-4" />
+                    {email}
+                  </a>
+                )}
+                {phone && (
+                  <span className="inline-flex items-center gap-1.5 text-sm text-slate-600">
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a11 11 0 0012 12v-1a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2A18 18 0 013 5z"/></svg>
+                    {phone}
+                  </span>
+                )}
               </div>
             )}
 
@@ -203,6 +256,12 @@ function FirmCard({ ad, featured = false }: { ad: Ad; featured?: boolean }) {
       </div>
 
       <div className="p-5 flex flex-col flex-1">
+        {companyName && (
+          <div className="flex items-center gap-1.5 mb-1">
+            <Building2 className={`h-3.5 w-3.5 ${preset.text}`} />
+            <span className={`text-[11px] font-bold uppercase tracking-wider ${preset.text} truncate`}>{companyName}</span>
+          </div>
+        )}
         <h3 className="text-lg font-extrabold text-slate-900 mb-1 leading-tight line-clamp-2 group-hover:text-slate-700 transition-colors">
           {ad.title}
         </h3>
@@ -246,6 +305,17 @@ function FirmCard({ ad, featured = false }: { ad: Ad; featured?: boolean }) {
             <Award className={`h-3.5 w-3.5 ${preset.text}`} />
             <span className={`text-xs font-semibold ${preset.text}`}>{ad.optional_price_text}</span>
           </div>
+        )}
+
+        {email && (
+          <a
+            href={`mailto:${email}`}
+            onClick={(e) => e.stopPropagation()}
+            className={`mb-3 inline-flex items-center gap-1.5 text-xs font-semibold ${preset.text} hover:underline truncate`}
+          >
+            <Mail className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{email}</span>
+          </a>
         )}
 
         <div className="mt-auto pt-3 border-t border-slate-100">

@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.deps import get_db, get_current_active_user, get_current_user_optional, require_role
 from app.models.user import User
@@ -651,11 +652,15 @@ async def get_software_provider_ads(
     )
     total = count_result.scalar() or 0
 
-    # Fetch page
+    # Fetch page (eager-load advertiser + provider so cards can show
+    # real company name and contact email)
     result = await db.execute(
         select(Advertisement).where(
             Advertisement.ad_status == AdStatus.ACTIVE,
             Advertisement.page_type == "software-providers",
+        ).options(
+            selectinload(Advertisement.advertiser_user),
+            selectinload(Advertisement.provider),
         ).order_by(Advertisement.started_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
@@ -764,6 +769,9 @@ async def get_featured_firm_ads(
     result = await db.execute(
         select(Advertisement).where(
             Advertisement.ad_status == AdStatus.ACTIVE,
+        ).options(
+            selectinload(Advertisement.advertiser_user),
+            selectinload(Advertisement.provider),
         ).order_by(
             Advertisement.started_at.desc().nullslast(),
             Advertisement.created_at.desc(),
@@ -1531,7 +1539,12 @@ async def ad_analytics(
 # ---------------------------------------------------------------------------
 
 def _to_public_response(ad) -> dict:
-    """Convert Advertisement model to public response dict."""
+    """Convert Advertisement model to public response dict.
+
+    Enriches the ad with best-available company name and contact email so
+    the public /featured-firms card can show who the provider actually is
+    (not initials derived from the ad headline).
+    """
     from app.services.file_service import generate_download_url
 
     image_url = None
@@ -1542,6 +1555,44 @@ def _to_public_response(ad) -> dict:
             pass
 
     content = ad.llm_extracted_content or {}
+    contact_info = content.get("contact_info") or {}
+
+    # Pull linked user / provider if they were eager-loaded. Access via
+    # __dict__ to avoid lazy-load IO errors in async context if they are
+    # NOT loaded (safer than try/except around attribute access).
+    advertiser_user = ad.__dict__.get("advertiser_user")
+    linked_provider = ad.__dict__.get("provider")
+
+    # --- Company name resolution (best -> worst) ---
+    company_name = None
+    if content.get("company_name"):
+        company_name = str(content["company_name"]).strip() or None
+    if not company_name and linked_provider is not None:
+        company_name = (
+            getattr(linked_provider, "firm_name", None)
+            or getattr(linked_provider, "name", None)
+        )
+    if not company_name and advertiser_user is not None:
+        company_name = getattr(advertiser_user, "business_name", None)
+
+    # --- Contact email resolution (best -> worst) ---
+    contact_email = None
+    if contact_info.get("email"):
+        contact_email = str(contact_info["email"]).strip() or None
+    if not contact_email and linked_provider is not None:
+        emails = getattr(linked_provider, "email_addresses", None) or []
+        if emails:
+            contact_email = emails[0]
+    if not contact_email and advertiser_user is not None:
+        contact_email = getattr(advertiser_user, "email", None)
+
+    # --- Contact phone (nice-to-have) ---
+    contact_phone = contact_info.get("phone") or None
+
+    # --- Website: prefer outbound, then provider.website ---
+    website = ad.outbound_url
+    if not website and linked_provider is not None:
+        website = getattr(linked_provider, "website", None)
 
     return {
         "id": str(ad.id),
@@ -1555,6 +1606,11 @@ def _to_public_response(ad) -> dict:
         "llm_extracted_content": content,
         "click_count": ad.click_count or 0,
         "impression_count": ad.impression_count or 0,
+        # Enriched public fields
+        "company_name": company_name,
+        "contact_email": contact_email,
+        "contact_phone": contact_phone,
+        "website": website,
     }
 
 
