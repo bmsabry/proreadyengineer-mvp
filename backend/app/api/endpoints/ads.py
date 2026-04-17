@@ -686,23 +686,31 @@ async def get_featured_firm_ads(
     page_size: int = Query(24, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get active featured firm advertisements — unlimited, paginated."""
+    """Get ALL active, paid advertisements — the canonical premium firms
+    listing. We show every ACTIVE ad here regardless of its `page_type`
+    so a provider who just paid can always find their ad on the public
+    directory. The narrower /ads/software-providers endpoint continues
+    to filter by page_type for the software-specific subpage.
+    """
     from app.models.advertising import Advertisement
     from app.models.enums import AdStatus
 
     count_result = await db.execute(
         select(func.count()).select_from(Advertisement).where(
             Advertisement.ad_status == AdStatus.ACTIVE,
-            Advertisement.page_type == "featured-firms",
         )
     )
     total = count_result.scalar() or 0
 
+    # Order by started_at desc (most-recently-paid first), with created_at
+    # as a tie-breaker for ads where started_at is NULL.
     result = await db.execute(
         select(Advertisement).where(
             Advertisement.ad_status == AdStatus.ACTIVE,
-            Advertisement.page_type == "featured-firms",
-        ).order_by(Advertisement.started_at.desc())
+        ).order_by(
+            Advertisement.started_at.desc().nullslast(),
+            Advertisement.created_at.desc(),
+        )
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

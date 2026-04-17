@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { Building2, Search, Loader2, ExternalLink, CheckCircle, Sparkles } from 'lucide-react';
+import { Building2, Search, Loader2, ExternalLink, CheckCircle, Sparkles, Star, ArrowUpRight, MapPin, Award, Users, Zap } from 'lucide-react';
 
 const apiBase = process.env.NEXT_PUBLIC_API_URL || 'https://proreadyengineer-api.onrender.com/api/v1';
 
@@ -30,8 +30,36 @@ interface Ad {
   impression_count?: number;
 }
 
-function FirmCard({ ad }: { ad: Ad }) {
+// ──────────────────────────────────────────────────────────────────────────
+// Deterministic accent colour per-firm so cards have personality without
+// making every ad identical. Produces one of six gradient presets from the
+// ad's id hash — a firm always gets the SAME colour every visit.
+// ──────────────────────────────────────────────────────────────────────────
+const GRADIENT_PRESETS = [
+  { hero: 'from-blue-600 via-indigo-600 to-violet-600', soft: 'from-blue-50 via-indigo-50 to-violet-50', text: 'text-indigo-700', ring: 'ring-indigo-100', chip: 'bg-indigo-50 text-indigo-700', accent: 'bg-indigo-600 hover:bg-indigo-700' },
+  { hero: 'from-emerald-600 via-teal-600 to-cyan-600', soft: 'from-emerald-50 via-teal-50 to-cyan-50', text: 'text-teal-700', ring: 'ring-teal-100', chip: 'bg-teal-50 text-teal-700', accent: 'bg-teal-600 hover:bg-teal-700' },
+  { hero: 'from-orange-500 via-rose-500 to-pink-600', soft: 'from-orange-50 via-rose-50 to-pink-50', text: 'text-rose-700', ring: 'ring-rose-100', chip: 'bg-rose-50 text-rose-700', accent: 'bg-rose-600 hover:bg-rose-700' },
+  { hero: 'from-slate-800 via-slate-700 to-slate-900', soft: 'from-slate-50 via-slate-100 to-slate-50', text: 'text-slate-700', ring: 'ring-slate-200', chip: 'bg-slate-100 text-slate-700', accent: 'bg-slate-800 hover:bg-slate-900' },
+  { hero: 'from-amber-500 via-orange-600 to-red-600', soft: 'from-amber-50 via-orange-50 to-red-50', text: 'text-orange-700', ring: 'ring-orange-100', chip: 'bg-orange-50 text-orange-700', accent: 'bg-orange-600 hover:bg-orange-700' },
+  { hero: 'from-fuchsia-600 via-purple-600 to-indigo-700', soft: 'from-fuchsia-50 via-purple-50 to-indigo-50', text: 'text-purple-700', ring: 'ring-purple-100', chip: 'bg-purple-50 text-purple-700', accent: 'bg-purple-600 hover:bg-purple-700' },
+];
+
+function pickPreset(id: string) {
+  let h = 0;
+  for (let i = 0; i < id.length; i += 1) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return GRADIENT_PRESETS[h % GRADIENT_PRESETS.length];
+}
+
+function getInitials(title: string): string {
+  const words = title.trim().split(/\s+/);
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + (words[words.length - 1][0] || '')).toUpperCase();
+}
+
+function FirmCard({ ad, featured = false }: { ad: Ad; featured?: boolean }) {
   const content = ad.llm_extracted_content ?? {};
+  const preset = pickPreset(ad.id);
+  const initials = getInitials(ad.title || 'Engineering Firm');
 
   const handleClick = async () => {
     try {
@@ -46,65 +74,185 @@ function FirmCard({ ad }: { ad: Ad }) {
     }
   };
 
+  // Featured (hero) variant — used for the first card in the list.
+  if (featured) {
+    return (
+      <div
+        onClick={handleClick}
+        className={`group relative overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ${preset.ring} cursor-pointer transition-all hover:shadow-2xl hover:-translate-y-0.5`}
+      >
+        {/* Featured ribbon */}
+        <div className="absolute top-5 right-5 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-400/95 backdrop-blur-sm shadow-md">
+          <Star className="h-3.5 w-3.5 text-amber-900 fill-amber-900" />
+          <span className="text-[11px] font-bold text-amber-900 uppercase tracking-wider">Featured</span>
+        </div>
+
+        <div className="grid md:grid-cols-5 gap-0">
+          {/* Left: Hero image/gradient */}
+          <div className={`relative md:col-span-2 bg-gradient-to-br ${preset.hero} p-8 flex items-center justify-center min-h-[260px]`}>
+            {ad.image_url ? (
+              <img
+                src={ad.image_url}
+                alt={ad.title}
+                className="object-cover w-full h-full absolute inset-0"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              />
+            ) : (
+              <div className="relative flex flex-col items-center gap-4 text-white">
+                <div className="w-24 h-24 rounded-2xl bg-white/20 backdrop-blur-sm border-2 border-white/40 flex items-center justify-center shadow-2xl">
+                  <span className="text-3xl font-black text-white tracking-wider">{initials}</span>
+                </div>
+                <Sparkles className="h-5 w-5 text-white/70" />
+              </div>
+            )}
+            {/* subtle radial overlay for dimensionality */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent pointer-events-none" />
+          </div>
+
+          {/* Right: Content */}
+          <div className="md:col-span-3 p-8 flex flex-col">
+            <h2 className="text-2xl md:text-3xl font-black text-slate-900 mb-2 leading-tight">
+              {ad.title}
+            </h2>
+
+            {content.tagline && (
+              <p className={`${preset.text} font-semibold text-base mb-4`}>{content.tagline}</p>
+            )}
+
+            {ad.promotional_text && (
+              <p className="text-slate-600 leading-relaxed mb-5 line-clamp-4">
+                {ad.promotional_text}
+              </p>
+            )}
+
+            {content.specialties?.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-5">
+                {content.specialties.slice(0, 6).map((sp: string, i: number) => (
+                  <span key={i} className={`px-2.5 py-1 rounded-full text-xs ${preset.chip} font-medium`}>
+                    {sp}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {content.proof_points?.length > 0 && (
+              <div className="grid sm:grid-cols-2 gap-2 mb-6">
+                {content.proof_points.slice(0, 4).map((pp: string, i: number) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <CheckCircle className="h-4 w-4 text-emerald-500 mt-0.5 shrink-0" />
+                    <span className="text-sm text-slate-600 leading-snug">{pp}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-auto flex items-center justify-between pt-4 border-t border-slate-100">
+              {ad.optional_price_text && (
+                <div className="flex items-center gap-1.5">
+                  <Award className={`h-4 w-4 ${preset.text}`} />
+                  <span className={`text-sm font-semibold ${preset.text}`}>{ad.optional_price_text}</span>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleClick(); }}
+                className={`ml-auto inline-flex items-center gap-2 ${preset.accent} text-white px-5 py-2.5 rounded-xl font-semibold text-sm shadow-md transition-all group-hover:shadow-lg`}
+              >
+                {content.cta_label || 'Visit Website'}
+                <ArrowUpRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Regular card variant.
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden hover:shadow-lg hover:border-slate-300 transition-all flex flex-col h-full group">
-      <div className="h-32 bg-gradient-to-br from-blue-50 to-slate-100 flex items-center justify-center overflow-hidden">
+    <div
+      onClick={handleClick}
+      className={`group relative flex flex-col bg-white rounded-2xl overflow-hidden shadow-sm ring-1 ${preset.ring} hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer h-full`}
+    >
+      {/* Top gradient strip with avatar/image */}
+      <div className={`relative h-40 bg-gradient-to-br ${preset.hero} overflow-hidden`}>
         {ad.image_url ? (
           <img
             src={ad.image_url}
             alt={ad.title}
-            className="object-cover w-full h-full"
+            className="absolute inset-0 object-cover w-full h-full"
             onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
           />
         ) : (
-          <Building2 className="h-10 w-10 text-blue-300" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-20 h-20 rounded-2xl bg-white/20 backdrop-blur-sm border-2 border-white/40 flex items-center justify-center shadow-lg">
+              <span className="text-2xl font-black text-white tracking-wider">{initials}</span>
+            </div>
+          </div>
         )}
+        {/* Corner shine */}
+        <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-3xl" />
+        {/* Premium badge */}
+        <div className="absolute top-3 left-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/95 backdrop-blur-sm shadow-sm">
+          <Zap className="h-3 w-3 text-amber-500 fill-amber-500" />
+          <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider">Premium</span>
+        </div>
       </div>
 
       <div className="p-5 flex flex-col flex-1">
-        <h3 className="text-base font-bold text-slate-900 mb-1 line-clamp-2">{ad.title}</h3>
+        <h3 className="text-lg font-extrabold text-slate-900 mb-1 leading-tight line-clamp-2 group-hover:text-slate-700 transition-colors">
+          {ad.title}
+        </h3>
 
         {content.tagline && (
-          <p className="text-xs text-blue-600 font-medium mb-2">{content.tagline}</p>
+          <p className={`text-xs ${preset.text} font-semibold mb-3`}>{content.tagline}</p>
         )}
 
         {ad.promotional_text && (
-          <p className="text-slate-600 text-sm mb-3 flex-1 leading-relaxed line-clamp-3">{ad.promotional_text}</p>
+          <p className="text-slate-600 text-sm mb-4 line-clamp-3 leading-relaxed">{ad.promotional_text}</p>
         )}
 
         {content.specialties?.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-3">
-            {content.specialties.slice(0, 4).map((s: string, i: number) => (
-              <span key={i} className="px-2 py-0.5 rounded-full text-[10px] bg-blue-50 text-blue-700 font-medium">
-                {s}
+          <div className="flex flex-wrap gap-1 mb-4">
+            {content.specialties.slice(0, 3).map((sp: string, i: number) => (
+              <span key={i} className={`px-2 py-0.5 rounded-full text-[10px] ${preset.chip} font-medium`}>
+                {sp}
               </span>
             ))}
-            {content.specialties.length > 4 && (
-              <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-500">
-                +{content.specialties.length - 4} more
+            {content.specialties.length > 3 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] bg-slate-100 text-slate-500 font-medium">
+                +{content.specialties.length - 3}
               </span>
             )}
           </div>
         )}
 
         {content.proof_points?.length > 0 && (
-          <div className="space-y-1 mb-3">
-            {content.proof_points.slice(0, 2).map((p: string, i: number) => (
+          <div className="space-y-1.5 mb-4">
+            {content.proof_points.slice(0, 2).map((pp: string, i: number) => (
               <div key={i} className="flex items-start gap-1.5">
-                <CheckCircle className="h-3 w-3 text-emerald-500 mt-0.5 shrink-0" />
-                <span className="text-[11px] text-slate-500 line-clamp-1">{p}</span>
+                <CheckCircle className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
+                <span className="text-xs text-slate-600 leading-snug line-clamp-1">{pp}</span>
               </div>
             ))}
           </div>
         )}
 
+        {ad.optional_price_text && (
+          <div className="flex items-center gap-1 mb-3">
+            <Award className={`h-3.5 w-3.5 ${preset.text}`} />
+            <span className={`text-xs font-semibold ${preset.text}`}>{ad.optional_price_text}</span>
+          </div>
+        )}
+
         <div className="mt-auto pt-3 border-t border-slate-100">
           <button
-            onClick={handleClick}
-            className="w-full flex items-center justify-center gap-2 bg-[#0F2B54] text-white text-sm px-4 py-2.5 rounded-xl hover:bg-[#0a1f3e] transition-colors font-medium"
+            type="button"
+            onClick={(e) => { e.stopPropagation(); handleClick(); }}
+            className={`w-full flex items-center justify-center gap-2 ${preset.accent} text-white text-sm px-4 py-2.5 rounded-xl font-semibold shadow-sm transition-all group-hover:shadow-md`}
           >
-            {content.cta_label || 'Contact Firm'}
-            <ExternalLink className="h-3.5 w-3.5" />
+            {content.cta_label || 'Visit Website'}
+            <ArrowUpRight className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -288,12 +436,18 @@ export default function FeaturedFirmsPage() {
           <>
             {!isSearchResult && (
               <div className="flex items-center justify-between mb-6">
-                <p className="text-sm text-slate-500">{totalCount} featured firms</p>
+                <p className="text-sm text-slate-500"><span className="font-semibold text-slate-900">{totalCount}</span> premium {totalCount === 1 ? 'firm' : 'firms'} available</p>
               </div>
             )}
 
+            {/* Hero feature card (first ad) + responsive grid for the rest */}
+            {ads.length > 0 && !isSearchResult && (
+              <div className="mb-8">
+                <FirmCard key={ads[0].id} ad={ads[0]} featured />
+              </div>
+            )}
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-              {ads.map((ad) => (
+              {(isSearchResult ? ads : ads.slice(1)).map((ad) => (
                 <FirmCard key={ad.id} ad={ad} />
               ))}
             </div>
