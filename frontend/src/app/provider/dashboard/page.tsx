@@ -113,6 +113,18 @@ function AdvertisementStatusCard() {
   });
   const ad = ordered[0];
 
+  const dismissStalledAd = async (adId: string) => {
+    try {
+      await apiClient.post(`/me/promotions/${adId}/cancel`);
+      // Optimistic: remove locally so card flips to 'no ads' state.
+      setAds((prev) => prev.filter((x) => x.id !== adId));
+      setModalOpen(false);
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.error('[AdStatusCard] dismiss failed', err);
+    }
+  };
+
   const startCheckout = async (adId: string) => {
     setCheckoutLoading(true);
     setCheckoutError(null);
@@ -181,13 +193,22 @@ function AdvertisementStatusCard() {
 
   // Status-driven card presentation.
   const status = ad.ad_status;
-  const isProcessing = status === 'processing';
+  // A 'processing' ad that is more than 3 minutes old is considered
+  // stalled (LLM generation probably died). Show a clear dead-end UI
+  // with a Dismiss button so the provider isn't stuck.
+  const STALL_THRESHOLD_MS = 3 * 60 * 1000;
+  const createdTs = new Date(ad.created_at || ad.updated_at || 0).getTime();
+  const ageMs = Date.now() - createdTs;
+  const isStalled = status === 'processing' && createdTs > 0 && ageMs > STALL_THRESHOLD_MS;
+  const isProcessing = status === 'processing' && !isStalled;
   const isPending = status === 'pending_review';
   const isCheckoutPending = status === 'reserved_checkout_pending';
   const isActive = status === 'active';
   const isRejected = status === 'rejected';
 
-  const cardClass = isCheckoutPending
+  const cardClass = isStalled
+    ? 'border-red-200 bg-red-50 hover:border-red-300'
+    : isCheckoutPending
     ? 'border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 hover:border-amber-400 ring-1 ring-amber-200'
     : isActive
       ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 hover:border-emerald-300'
@@ -197,7 +218,9 @@ function AdvertisementStatusCard() {
           ? 'border-amber-200 bg-gradient-to-r from-amber-50 to-yellow-50 hover:border-amber-300'
           : 'border-violet-200 bg-gradient-to-r from-violet-50 to-blue-50 hover:border-violet-300';
 
-  const iconBg = isCheckoutPending
+  const iconBg = isStalled
+    ? 'bg-red-100'
+    : isCheckoutPending
     ? 'bg-amber-100'
     : isActive
       ? 'bg-emerald-100'
@@ -207,7 +230,9 @@ function AdvertisementStatusCard() {
           ? 'bg-amber-100'
           : 'bg-violet-100';
 
-  const Icon = isCheckoutPending
+  const Icon = isStalled
+    ? AlertCircle
+    : isCheckoutPending
     ? CreditCard
     : isActive
       ? CheckCircle
@@ -219,7 +244,9 @@ function AdvertisementStatusCard() {
             ? Loader2
             : Megaphone;
 
-  const iconColor = isCheckoutPending
+  const iconColor = isStalled
+    ? 'text-red-600'
+    : isCheckoutPending
     ? 'text-amber-600'
     : isActive
       ? 'text-emerald-600'
@@ -229,7 +256,9 @@ function AdvertisementStatusCard() {
           ? 'text-amber-600'
           : 'text-violet-600';
 
-  const title = isCheckoutPending
+  const title = isStalled
+    ? 'Ad generation stalled'
+    : isCheckoutPending
     ? 'Approved - Pay to Publish'
     : isActive
       ? 'Your ad is live'
@@ -241,7 +270,9 @@ function AdvertisementStatusCard() {
             ? 'Generating your ad...'
             : 'Advertise with Us';
 
-  const subtitle = isCheckoutPending
+  const subtitle = isStalled
+    ? 'Dismiss and submit a new ad'
+    : isCheckoutPending
     ? 'Click to complete the $50/month subscription'
     : isActive
       ? `${ad.title} - visible on the directory`
@@ -315,6 +346,18 @@ function AdvertisementStatusCard() {
               <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
                 <p className="font-semibold mb-1">Queued for admin review</p>
                 <p className="text-amber-700 text-xs">An admin will review the generated ad copy and approve or reject within 1 business day. We will email you as soon as there is a decision.</p>
+              </div>
+            )}
+
+            {isStalled && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p className="text-red-800 text-sm font-semibold mb-1">This ad’s generation appears to have stalled.</p>
+                <p className="text-red-700 text-xs mb-3">It has been processing for more than 3 minutes. You can dismiss it and submit a new one.</p>
+                <button
+                  type="button"
+                  onClick={() => dismissStalledAd(ad.id)}
+                  className="w-full bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-red-700 transition-colors"
+                >Dismiss this ad</button>
               </div>
             )}
 

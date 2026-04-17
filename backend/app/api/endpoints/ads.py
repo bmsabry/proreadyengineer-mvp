@@ -1473,6 +1473,50 @@ def _to_public_response(ad) -> dict:
 
 
 # ---------------------------------------------------------------------------
+
+
+@router.post("/me/promotions/{ad_id}/cancel", response_model=AdvertisementResponse)
+async def cancel_my_promotion(
+    ad_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Provider cancels their OWN ad if it is stuck in processing or
+    pending_review. Ad is marked CANCELLED so it disappears from the
+    provider dashboard card and stops showing 'Generating your ad...'.
+    """
+    from app.models.advertising import Advertisement
+    from app.models.enums import AdStatus
+
+    result = await db.execute(
+        select(Advertisement).where(
+            Advertisement.id == ad_id,
+            Advertisement.advertiser_user_id == current_user.id,
+        )
+    )
+    ad = result.scalar_one_or_none()
+    if not ad:
+        raise HTTPException(status_code=404, detail="Ad not found")
+
+    # Only allow cancelling ads that are in a pre-payment state.
+    if ad.ad_status not in (
+        AdStatus.PROCESSING,
+        AdStatus.PENDING_REVIEW,
+        AdStatus.REJECTED,
+        AdStatus.RESERVED_CHECKOUT_PENDING,
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot cancel ad in status {ad.ad_status}",
+        )
+
+    ad.ad_status = AdStatus.CANCELLED
+    ad.ended_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(ad)
+    return AdvertisementResponse.model_validate(ad)
+
+
 # ad-blocker-safe aliases
 # ---------------------------------------------------------------------------
 # Some ad-blockers (uBlock, Brave, AdBlock Plus, pi-hole) block any request

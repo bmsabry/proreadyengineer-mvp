@@ -20,7 +20,7 @@ function getAuthHeaders(): HeadersInit {
   return h;
 }
 
-type TabKey = 'pending' | 'checkout_pending' | 'active' | 'all' | 'rejected' | 'paused';
+type TabKey = 'pending' | 'processing' | 'checkout_pending' | 'active' | 'all' | 'rejected' | 'paused';
 
 interface Ad {
   id: string;
@@ -130,6 +130,8 @@ export default function AdminAdsPage() {
       let url: string;
       if (tab === 'pending') {
         url = `${apiBase}/admin/ads/pending`;
+      } else if (tab === 'processing') {
+        url = `${apiBase}/admin/ads?status=processing`;
       } else if (tab === 'checkout_pending') {
         url = `${apiBase}/admin/ads?status=reserved_checkout_pending`;
       } else {
@@ -343,6 +345,7 @@ export default function AdminAdsPage() {
 
   const tabs: { key: TabKey; label: string; count?: number }[] = [
     { key: 'pending', label: 'Pending Review', count: analytics?.status_counts?.pending_review ?? 0 },
+    { key: 'processing', label: 'Processing', count: analytics?.status_counts?.processing ?? 0 },
     { key: 'checkout_pending', label: 'Checkout Pending', count: analytics?.status_counts?.reserved_checkout_pending ?? 0 },
     { key: 'active', label: 'Active', count: analytics?.status_counts?.active ?? 0 },
     { key: 'paused', label: 'Paused', count: analytics?.status_counts?.paused ?? 0 },
