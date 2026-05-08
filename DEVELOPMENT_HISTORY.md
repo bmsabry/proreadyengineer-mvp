@@ -280,6 +280,70 @@ git push origin main --force  # force because deploy/ git is re-initialized each
 
 ---
 
+## Phase 6 — May 2026 batch (provider gates, AI Help Assistant, recurring SWC + Alembic traps)
+
+### Provider role gates (commit `5dad5bb`)
+The product had blurred role boundaries: providers could see the customer search box on the landing page and the customer dashboard's RFQ-submission form. Both were filtered out at the navigation level but reachable by direct URL. Bassam wanted a hard ban with both a UI redirect and a server-side reject so that pen-testing a provider account doesn't yield customer-only flows.
+
+**Backend** (`app/api/deps.py::reject_provider_only`): a small dependency that 403s when the only role on the user is `provider`. Wired into:
+- `POST /api/v1/rfqs` (RFQ creation)
+- `POST /api/v1/search/query` (search)
+- `POST /api/v1/search/upload/initiate` (doc-driven search)
+
+**Frontend:** `useEffect` redirects on `app/search/page.tsx`, `app/search/upload/page.tsx`, and the landing-page search form in `app/page.tsx`. Providers landing on these pages are bounced to `/provider/dashboard`.
+
+**Email-collision** rule was already in `auth_service.py::register_user` (lines 146-162) — it rejects creating a customer on an email that already holds provider, and vice versa. Confirmed working; no change required.
+
+### AI Help Assistant + manual + per-button tooltips (commit `113b709`)
+Bassam asked for "comprehensive help on all buttons as well as a detected help chatbot that uses LLM3 to educate them about anything related to the website." The plan was approved with two constraints: subscriber-only access, and a clear paywall message that converts non-subscribers.
+
+What we built:
+- **`docs/help/proreadyengineer_manual.md`** — single source of truth. The chatbot is grounded on it; `/help` renders it. Edit this file to change what the assistant knows.
+- **`backend/app/services/help_service.py`** — uses LLM3 (`DOC_LLM_*`), runtime-config-first read, 5-min manual cache, role-aware system prompt with explicit guardrails (no legal/medical/engineering advice; never act on the user's behalf; never disclose other users' data).
+- **`backend/app/api/endpoints/help.py`** — `/help/status`, `/help/manual`, `/help/chat` (subscription-gated, 20/min slowapi, 50/day non-admin cap), `/admin/help/logs`.
+- **`backend/app/models/help_chat.py` + migration `u7v8w9x0y1z2`** — `help_chat_logs` table.
+- **Subscription gate:** Customer Search Tier 1/2 + Provider Profile/Annual unlock the chatbot. Advertisement-only subscribers do NOT (per product direction). Admins always pass.
+- **Frontend:** floating `<HelpChatWidget />` (paywall view for non-subscribers with subscribe CTA + "Included with your subscription" badge for paid users), public `/help` page (markdown render with paywall/active banner), `helpApi.{status,manual,chat}` in `lib/api.ts`.
+- **Per-button tooltips:** `lib/help-registry.ts` + `<HelpTip id="..." />`. Wired on landing search button, RFQ submission form (description, tollgate, NDA). Drop in elsewhere with one line.
+
+### Build break #1 — recurring SWC backslash-bang (commits `5b55162`, `daa8d17`)
+Render's SWC (Next.js compiler) errored with `Expected unicode escape` on the new TS files. Root cause: bash heredocs used to write the source code escaped every `!` as `\!` (byte sequence `0x5C 0x21`). SWC parses `\` as the start of a unicode escape and dies on the `!` that follows.
+
+This is the **third** time this exact bug has hit the project. We have a stable fix recipe now:
+```python
+# Sweep all source files in the repo (run before commit if any were heredoc-written):
+from pathlib import Path
+bad = bytes([0x5c, 0x21])
+for ext in ("*.ts","*.tsx","*.js","*.jsx","*.py","*.md"):
+    for p in Path(".").rglob(ext):
+        if any(x in p.parts for x in ("node_modules",".git",".next","dist","build")): continue
+        d = p.read_bytes()
+        if bad in d:
+            p.write_bytes(d.replace(bad, bytes([0x21])))
+```
+Better long-term: avoid heredocs for source — use Python `Path.write_text()` directly when an editor tool isn't available.
+
+### Build break #2 — multiple Alembic heads (commit `cb3957e`)
+Backend startup ran `alembic upgrade head` and bailed with `Multiple head revisions are present`. The new migration `u7v8w9x0y1z2_add_help_chat_logs.py` had `down_revision = 't6u7v8w9x0y1'`, but `t6u7v8w9x0y1` had **already been merged** into `92a49adae23c_merge_nda_credits_and_advertisement_.py` (whose down_revision is the tuple `('s5t6u7v8w9x0', 't6u7v8w9x0y1')`). Pointing the new migration at one of the merged parents created a second head.
+
+Fix: `down_revision = '92a49adae23c'` so the help_chat migration is a single linear successor of the merge.
+
+**Lesson saved as gotcha #10:** before adding any new migration, run `alembic heads` (or grep for tuple-form `down_revision`) and chain off the **merge** commit, not its parents. A naive `^revision = ` regex also misses typed migrations like `revision: str = '...'` — when programmatically scanning, match `^(revision|down_revision)(\s*:\s*[^=]+)?\s*=\s*`.
+
+### What landed where
+| Concern | File(s) | Commit |
+|---|---|---|
+| Provider role gates | `app/api/deps.py`, `app/api/endpoints/rfqs.py`, `app/api/endpoints/search.py`, `frontend/src/app/{page,search/page,search/upload/page}.tsx` | `5dad5bb` |
+| Help manual | `docs/help/proreadyengineer_manual.md` | `113b709` |
+| Help backend | `app/models/help_chat.py`, `app/services/help_service.py`, `app/api/endpoints/help.py`, `app/db/base.py`, `app/api/endpoints/__init__.py`, `main.py` | `113b709` |
+| Help migration | `alembic/versions/u7v8w9x0y1z2_add_help_chat_logs.py` | `113b709` (parent fix `cb3957e`) |
+| Help frontend | `frontend/src/components/help/HelpChatWidget.tsx`, `frontend/src/components/ui/HelpTip.tsx`, `frontend/src/lib/help-registry.ts`, `frontend/src/lib/api.ts`, `frontend/src/app/help/page.tsx`, `frontend/src/app/layout.tsx` | `113b709` |
+| Tooltip wiring | `frontend/src/app/page.tsx`, `frontend/src/app/customer/rfq/new/page.tsx` | `113b709` |
+| SWC fixes | `frontend/src/lib/api.ts`, `frontend/src/components/ui/HelpTip.tsx`, `frontend/src/components/help/HelpChatWidget.tsx`, `frontend/src/app/help/page.tsx` | `daa8d17` |
+| Alembic head fix | `alembic/versions/u7v8w9x0y1z2_add_help_chat_logs.py` | `cb3957e` |
+
+---
+
 ## Version Pins (Do Not Upgrade Without Reason)
 
 | Package | Version | Why Pinned |

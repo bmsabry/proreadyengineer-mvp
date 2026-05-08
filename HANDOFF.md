@@ -387,6 +387,8 @@ alembic history         # Show all revisions
 3. **Revenue chart math** — Monthly Revenue bar chart was using a different filter than the total. Fixed. Be careful if you add new payment purposes — update ALL chart filters consistently.
 4. **Provider dashboard overflow** (commit `ff905a2`) — Layout was broken with duplicate sections. Rebuilt with sub-navigation and preview sections. Don't add large blocks of content without testing scroll/overflow.
 5. **Customer registration name field** (commit `79e6568`) — "Name" field wrongly marked optional. Fixed. RFQ draft save/restore via localStorage also added in same commit.
+6. **SWC backslash-bang bug — recurring** (commits `5b55162`, `daa8d17`). Bash heredocs that contain `!=` or `!x` will silently insert a `\!` byte sequence into the file (`0x5C 0x21`). SWC then errors with `Expected unicode escape`. Always run a byte-level sweep `b"\\!".replace(b"\\!", b"!")` after writing TS/TSX/JSX/JS/PY via heredoc, or write through Python `Path.write_text` instead of heredoc.
+7. **Alembic multiple-heads bug** (commit `cb3957e`). The migration history contains a merge migration `92a49adae23c_merge_nda_credits_and_advertisement_.py` whose `down_revision` is a tuple. Pointing a new migration at one of its already-merged parents produces two heads and breaks `alembic upgrade head` on deploy. **Before adding any new migration, run `alembic heads` (or grep for tuple-form `down_revision = (...)`) — chain off the merge commit, not its parents.**
 
 ### 🔵 Design Decisions to Know
 1. **OPENAI_API_KEY points to DeepInfra, not OpenAI** — The env var is named `OPENAI_API_KEY` for SDK compatibility, but the `OPENAI_API_BASE` points to `https://api.deepinfra.com/v1/openai`. Don't get confused. Do not swap this to real OpenAI without checking model names.
@@ -428,6 +430,10 @@ alembic history         # Show all revisions
 - Account lockout fields
 - NDA credits system
 - RFQ draft save/restore (localStorage)
+- Provider role gates: providers cannot submit RFQs or use customer search (commit `5dad5bb`)
+- AI Help Assistant chatbot (subscriber-gated, LLM3-grounded on `docs/help/proreadyengineer_manual.md`) + public `/help` page (commits `113b709`, `daa8d17`)
+- Per-button static help tooltips backed by `frontend/src/lib/help-registry.ts` and `<HelpTip />` component
+- `help_chat_logs` table + admin review endpoint at `/api/v1/admin/help/logs`
 
 ### 🔨 Half-Done / Needs Real Credentials
 - **Stripe payment fulfillment** — Checkout works, webhook handler exists, but needs real Stripe keys and webhook secret to test end-to-end
@@ -449,3 +455,102 @@ alembic history         # Show all revisions
 - Performance testing at scale
 - Cloudflare DNS setup
 - Custom domain (proreadyengineer.com)
+
+---
+
+## 10. AI Session Resume Guide
+
+> Purpose: if the human operator (Bassam) returns to this project after a break, or hands the project to a different AI session, this section is the **minimum viable context** an incoming AI needs to be productive without re-asking everything.
+
+### 10.1 What this project is, in 30 seconds
+ProReadyEngineer is a B2B marketplace connecting **engineering firms (providers)** with **companies needing engineering work (customers)**. Customers post RFQs; providers pay an unlock fee (and possibly sign an NDA via SignWell) to see the full RFQ and submit a quote. Subscriptions and ads bring in additional revenue. There are exactly **two self-serve account types** (customer / provider) plus internal admin and (non-self-serve) advertiser records. The same email cannot hold both customer and provider roles.
+
+### 10.2 Where things live (single source of truth)
+- **GitHub repo (deployed branch is `main`):** `https://github.com/bmsabry/proreadyengineer-mvp`
+- **Live URLs:** see Section 1.
+- **Render dashboard:** all real env vars and secrets live there. Do not invent or guess them. Names and which service holds which secret are documented in the operator's local handoff notes.
+- **Local working tree on operator's machine (Windows):** `G:\Other computers\My Laptop\Documents\ProReadyEngineer\Agent0_Projects\Engineering services directory\Website for Engineering Services (1)\proreadyengineer-mvp-new\` — used for editing, not for direct push. The user runs a small `.bat` to copy this into a clone for git push, OR an AI session pushes via a temp clone with a PAT-embedded remote.
+
+### 10.3 Deploy workflow expected by the operator
+1. Edit files in the working tree (Windows path above) **or** in a fresh `git clone` under `/tmp/`.
+2. Commit on `main` and push. Render auto-deploys both services on push.
+3. Backend startup runs `cd backend && alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port $PORT`. **A migration with multiple heads will crash this step** — see Section 8.
+4. Frontend build runs `npm install --legacy-peer-deps && rm -f tsconfig.tsbuildinfo && next build`. **Stray `\!` bytes in TS/TSX will crash SWC** — see Section 8.
+5. After a successful deploy, sync the same files back into the operator's local working tree so the Google-Drive-synced copy on their laptop matches `origin/main`.
+
+### 10.4 The three LLMs (LLM1 / LLM2 / LLM3)
+This is named, real architecture. Do not invent new LLMs.
+- **LLM1 — Customer search / query generation.** Reads `OPENAI_API_KEY`, `OPENAI_API_BASE`, `OPENAI_LLM_MODEL`. Note that despite the names, this is currently DeepInfra (Kimi-K2.5) — not real OpenAI. See Section 8 design decision #1.
+- **LLM2 — Firm ranking.** Has its own optional key/model env vars; falls back to LLM1 if unset.
+- **LLM3 — Document Collapse LLM.** Reads `DOC_LLM_API_KEY`, `DOC_LLM_API_BASE`, `DOC_LLM_MODEL`. Used by: support ticket classification, quote-document summarization, website content extraction for firm profiles, and the **AI Help Assistant chatbot**.
+
+**Canonical config-read pattern** (see `app/services/help_service.py::_get_llm3_config` and `app/services/support_service.py`):
+```python
+from app.services.config_service import get_runtime_config
+rt_cfg = await get_runtime_config(db)
+api_key = (
+    rt_cfg.get("DOC_LLM_API_KEY") or rt_cfg.get("doc_llm_api_key")
+    or rt_cfg.get("OPENAI_API_KEY") or rt_cfg.get("openai_api_key")
+    or getattr(settings, "DOC_LLM_API_KEY", None)
+    or getattr(settings, "OPENAI_API_KEY", None)
+)
+```
+**Always read admin-panel runtime config first, env vars second.** Admins can change LLM keys/models from the Admin → Settings page without a redeploy.
+
+### 10.5 The AI Help Assistant — quick map
+- **Source of truth:** `docs/help/proreadyengineer_manual.md`. Edit this file to change what the assistant knows about the product. Cached server-side for 5 minutes.
+- **Service:** `backend/app/services/help_service.py` (subscription gate, system prompt, LLM3 call).
+- **Endpoints:** `backend/app/api/endpoints/help.py` — `/help/status`, `/help/manual`, `/help/chat` (gated, 20/min, 50/day), `/admin/help/logs`.
+- **Subscription gate:** Customer Search Tier 1/2 + Provider Profile/Annual unlock the chatbot. **Advertisement-only subscriptions do NOT.** Admins always have access.
+- **Model:** `backend/app/models/help_chat.py` (table `help_chat_logs`).
+- **Migration:** `u7v8w9x0y1z2_add_help_chat_logs.py` (chained off `92a49adae23c`).
+- **Frontend:** floating widget `frontend/src/components/help/HelpChatWidget.tsx`, public manual page `frontend/src/app/help/page.tsx`, API client `frontend/src/lib/api.ts::helpApi`.
+- **Per-button tooltips:** `frontend/src/lib/help-registry.ts` + `frontend/src/components/ui/HelpTip.tsx`. Drop `<HelpTip id="..." />` next to any button/label.
+
+### 10.6 Recurring traps — read before editing
+1. **Heredoc `\!` bug.** Already documented in Section 8 (gotcha #6). It has bitten this project at least three times: admin payments, help chat widget, help service. Always do a byte-level sweep after heredoc writes.
+2. **Alembic multiple heads.** Already documented in Section 8 (gotcha #7). Run `alembic heads` before adding migrations.
+3. **Subscription enum strings are underscore-separated.** Already documented in `DEVELOPMENT_HISTORY.md` and Section 8.
+4. **Provider role gates.** `backend/app/api/deps.py::reject_provider_only` is wired into the search and RFQ endpoints. Do not remove. The frontend equivalent is `useEffect` redirects in `frontend/src/app/search/*` and the landing page form.
+5. **Email-collision rule.** `auth_service.py::register_user` rejects creating a customer account on an email that already has a provider account (and vice versa). Tests rely on this — don't relax it.
+6. **`--legacy-peer-deps` is non-negotiable.** Already in `render.yaml`.
+
+### 10.7 Operator (Bassam) expectations
+- Communicates from a non-engineer-but-technical perspective. Wants concise, decision-ready writeups, not lectures.
+- Strongly prefers the AI **grep the codebase for named components before asking** ("LLM3", "DOC_LLM_*", "reject_provider_only", "HelpChatWidget" are all real, searchable names).
+- Will sometimes paste raw Render build logs as the entire user message. Treat that as a deploy failure to debug, not as a request for general advice.
+- Wants final deliverables on `origin/main` AND synced back to the local Google-Drive-synced workspace.
+
+### 10.8 Quick health-check commands an incoming AI can run
+```bash
+# Confirm only one alembic head:
+cd backend && alembic heads     # should print exactly one revision
+# Or, without alembic installed:
+python3 -c "from pathlib import Path,PurePath; import re;
+revs={};downs={};
+for f in Path('backend/alembic/versions').glob('*.py'):
+    s=f.read_text()
+    m=re.search(r'^revision(?:\s*:\s*[^=\n]+)?\s*=\s*[\'\"]([^\'\"]+)', s, re.M)
+    d=re.search(r'^down_revision(?:\s*:\s*[^=\n]+)?\s*=\s*(.+)$', s, re.M)
+    if m: revs[m.group(1)]=f.name;
+    if m and d:
+        raw=d.group(1).strip()
+        if raw=='None': downs[m.group(1)]=()
+        elif raw.startswith('('): downs[m.group(1)]=tuple(x.strip().strip(chr(39)+chr(34)) for x in raw.strip('()').split(',') if x.strip())
+        else: downs[m.group(1)]=(raw.strip(chr(39)+chr(34)),)
+parents=set(); [parents.update(v) for v in downs.values()]
+print('heads:', [r for r in revs if r not in parents])"
+
+# Confirm zero stray `\!` bytes:
+python3 -c "from pathlib import Path; bad=bytes([0x5c,0x21]); print('hits:', sum(bad in p.read_bytes() for ext in ('*.ts','*.tsx','*.js','*.jsx','*.py') for p in Path('.').rglob(ext) if not any(x in p.parts for x in ('node_modules','.git','.next'))))"
+
+# Confirm provider role gates still in place:
+grep -n "reject_provider_only" backend/app/api/endpoints/rfqs.py backend/app/api/endpoints/search.py
+```
+
+### 10.9 What is NOT in this repo (intentional)
+- Real secret values. Always pull from Render Dashboard.
+- A Celery worker service (asyncio loop is the runtime; see Section 8).
+- Provider escrow / project-fee flow (out of scope for MVP — payments between customer and provider happen off-platform).
+- Native mobile clients (responsive web only).
+
