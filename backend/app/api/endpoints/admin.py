@@ -4854,3 +4854,112 @@ async def admin_bulk_resolve_nda_initiated(
 
     await db.commit()
     return report
+
+
+# ---- Email failures (Debugging panel) -------------------------------------
+# Surfaces the email_failures table to admins, with resolve / dismiss actions
+# and a lightweight count endpoint for the nav red dot.
+
+from app.models.email_failure import EmailFailure  # noqa: E402
+from app.services.email_failure_service import unresolved_count as _unresolved_count  # noqa: E402
+
+
+@router.get("/admin/email-failures")
+async def list_email_failures(
+    unresolved_only: bool = Query(False, description="If true, only return unresolved rows"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role("admin")),
+):
+    """Paginated list of email delivery failures, newest first."""
+    base = select(EmailFailure)
+    count_base = select(func.count(EmailFailure.id))
+    if unresolved_only:
+        base = base.where(EmailFailure.resolved.is_(False))
+        count_base = count_base.where(EmailFailure.resolved.is_(False))
+
+    total = int((await db.execute(count_base)).scalar() or 0)
+    rows = (await db.execute(
+        base.order_by(EmailFailure.created_at.desc()).limit(limit).offset(offset)
+    )).scalars().all()
+
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": str(r.id),
+                "to_email": r.to_email,
+                "subject": r.subject,
+                "source": r.source,
+                "error_code": r.error_code,
+                "error_message": r.error_message,
+                "resend_email_id": r.resend_email_id,
+                "resolved": bool(r.resolved),
+                "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/admin/email-failures/unresolved-count")
+async def email_failures_unresolved_count(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role("admin")),
+):
+    """Lightweight count used by the Debugging nav red-dot poller."""
+    n = await _unresolved_count(db)
+    return {"count": n}
+
+
+@router.post("/admin/email-failures/{failure_id}/resolve")
+async def resolve_email_failure(
+    failure_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_role("admin")),
+):
+    """Mark a single email failure as resolved."""
+    import uuid as _uuid
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        fid = _uuid.UUID(failure_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid failure id")
+
+    row = (await db.execute(
+        select(EmailFailure).where(EmailFailure.id == fid)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    row.resolved = True
+    row.resolved_at = _dt.now(_tz.utc)
+    row.resolved_by_user_id = current_admin.id
+    await db.commit()
+    return {"id": str(row.id), "resolved": True}
+
+
+@router.delete("/admin/email-failures/{failure_id}")
+async def delete_email_failure(
+    failure_id: str,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role("admin")),
+):
+    """Permanently delete an email failure row (admin housekeeping)."""
+    import uuid as _uuid
+    try:
+        fid = _uuid.UUID(failure_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid failure id")
+
+    row = (await db.execute(
+        select(EmailFailure).where(EmailFailure.id == fid)
+    )).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="not found")
+
+    await db.delete(row)
+    await db.commit()
+    return {"id": failure_id, "deleted": True}

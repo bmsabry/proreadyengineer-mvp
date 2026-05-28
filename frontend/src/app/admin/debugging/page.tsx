@@ -197,6 +197,226 @@ interface NDAVoidResult {
   document_id: string | null;
 }
 
+
+// ---- Email Failures section ------------------------------------------------
+// Lists every broken email (sync send-error or async Resend bounce) with a
+// "Mark resolved" button. Pulled live from /admin/email-failures.
+
+interface EmailFailureRow {
+  id: string;
+  to_email: string;
+  subject: string | null;
+  source: string;
+  error_code: number | null;
+  error_message: string | null;
+  resend_email_id: string | null;
+  resolved: boolean;
+  resolved_at: string | null;
+  created_at: string | null;
+}
+
+function sourceLabel(src: string): string {
+  switch (src) {
+    case 'sync_api_error': return 'Send error (Resend API)';
+    case 'sync_smtp_error': return 'Send error (SMTP)';
+    case 'sync_no_provider': return 'No transport configured';
+    case 'webhook_bounced': return 'Bounced (Resend webhook)';
+    case 'webhook_complained': return 'Complaint (Resend webhook)';
+    case 'webhook_delivery_delayed': return 'Delivery delayed (Resend)';
+    case 'webhook_failed': return 'Failed (Resend webhook)';
+    default: return src;
+  }
+}
+
+function EmailFailuresSection() {
+  const [rows, setRows] = useState<EmailFailureRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [unresolvedOnly, setUnresolvedOnly] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const API = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000') + '/api/v1';
+
+  function authHeaders(): HeadersInit {
+    if (typeof window === 'undefined') return {};
+    const t = localStorage.getItem('access_token');
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  }
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(
+        `${API}/admin/email-failures?unresolved_only=${unresolvedOnly ? 'true' : 'false'}&limit=100&offset=0`,
+        { headers: authHeaders() }
+      );
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      setRows(j.items ?? []);
+      setTotal(j.total ?? 0);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [API, unresolvedOnly]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function markResolved(id: string) {
+    setBusyId(id);
+    try {
+      const r = await fetch(`${API}/admin/email-failures/${id}/resolve`, {
+        method: 'POST', headers: authHeaders(),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await load();
+    } catch (e) {
+      alert('Could not mark resolved: ' + (e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function dismiss(id: string) {
+    if (!confirm('Permanently delete this failure record?')) return;
+    setBusyId(id);
+    try {
+      const r = await fetch(`${API}/admin/email-failures/${id}`, {
+        method: 'DELETE', headers: authHeaders(),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await load();
+    } catch (e) {
+      alert('Could not delete: ' + (e as Error).message);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Mail className="h-5 w-5" />
+          Broken / Bounced Emails
+          {rows.filter(r => !r.resolved).length > 0 && (
+            <span className="ml-2 inline-flex items-center justify-center min-w-[24px] h-6 px-2 rounded-full bg-red-600 text-white text-xs font-bold">
+              {rows.filter(r => !r.resolved).length}
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <p className="text-sm text-muted-foreground">
+            Every email that failed to deliver is listed here, with the time it was reported. Sync errors are captured at send time; bounces from Resend arrive via webhook (configure <code>/api/v1/webhooks/resend</code> in your Resend dashboard).
+          </p>
+          <div className="flex items-center gap-2">
+            <label className="text-xs flex items-center gap-1">
+              <input
+                type="checkbox"
+                checked={unresolvedOnly}
+                onChange={(e) => setUnresolvedOnly(e.target.checked)}
+              />
+              Unresolved only
+            </label>
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-700">
+            Could not load: {error}
+          </div>
+        )}
+
+        {!loading && rows.length === 0 && !error && (
+          <div className="p-4 rounded-md bg-green-50 border border-green-200 text-sm text-green-800 flex items-center gap-2">
+            <CheckCircle className="h-4 w-4" /> No broken emails — all good.
+          </div>
+        )}
+
+        {rows.length > 0 && (
+          <div className="overflow-x-auto -mx-2">
+            <table className="w-full text-xs border-separate border-spacing-0">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="px-2 py-1 font-medium">Reported</th>
+                  <th className="px-2 py-1 font-medium">Recipient</th>
+                  <th className="px-2 py-1 font-medium">Subject</th>
+                  <th className="px-2 py-1 font-medium">Source</th>
+                  <th className="px-2 py-1 font-medium">Error</th>
+                  <th className="px-2 py-1 font-medium">Status</th>
+                  <th className="px-2 py-1 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-t border-slate-100 align-top">
+                    <td className="px-2 py-2 text-slate-600 whitespace-nowrap">
+                      {r.created_at ? new Date(r.created_at).toLocaleString() : '—'}
+                    </td>
+                    <td className="px-2 py-2 font-mono break-all">{r.to_email}</td>
+                    <td className="px-2 py-2 max-w-[260px] truncate" title={r.subject ?? ''}>
+                      {r.subject || <span className="text-slate-400">(none)</span>}
+                    </td>
+                    <td className="px-2 py-2">{sourceLabel(r.source)}{r.error_code != null && <span className="text-slate-400"> ({r.error_code})</span>}</td>
+                    <td className="px-2 py-2 text-slate-700 max-w-[300px] truncate" title={r.error_message ?? ''}>
+                      {r.error_message || <span className="text-slate-400">—</span>}
+                    </td>
+                    <td className="px-2 py-2">
+                      {r.resolved ? (
+                        <span className="inline-flex items-center gap-1 text-emerald-700">
+                          <CheckCircle className="h-3 w-3" /> Resolved
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-red-700">
+                          <AlertCircle className="h-3 w-3" /> Unresolved
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-2 text-right whitespace-nowrap">
+                      {!r.resolved && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mr-1"
+                          disabled={busyId === r.id}
+                          onClick={() => markResolved(r.id)}
+                        >
+                          Mark resolved
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={busyId === r.id}
+                        onClick={() => dismiss(r.id)}
+                      >
+                        Delete
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="text-xs text-slate-400 mt-2">
+              Showing {rows.length} of {total}.{' '}
+              Email-per-bounce alerts are sent to the admin address; configure <code>ADMIN_EMAIL</code> in Settings to change it.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DebuggingPage() {
   const [testQuery, setTestQuery] = useState("gas turbine combustion analysis");
   const [searchLoading, setSearchLoading] = useState(false);
@@ -489,6 +709,8 @@ export default function DebuggingPage() {
           Refresh
         </Button>
       </div>
+
+      <EmailFailuresSection />
 
       <Card>
         <CardHeader>

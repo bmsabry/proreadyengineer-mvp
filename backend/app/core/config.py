@@ -78,6 +78,10 @@ class Settings(BaseSettings):
     SMTP_PORT: int = int(os.getenv('SMTP_PORT', '587'))
     SMTP_USER: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
+    # Admin notification address — receives one email per delivery failure.
+    # Defaults to FROM_EMAIL if unset; can be overridden via Admin Settings runtime config.
+    ADMIN_EMAIL: Optional[str] = os.getenv('ADMIN_EMAIL', None)
+    RESEND_WEBHOOK_SECRET: Optional[str] = None
     SMTP_TLS: bool = True
     SMTP_SSL: bool = False
 

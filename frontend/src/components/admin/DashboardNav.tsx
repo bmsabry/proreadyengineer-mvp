@@ -32,7 +32,7 @@ const navItems = [
   { href: '/admin/users',           label: 'Users',            icon: Users },
   { href: '/admin/data-extraction', label: 'Data Extraction',  icon: Download },
   { href: '/admin/settings',        label: 'Settings',         icon: Settings },
-  { href: '/admin/debugging',       label: 'Debugging',        icon: Activity },
+  { href: '/admin/debugging',       label: 'Debugging',        icon: Activity, badgeKey: 'emailFailures', redWhenPending: true },
 ];
 
 export function DashboardNav() {
@@ -41,15 +41,17 @@ export function DashboardNav() {
 
   const [pendingAds, setPendingAds] = useState(0);
   const [pendingTickets, setPendingTickets] = useState(0);
+  const [pendingEmailFailures, setPendingEmailFailures] = useState(0);
 
   useEffect(() => {
     if (!user) return;
 
     const fetchCounts = async () => {
       try {
-        const [adsRes, ticketsRes] = await Promise.all([
+        const [adsRes, ticketsRes, failuresRes] = await Promise.all([
           fetch(`${API_BASE}/admin/ads/pending`, { headers: getAuthHeaders() }),
           fetch(`${API_BASE}/admin/support/tickets?status_filter=new&size=1`, { headers: getAuthHeaders() }),
+          fetch(`${API_BASE}/admin/email-failures/unresolved-count`, { headers: getAuthHeaders() }),
         ]);
 
         if (adsRes.ok) {
@@ -60,6 +62,10 @@ export function DashboardNav() {
           const tickets = await ticketsRes.json();
           // SupportTicketListOut has { total, items, page, size }
           setPendingTickets(tickets?.total ?? 0);
+        }
+        if (failuresRes.ok) {
+          const f = await failuresRes.json();
+          setPendingEmailFailures(typeof f?.count === 'number' ? f.count : 0);
         }
       } catch {
         // Silent — nav badge is best-effort
@@ -75,6 +81,7 @@ export function DashboardNav() {
   const badgeCounts: Record<string, number> = {
     ads: pendingAds,
     tickets: pendingTickets,
+    emailFailures: pendingEmailFailures,
   };
 
   const handleLogout = async () => {
@@ -114,14 +121,19 @@ export function DashboardNav() {
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
           const pendingCount = item.badgeKey ? badgeCounts[item.badgeKey] ?? 0 : 0;
           const hasPending = pendingCount > 0;
+          // 'Urgent' items (e.g. Debugging when email failures unresolved)
+          // turn the whole row red so the admin can't miss it from across the page.
+          const urgent = (item as { redWhenPending?: boolean }).redWhenPending && hasPending;
 
           return (
             <Link key={item.href} href={item.href}>
               <div className={cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-150 cursor-pointer',
-                isActive
-                  ? 'bg-white/20 text-white shadow-sm'
-                  : 'text-white/65 hover:bg-white/10 hover:text-white'
+                urgent
+                  ? 'bg-red-600 text-white shadow-sm hover:bg-red-500 ring-1 ring-red-300/60'
+                  : isActive
+                    ? 'bg-white/20 text-white shadow-sm'
+                    : 'text-white/65 hover:bg-white/10 hover:text-white'
               )}>
                 <Icon className="h-4 w-4 flex-shrink-0" />
                 <span className="flex-1">{item.label}</span>

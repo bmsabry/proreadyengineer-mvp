@@ -105,6 +105,36 @@ def _get_email_config(override: Optional[dict] = None) -> dict:
     }
 
 
+
+async def _record_send_failure(
+    *,
+    to: list[str],
+    subject: str,
+    source: str,
+    error_code: Optional[int] = None,
+    error_message: Optional[str] = None,
+    provider_response: Optional[str] = None,
+    db: Optional[AsyncSession] = None,
+) -> None:
+    """Persist a delivery failure for each recipient. Best-effort; never raises."""
+    try:
+        from app.services.email_failure_service import record_email_failure
+        for addr in (to or ["unknown@unknown"]):
+            try:
+                await record_email_failure(
+                    to_email=str(addr),
+                    subject=subject,
+                    source=source,
+                    error_code=error_code,
+                    error_message=error_message,
+                    provider_response=provider_response,
+                    db=db,
+                )
+            except Exception as exc:
+                logger.warning("[email_service] could not persist failure for %s: %s", addr, exc)
+    except Exception as exc:
+        logger.warning("[email_service] failure recorder import failed: %s", exc)
+
 async def _send_via_resend(
     api_key: str,
     from_email: str,
@@ -114,8 +144,14 @@ async def _send_via_resend(
     html_content: Optional[str],
     text_content: Optional[str],
     reply_to: Optional[str] = None,
-) -> bool:
-    """Send email via Resend API. Returns True on success."""
+) -> tuple[bool, Optional[int], Optional[str]]:
+    """Send email via Resend API.
+
+    Returns (success, status_code, body):
+        success     - True iff Resend returned 2xx
+        status_code - HTTP status (or None on transport exception)
+        body        - response body or exception message (truncated)
+    """
     from_addr = f"{from_name} <{from_email}>" if from_name else from_email
     payload: dict[str, Any] = {
         "from": from_addr,
@@ -141,13 +177,15 @@ async def _send_via_resend(
             )
         if response.status_code in (200, 201):
             logger.info(f"Email sent via Resend to {to}: {subject}")
-            return True
+            return (True, response.status_code, None)
         else:
-            logger.error(f"Resend API error {response.status_code}: {response.text}")
-            return False
+            body = (response.text or "")[:2000]
+            logger.error(f"Resend API error {response.status_code}: {body}")
+            return (False, response.status_code, body)
     except Exception as e:
-        logger.error(f"Resend API exception: {e}")
-        return False
+        msg = repr(e)[:1000]
+        logger.error(f"Resend API exception: {msg}")
+        return (False, None, msg)
 
 
 def _send_via_smtp_sync(
@@ -206,6 +244,7 @@ async def _send_email_now(
     from_email: Optional[str] = None,
     reply_to: Optional[str] = None,
     db: Optional[AsyncSession] = None,
+    is_admin_alert: bool = False,
 ) -> bool:
     """
     Attempt to deliver an email immediately.
@@ -233,7 +272,7 @@ async def _send_email_now(
 
     # --- 1. Try Resend ---
     if cfg["resend_api_key"]:
-        sent = await _send_via_resend(
+        sent, _resend_status, _resend_body = await _send_via_resend(
             api_key=cfg["resend_api_key"],
             from_email=cfg["resend_from_email"],
             from_name=from_name,
@@ -246,6 +285,14 @@ async def _send_email_now(
         if sent:
             return True
         logger.warning("Resend failed — attempting SMTP fallback")
+        if not is_admin_alert:
+            await _record_send_failure(
+                to=to, subject=subject, source="sync_api_error",
+                error_code=_resend_status,
+                error_message=(_resend_body or "")[:1000] or "Resend API did not return 2xx",
+                provider_response=_resend_body,
+                db=db,
+            )
 
     # --- 2. Try SMTP ---
     if cfg["smtp_host"]:
@@ -270,6 +317,12 @@ async def _send_email_now(
         if sent:
             return True
         logger.warning("SMTP also failed — email was NOT delivered")
+        if not is_admin_alert:
+            await _record_send_failure(
+                to=to, subject=subject, source="sync_smtp_error",
+                error_message="SMTP delivery failed — see prior log line",
+                db=db,
+            )
 
     # --- 3. Console fallback ---
     logger.warning(
@@ -278,6 +331,12 @@ async def _send_email_now(
         "Set RESEND_API_KEY or SMTP_HOST environment variables "
         "(or configure via admin panel) to enable delivery."
     )
+    if not is_admin_alert:
+        await _record_send_failure(
+            to=to, subject=subject, source="sync_no_provider",
+            error_message="No email transport configured (RESEND_API_KEY/SMTP_HOST both unset)",
+            db=db,
+        )
     if text_content:
         logger.warning(f"Email body preview:\n{text_content[:500]}")
     return False

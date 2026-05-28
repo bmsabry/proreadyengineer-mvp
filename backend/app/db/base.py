@@ -24,3 +24,4 @@ __all__ = ["Base"]
 from app.models.system_config import SystemConfig  # noqa: F401
 from app.models.support import SupportTicket, SupportTicketMessage, SupportTicketEvent  # noqa: F401
 from app.models.help_chat import HelpChatLog  # noqa: F401
+from app.models.email_failure import EmailFailure  # noqa: F401

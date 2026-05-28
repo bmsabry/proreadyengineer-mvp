@@ -751,3 +751,117 @@ async def verify_subscription_payment(
     except Exception as exc:
         _log.error("verify_subscription failed for user %s: %s", current_user.id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---- Resend webhook -------------------------------------------------------
+# Receives delivery-state events from Resend so admins know when an email
+# bounces, gets complained-about, is delayed, or fails. Wire the same URL in
+# the Resend dashboard: https://resend.com/webhooks
+# Events captured: email.bounced, email.complained, email.delivery_delayed,
+# email.failed. Others (delivered, opened, clicked) are accepted-and-ignored.
+
+@router.post("/webhooks/resend")
+async def resend_webhook(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Handle Resend delivery-state webhooks (bounce/complaint/delay/failed)."""
+    import json
+    import logging
+    from app.core.config import settings as _settings
+    from app.services.email_failure_service import record_email_failure
+
+    _log = logging.getLogger(__name__)
+    raw = await request.body()
+    body_text = raw.decode("utf-8", errors="replace")[:8000]
+
+    # Optional signature verification — Resend uses svix-style headers.
+    # If RESEND_WEBHOOK_SECRET is configured, compute HMAC and reject mismatches.
+    secret = getattr(_settings, "RESEND_WEBHOOK_SECRET", None)
+    if secret:
+        try:
+            import base64
+            import hashlib
+            import hmac
+            svix_id = request.headers.get("svix-id", "")
+            svix_ts = request.headers.get("svix-timestamp", "")
+            svix_sig = request.headers.get("svix-signature", "")
+            # Strip 'whsec_' prefix per Resend / Svix convention
+            secret_bytes = base64.b64decode(secret.split("_", 1)[-1]) if secret.startswith("whsec_") else secret.encode()
+            signed_payload = f"{svix_id}.{svix_ts}.{body_text}".encode()
+            expected = base64.b64encode(hmac.new(secret_bytes, signed_payload, hashlib.sha256).digest()).decode()
+            # svix_sig looks like "v1,<sig> v1,<sig>" — check any match
+            sigs = [p.split(",", 1)[1] for p in svix_sig.split() if "," in p]
+            if not any(hmac.compare_digest(expected, s) for s in sigs):
+                _log.warning("[resend_webhook] signature mismatch — rejecting")
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid signature")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            _log.warning("[resend_webhook] signature check error: %s", exc)
+            # Be conservative: if a secret is configured but verification errors,
+            # reject rather than process unverified events.
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="signature check failed")
+
+    try:
+        payload = json.loads(body_text or "{}")
+    except Exception as exc:
+        _log.warning("[resend_webhook] invalid JSON: %s", exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid JSON")
+
+    event_type = (payload.get("type") or "").strip().lower()
+    data = payload.get("data") or {}
+
+    # Map Resend events -> our internal source values
+    SOURCE_MAP = {
+        "email.bounced": "webhook_bounced",
+        "email.complained": "webhook_complained",
+        "email.delivery_delayed": "webhook_delivery_delayed",
+        "email.failed": "webhook_failed",
+    }
+    if event_type not in SOURCE_MAP:
+        # Accepted-and-ignored (e.g. email.delivered, email.opened, email.clicked)
+        return {"status": "ignored", "type": event_type}
+
+    # Resend payload shape: data has `to` (list[str] or str), `subject`, `email_id`,
+    # and event-specific fields like `bounce.message`, `bounce.subType`, etc.
+    to_raw = data.get("to") or data.get("recipient") or ""
+    if isinstance(to_raw, list):
+        to_addrs = [str(x).strip() for x in to_raw if str(x).strip()]
+    else:
+        to_addrs = [str(to_raw).strip()] if to_raw else ["unknown@unknown"]
+
+    subject = data.get("subject") or data.get("Subject")
+    email_id = data.get("email_id") or data.get("id")
+
+    # Extract a human-readable reason from event-specific fields
+    bounce_info = data.get("bounce") or {}
+    complaint_info = data.get("complaint") or {}
+    reason_parts = []
+    if isinstance(bounce_info, dict):
+        if bounce_info.get("subType"):
+            reason_parts.append(f"bounce.subType={bounce_info['subType']}")
+        if bounce_info.get("message"):
+            reason_parts.append(bounce_info["message"])
+    if isinstance(complaint_info, dict) and complaint_info.get("type"):
+        reason_parts.append(f"complaint.type={complaint_info['type']}")
+    if not reason_parts and data.get("reason"):
+        reason_parts.append(str(data["reason"]))
+    error_message = " | ".join(reason_parts)[:1000] if reason_parts else f"Resend reported {event_type}"
+
+    src = SOURCE_MAP[event_type]
+    for addr in to_addrs:
+        try:
+            await record_email_failure(
+                to_email=addr,
+                subject=subject,
+                source=src,
+                error_message=error_message,
+                provider_response=body_text,
+                resend_email_id=email_id,
+                db=db,
+            )
+        except Exception as exc:
+            _log.warning("[resend_webhook] could not record failure for %s: %s", addr, exc)
+
+    return {"status": "recorded", "type": event_type, "recipients": len(to_addrs)}
