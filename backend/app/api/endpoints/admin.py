@@ -4986,3 +4986,263 @@ async def delete_email_failure(
     await db.delete(row)
     await db.commit()
     return {"id": failure_id, "deleted": True}
+
+
+# ---- Provider login-email sync --------------------------------------------
+# Admin tool: keep the User.email (login credential) of a provider's OWNER
+# in sync with the firm's primary contact email (provider.email_addresses[0]).
+#
+# Why this exists: when an admin updates a firm's contact email via the
+# Providers panel, the linked user's login email is NOT auto-changed (the
+# two are semantically different — a generic 'info@firm.com' contact vs a
+# named 'alice@firm.com' login). After a bulk address change, owners would
+# otherwise still log in with the OLD email until they update it themselves.
+
+from app.models.enums import MembershipRole as _MR, MembershipStatus as _MS  # noqa: E402
+
+
+def _firm_primary_email(p: Provider) -> Optional[str]:
+    """Return the firm's primary contact email (first non-empty entry)."""
+    if not p.email_addresses:
+        return None
+    if isinstance(p.email_addresses, list):
+        for e in p.email_addresses:
+            if isinstance(e, str) and e.strip():
+                return e.strip()
+        return None
+    if isinstance(p.email_addresses, str):
+        return p.email_addresses.strip() or None
+    return None
+
+
+async def _owner_user_for_provider(db: AsyncSession, provider_id: int) -> Optional[User]:
+    """Return the User account of the provider's OWNER membership.
+
+    Falls back to the first ACTIVE non-owner member if no owner exists.
+    """
+    from app.models.provider import ProviderMembership as _PM
+    # Try owner first
+    res = await db.execute(
+        select(User).join(_PM, _PM.user_id == User.id).where(
+            _PM.provider_id == provider_id,
+            _PM.membership_role == _MR.OWNER.value,
+            _PM.status == _MS.ACTIVE.value,
+        ).limit(1)
+    )
+    u = res.scalar_one_or_none()
+    if u is not None:
+        return u
+    # Fallback: any active member
+    res = await db.execute(
+        select(User).join(_PM, _PM.user_id == User.id).where(
+            _PM.provider_id == provider_id,
+            _PM.status == _MS.ACTIVE.value,
+        ).order_by(_PM.created_at.asc() if hasattr(_PM, "created_at") else _PM.id.asc()).limit(1)
+    )
+    return res.scalar_one_or_none()
+
+
+@router.get("/admin/providers/email-sync-candidates")
+async def list_email_sync_candidates(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role(["admin"])),
+):
+    """List providers where the owner's login email != the firm's primary contact email.
+
+    Used by the 'Sync Logins' modal on /admin/providers.
+    """
+    from app.models.provider import ProviderMembership as _PM
+
+    # Pull every provider that has at least one email address AND at least
+    # one membership. We do the mismatch check in Python because the JSON
+    # column makes a clean SQL comparison annoyingly portable-unfriendly.
+    res = await db.execute(
+        select(Provider).where(Provider.email_addresses.isnot(None))
+    )
+    candidates = []
+    seen_providers = 0
+    for p in res.scalars().all():
+        firm_email = _firm_primary_email(p)
+        if not firm_email:
+            continue
+        seen_providers += 1
+        owner = await _owner_user_for_provider(db, p.id)
+        if owner is None:
+            continue
+        if owner.email and owner.email.strip().lower() == firm_email.lower():
+            continue  # already matches
+        candidates.append({
+            "provider_id": p.id,
+            "provider_name": p.name or p.firm_name,
+            "firm_name": p.firm_name,
+            "city": p.city,
+            "firm_email": firm_email,
+            "user_id": str(owner.id),
+            "current_login_email": owner.email,
+        })
+    return {"total_scanned": seen_providers, "mismatches": candidates}
+
+
+async def _do_sync_one(
+    db: AsyncSession,
+    provider_id: int,
+    actor: User,
+    new_email_override: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Sync a single provider's owner login email. Returns a result dict.
+
+    Never raises HTTPException — returns a dict with `ok` / `error`.
+    """
+    p = await db.get(Provider, provider_id)
+    if p is None:
+        return {"provider_id": provider_id, "ok": False, "error": "provider_not_found"}
+
+    target_email = (new_email_override or _firm_primary_email(p) or "").strip()
+    if not target_email:
+        return {"provider_id": provider_id, "ok": False, "error": "no_firm_email"}
+
+    # very basic shape check
+    if "@" not in target_email or "." not in target_email.split("@", 1)[-1]:
+        return {"provider_id": provider_id, "ok": False, "error": "invalid_email"}
+
+    owner = await _owner_user_for_provider(db, provider_id)
+    if owner is None:
+        return {"provider_id": provider_id, "ok": False, "error": "no_owner_account"}
+
+    old_email = (owner.email or "").strip()
+    if old_email.lower() == target_email.lower():
+        return {
+            "provider_id": provider_id, "ok": True, "skipped": True,
+            "reason": "already_in_sync", "user_id": str(owner.id),
+        }
+
+    # Collision check — cannot have two Users with the same email.
+    res = await db.execute(
+        select(User.id).where(
+            func.lower(User.email) == target_email.lower(),
+            User.id != owner.id,
+        ).limit(1)
+    )
+    if res.scalar_one_or_none() is not None:
+        return {
+            "provider_id": provider_id, "ok": False,
+            "error": "email_already_in_use_by_another_account",
+            "user_id": str(owner.id), "attempted_email": target_email,
+        }
+
+    owner.email = target_email
+    # Newly-changed email should be re-verified to avoid trust laundering
+    try:
+        if hasattr(owner, "email_verified"):
+            owner.email_verified = False
+    except Exception:
+        pass
+
+    audit = AuditLog(
+        actor_user_id=actor.id,
+        entity_type="user",
+        entity_id=str(owner.id),
+        action="admin_sync_login_email_from_provider",
+        before_state={"email": old_email},
+        after_state={"email": target_email, "provider_id": provider_id},
+    )
+    db.add(audit)
+
+    # Fire-and-forget notification to BOTH the old and new addresses.
+    try:
+        import asyncio as _asyncio
+        from app.services import email_service as _es
+
+        async def _notify(addr: str):
+            if not addr:
+                return
+            await _es._send_email_now(
+                to=[addr],
+                subject="Your ProReadyEngineer login email has changed",
+                html_content=(
+                    "<p>An administrator has updated the login email on your "
+                    "ProReadyEngineer account.</p>"
+                    f"<p><strong>New login email:</strong> {target_email}<br>"
+                    f"<strong>Previous login email:</strong> {old_email or '(empty)'}</p>"
+                    "<p>If this wasn't expected, contact us via the Contact page right away.</p>"
+                ),
+                text_content=(
+                    "An administrator has updated the login email on your "
+                    "ProReadyEngineer account.\n\n"
+                    f"New login email: {target_email}\n"
+                    f"Previous login email: {old_email or '(empty)'}\n\n"
+                    "If this wasn't expected, contact us via the Contact page right away."
+                ),
+            )
+        _asyncio.create_task(_notify(target_email))
+        if old_email and old_email.lower() != target_email.lower():
+            _asyncio.create_task(_notify(old_email))
+    except Exception as exc:
+        import logging as _lg
+        _lg.getLogger(__name__).warning("[sync-login-email] notify dispatch failed: %s", exc)
+
+    return {
+        "provider_id": provider_id, "ok": True, "skipped": False,
+        "user_id": str(owner.id),
+        "old_email": old_email, "new_email": target_email,
+    }
+
+
+@router.post("/admin/providers/{provider_id}/sync-login-email")
+async def sync_provider_login_email(
+    provider_id: int,
+    payload: Optional[Dict[str, Any]] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Sync the OWNER user's login email to the firm's primary contact email.
+
+    Body (optional): {"new_email": "explicit@override.com"} to use an explicit
+    target email instead of the firm's first email_address entry.
+    """
+    override = None
+    if isinstance(payload, dict):
+        v = payload.get("new_email")
+        if isinstance(v, str) and v.strip():
+            override = v.strip()
+
+    result = await _do_sync_one(db, provider_id, current_user, override)
+    if result.get("ok"):
+        await db.commit()
+        return result
+    await db.rollback()
+    raise HTTPException(status_code=400, detail=result)
+
+
+@router.post("/admin/providers/bulk-sync-login-emails")
+async def bulk_sync_provider_login_emails(
+    payload: Dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Sync login emails for a list of provider ids in one transaction.
+
+    Body: {"provider_ids": [1, 2, 3, ...]}.
+    Returns a per-provider result list; failures don't abort the batch.
+    """
+    ids = payload.get("provider_ids") if isinstance(payload, dict) else None
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="provider_ids list is required")
+
+    results: List[Dict[str, Any]] = []
+    for raw in ids:
+        try:
+            pid = int(raw)
+        except Exception:
+            results.append({"provider_id": raw, "ok": False, "error": "invalid_id"})
+            continue
+        results.append(await _do_sync_one(db, pid, current_user))
+
+    await db.commit()
+    summary = {
+        "total": len(results),
+        "synced": sum(1 for r in results if r.get("ok") and not r.get("skipped")),
+        "skipped": sum(1 for r in results if r.get("ok") and r.get("skipped")),
+        "failed": sum(1 for r in results if not r.get("ok")),
+    }
+    return {"summary": summary, "results": results}

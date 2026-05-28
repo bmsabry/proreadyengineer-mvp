@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Search, Plus, Trash2, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, AlertTriangle, Pencil } from 'lucide-react';
+import { Search, Plus, Trash2, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, AlertTriangle, Pencil, Mail, X, CheckSquare } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface AdminProvider {
@@ -98,6 +98,68 @@ export default function AdminProvidersPage() {
   const [deleteConfirm, setDeleteConfirm] = useState<AdminProvider | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [editProvider, setEditProvider] = useState(null as AdminProvider | null);
+
+  // ---- Login-email sync modal ----
+  interface SyncRow { provider_id: number; provider_name: string | null; firm_name: string | null; city: string | null; firm_email: string; user_id: string; current_login_email: string | null; }
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncRows, setSyncRows] = useState<SyncRow[]>([]);
+  const [syncTotalScanned, setSyncTotalScanned] = useState(0);
+  const [syncSelected, setSyncSelected] = useState<Set<number>>(new Set());
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncResult, setSyncResult] = useState<null | { summary: { total: number; synced: number; skipped: number; failed: number }; results: any[] }>(null);
+
+  async function openSyncModal() {
+    setSyncOpen(true);
+    setSyncResult(null);
+    setSyncSelected(new Set());
+    setSyncLoading(true);
+    try {
+      const r = await api.admin.listEmailSyncCandidates();
+      setSyncRows(r.mismatches || []);
+      setSyncTotalScanned(r.total_scanned || 0);
+      // pre-select all by default for fast bulk action
+      setSyncSelected(new Set((r.mismatches || []).map(m => m.provider_id)));
+    } catch (e) {
+      toast.error('Could not load sync candidates: ' + ((e as Error).message || ''));
+    } finally {
+      setSyncLoading(false);
+    }
+  }
+
+  function toggleSyncSelect(id: number) {
+    setSyncSelected(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  }
+  function toggleSyncSelectAll() {
+    setSyncSelected(prev => prev.size === syncRows.length ? new Set() : new Set(syncRows.map(r => r.provider_id)));
+  }
+
+  async function runBulkSync() {
+    if (syncSelected.size === 0) return;
+    if (!confirm(`Sync ${syncSelected.size} login email${syncSelected.size === 1 ? '' : 's'}? Each affected user will be notified by email at both their old and new addresses.`)) return;
+    setSyncBusy(true);
+    try {
+      const ids = Array.from(syncSelected);
+      const r = await api.admin.bulkSyncProviderLoginEmails(ids);
+      setSyncResult(r);
+      toast.success(`Synced ${r.summary.synced}, skipped ${r.summary.skipped}, failed ${r.summary.failed}`);
+      // Re-pull the candidate list so successful syncs disappear
+      try {
+        const fresh = await api.admin.listEmailSyncCandidates();
+        setSyncRows(fresh.mismatches || []);
+        setSyncTotalScanned(fresh.total_scanned || 0);
+        setSyncSelected(new Set());
+      } catch { /* ignore */ }
+    } catch (e) {
+      toast.error('Bulk sync failed: ' + ((e as Error).message || ''));
+    } finally {
+      setSyncBusy(false);
+    }
+  }
   const [editForm, setEditForm] = useState({ ...EMPTY_FORM });
   const [isEditLoading, setIsEditLoading] = useState(false);
   const [isEditSaving, setIsEditSaving] = useState(false);
@@ -508,6 +570,15 @@ export default function AdminProvidersPage() {
           </Button>
           <Button
             size="sm"
+            variant="outline"
+            onClick={openSyncModal}
+            title="Find providers where the owner's login email differs from the firm contact email, and sync them."
+          >
+            <Mail className="h-4 w-4 mr-2" />
+            Sync Logins
+          </Button>
+          <Button
+            size="sm"
             onClick={() => setShowAddForm(v => !v)}
             className="bg-blue-600 hover:bg-blue-700 text-white"
           >
@@ -860,6 +931,90 @@ export default function AdminProvidersPage() {
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Login-email sync modal */}
+      {syncOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto py-10" onClick={() => !syncBusy && setSyncOpen(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900 flex items-center gap-2">
+                  <Mail className="h-5 w-5" /> Sync Login Emails
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">Find providers whose owner login email differs from the firm contact email, and update the login to match. Owner-only; one user per firm. Each affected user receives a notification at both their old and new addresses.</p>
+              </div>
+              <button onClick={() => !syncBusy && setSyncOpen(false)} className="text-slate-400 hover:text-slate-700" disabled={syncBusy}><X className="h-5 w-5" /></button>
+            </div>
+
+            {syncLoading ? (
+              <div className="py-12 text-center text-slate-500"><RefreshCw className="h-6 w-6 mx-auto animate-spin" /><p className="mt-2 text-sm">Scanning providers...</p></div>
+            ) : (
+              <>
+                <p className="text-xs text-slate-500 mb-3">Scanned {syncTotalScanned} providers; <strong>{syncRows.length}</strong> have a mismatched owner login.</p>
+
+                {syncRows.length === 0 ? (
+                  <div className="p-6 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">All linked owner login emails already match their firm contact email. Nothing to sync.</div>
+                ) : (
+                  <>
+                    <div className="max-h-[420px] overflow-auto border border-slate-200 rounded-md">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 text-slate-600 text-left sticky top-0">
+                          <tr>
+                            <th className="px-3 py-2 w-8">
+                              <input type="checkbox" checked={syncRows.length > 0 && syncSelected.size === syncRows.length} onChange={toggleSyncSelectAll} />
+                            </th>
+                            <th className="px-3 py-2 font-medium">Firm</th>
+                            <th className="px-3 py-2 font-medium">Current login email</th>
+                            <th className="px-3 py-2 font-medium">New login email (firm contact)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {syncRows.map(r => (
+                            <tr key={r.provider_id} className="border-t border-slate-100 hover:bg-slate-50">
+                              <td className="px-3 py-2">
+                                <input type="checkbox" checked={syncSelected.has(r.provider_id)} onChange={() => toggleSyncSelect(r.provider_id)} />
+                              </td>
+                              <td className="px-3 py-2">
+                                <div className="font-medium text-slate-900">{r.provider_name || r.firm_name || `#${r.provider_id}`}</div>
+                                {r.city && <div className="text-slate-400">{r.city}</div>}
+                              </td>
+                              <td className="px-3 py-2 font-mono break-all text-slate-700">{r.current_login_email || <span className="text-slate-400">(empty)</span>}</td>
+                              <td className="px-3 py-2 font-mono break-all text-emerald-700">{r.firm_email}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4">
+                      <span className="text-xs text-slate-500">{syncSelected.size} of {syncRows.length} selected</span>
+                      <div className="flex gap-2">
+                        <Button variant="outline" size="sm" onClick={() => setSyncOpen(false)} disabled={syncBusy}>Close</Button>
+                        <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={runBulkSync} disabled={syncBusy || syncSelected.size === 0}>
+                          {syncBusy ? (<><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Syncing...</>) : (<><CheckSquare className="h-4 w-4 mr-2" /> Sync selected ({syncSelected.size})</>)}
+                        </Button>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {syncResult && (
+                  <div className="mt-4 p-3 rounded-md bg-slate-50 border border-slate-200 text-xs">
+                    <div className="font-semibold text-slate-800 mb-1">Last run: synced {syncResult.summary.synced}, skipped {syncResult.summary.skipped}, failed {syncResult.summary.failed} (of {syncResult.summary.total})</div>
+                    {syncResult.summary.failed > 0 && (
+                      <ul className="list-disc pl-5 text-red-700 space-y-0.5">
+                        {syncResult.results.filter((r: any) => !r.ok).slice(0, 10).map((r: any, i: number) => (
+                          <li key={i}>Provider #{r.provider_id}: {r.error}{r.attempted_email ? ` (${r.attempted_email})` : ''}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}

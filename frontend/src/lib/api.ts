@@ -629,6 +629,18 @@ const admin = {
   updateProvider: (id: string | number, data: { [k: string]: any }) =>
     apiClient.patch<any>(`/admin/providers/${id}`, data),
 
+  listEmailSyncCandidates: () =>
+    apiClient.get<{ total_scanned: number; mismatches: Array<{ provider_id: number; provider_name: string | null; firm_name: string | null; city: string | null; firm_email: string; user_id: string; current_login_email: string | null }> }>(
+      '/admin/providers/email-sync-candidates'
+    ),
+  syncProviderLoginEmail: (provider_id: number | string, new_email?: string) =>
+    apiClient.post<any>(`/admin/providers/${provider_id}/sync-login-email`, new_email ? { new_email } : {}),
+  bulkSyncProviderLoginEmails: (provider_ids: number[]) =>
+    apiClient.post<{ summary: { total: number; synced: number; skipped: number; failed: number }; results: any[] }>(
+      '/admin/providers/bulk-sync-login-emails',
+      { provider_ids }
+    ),
+
   crawlWebsiteForProvider: (website_url: string) =>
     apiClient.post<{ task_id: string; status: string }>('/admin/crawl-website', { website_url }),
 
