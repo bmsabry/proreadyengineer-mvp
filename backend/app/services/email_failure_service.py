@@ -38,7 +38,16 @@ def _truncate(s: Optional[str], n: int) -> Optional[str]:
 
 
 async def _resolve_admin_email(db: Optional[AsyncSession] = None) -> Optional[str]:
-    """Find the admin notification address. Runtime config first, env fallback."""
+    """Find the admin notification address.
+
+    Resolution order:
+      1. Runtime admin-panel setting ADMIN_EMAIL / admin_email
+      2. Env var ADMIN_EMAIL (settings.ADMIN_EMAIL)
+      3. The canonical site admin inbox used elsewhere in the codebase
+         (see support_service.SUPPORT_ADMIN_EMAIL) — this is the default
+         and is why setup requires no extra configuration.
+      4. settings.FROM_EMAIL as a final fallback so we never silently drop.
+    """
     try:
         if db is not None:
             from app.services.config_service import get_runtime_config
@@ -48,7 +57,21 @@ async def _resolve_admin_email(db: Optional[AsyncSession] = None) -> Optional[st
                 return str(v).strip()
     except Exception:
         pass
-    return getattr(settings, "ADMIN_EMAIL", None) or getattr(settings, "FROM_EMAIL", None) or None
+
+    env_val = getattr(settings, "ADMIN_EMAIL", None)
+    if env_val:
+        return str(env_val).strip()
+
+    # Reuse the canonical address the support flow already mails.
+    try:
+        from app.services.support_service import SUPPORT_ADMIN_EMAIL
+        if SUPPORT_ADMIN_EMAIL:
+            return str(SUPPORT_ADMIN_EMAIL).strip()
+    except Exception:
+        pass
+
+    from_addr = getattr(settings, "FROM_EMAIL", None) or getattr(settings, "EMAIL_FROM", None)
+    return str(from_addr).strip() if from_addr else None
 
 
 async def record_email_failure(
