@@ -116,10 +116,10 @@ export default function AdminProvidersPage() {
     setSyncLoading(true);
     try {
       const r = await api.admin.listEmailSyncCandidates();
-      setSyncRows(r.mismatches || []);
-      setSyncTotalScanned(r.total_scanned || 0);
+      setSyncRows(r.data.mismatches || []);
+      setSyncTotalScanned(r.data.total_scanned || 0);
       // pre-select all by default for fast bulk action
-      setSyncSelected(new Set((r.mismatches || []).map(m => m.provider_id)));
+      setSyncSelected(new Set((r.data.mismatches || []).map((m: SyncRow) => m.provider_id)));
     } catch (e) {
       toast.error('Could not load sync candidates: ' + ((e as Error).message || ''));
     } finally {
@@ -145,13 +145,13 @@ export default function AdminProvidersPage() {
     try {
       const ids = Array.from(syncSelected);
       const r = await api.admin.bulkSyncProviderLoginEmails(ids);
-      setSyncResult(r);
-      toast.success(`Synced ${r.summary.synced}, skipped ${r.summary.skipped}, failed ${r.summary.failed}`);
+      setSyncResult(r.data);
+      toast.success(`Synced ${r.data.summary.synced}, skipped ${r.data.summary.skipped}, failed ${r.data.summary.failed}`);
       // Re-pull the candidate list so successful syncs disappear
       try {
         const fresh = await api.admin.listEmailSyncCandidates();
-        setSyncRows(fresh.mismatches || []);
-        setSyncTotalScanned(fresh.total_scanned || 0);
+        setSyncRows(fresh.data.mismatches || []);
+        setSyncTotalScanned(fresh.data.total_scanned || 0);
         setSyncSelected(new Set());
       } catch { /* ignore */ }
     } catch (e) {
