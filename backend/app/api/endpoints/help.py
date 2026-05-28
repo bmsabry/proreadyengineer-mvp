@@ -91,8 +91,8 @@ async def help_manual():
     return ManualResponse(markdown=_load_manual())
 
 
-@router.post("/help/chat", response_model=ChatResponse)
 @limiter.limit("20/minute")
+@router.post("/help/chat", response_model=ChatResponse)
 async def help_chat(
     request: Request,
     data: ChatRequest,

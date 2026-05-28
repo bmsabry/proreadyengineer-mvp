@@ -85,13 +85,16 @@ export default function HelpChatWidget() {
         setStatus({ ...status, remaining_today: resp.remaining_today });
       }
     } catch (e) {
-      const err = e as Error & { code?: number };
+      const err = e as Error & { code?: number; message?: string };
       if (err.code === 402) {
         setStatus((s) => (s ? { ...s, has_access: false, reason: 'no_active_subscription' } : s));
       } else if (err.code === 429) {
         setError("You've reached the daily limit. Try again tomorrow.");
       } else {
-        setError('Something went wrong. Please try again.');
+        // Surface the underlying message so non-obvious failures (422, 500, etc.)
+        // are diagnosable instead of always reading 'Something went wrong'.
+        const msg = (err?.message || '').trim();
+        setError(msg ? `Couldn't reach the assistant: ${msg}` : 'Something went wrong. Please try again.');
       }
     } finally {
       setSending(false);
