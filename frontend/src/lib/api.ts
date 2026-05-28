@@ -806,44 +806,41 @@ export interface HelpChatResponse {
   remaining_today?: number | null;
 }
 
+// Route every help endpoint through apiClient so the request interceptor
+// attaches the Authorization: Bearer <token> header from localStorage and
+// the response interceptor handles 401 -> auto-refresh -> retry. The prior
+// raw fetch() with credentials: 'include' relied on cookie auth that this
+// app does not actually use, causing /help/status to always return
+// authenticated=false and showing the paywall to logged-in subscribers.
 export const helpApi = {
   status: async (): Promise<HelpStatus> => {
-    const res = await fetch(`${API_URL}/api/v1/help/status`, {
-      method: 'GET', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) throw new Error(`help status failed: ${res.status}`);
-    return res.json();
+    const r = await apiClient.get<HelpStatus>('/help/status');
+    return r.data;
   },
   manual: async (): Promise<{ markdown: string }> => {
-    const res = await fetch(`${API_URL}/api/v1/help/manual`, {
-      method: 'GET', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!res.ok) throw new Error(`help manual failed: ${res.status}`);
-    return res.json();
+    const r = await apiClient.get<{ markdown: string }>('/help/manual');
+    return r.data;
   },
   chat: async (message: string, history: HelpChatTurn[]): Promise<HelpChatResponse> => {
-    const res = await fetch(`${API_URL}/api/v1/help/chat`, {
-      method: 'POST', credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, history }),
-    });
-    if (res.status === 402) {
-      const body = await res.json().catch(() => ({}));
-      const err: Error & { code?: number; detail?: unknown } = new Error('subscription_required');
-      err.code = 402;
-      err.detail = body?.detail;
-      throw err;
+    try {
+      const r = await apiClient.post<HelpChatResponse>('/help/chat', { message, history });
+      return r.data;
+    } catch (e) {
+      const axErr = e as { response?: { status?: number; data?: { detail?: unknown } }; message?: string };
+      const st = axErr?.response?.status;
+      if (st === 402) {
+        const err: Error & { code?: number; detail?: unknown } = new Error('subscription_required');
+        err.code = 402;
+        err.detail = axErr?.response?.data?.detail;
+        throw err;
+      }
+      if (st === 429) {
+        const err: Error & { code?: number; detail?: unknown } = new Error('rate_limited');
+        err.code = 429;
+        err.detail = axErr?.response?.data?.detail;
+        throw err;
+      }
+      throw new Error(`help chat failed: ${st ?? axErr?.message ?? 'unknown'}`);
     }
-    if (res.status === 429) {
-      const body = await res.json().catch(() => ({}));
-      const err: Error & { code?: number; detail?: unknown } = new Error('rate_limited');
-      err.code = 429;
-      err.detail = body?.detail;
-      throw err;
-    }
-    if (!res.ok) throw new Error(`help chat failed: ${res.status}`);
-    return res.json();
   },
 };
