@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 import logging
+from typing import Optional
 
 from app.db.session import get_db
 
@@ -22,12 +23,20 @@ router = APIRouter()
 # on both services via render.yaml value (not sync:false).
 
 
-async def _log_cron_run(db: AsyncSession, result: dict) -> None:
-    """Store last cron execution time + result in system_config for admin visibility."""
+async def _log_cron_run(db: AsyncSession, result: dict, trigger_source: str = "http_cron") -> None:
+    """Store last cron execution + trigger source in system_config for admin visibility.
+
+    trigger_source distinguishes the two dispatch triggers so the admin Cron
+    Health card can warn 'primary Render cron is dead, asyncio backup is
+    carrying' when only the in-process loop is firing.
+        - "http_cron"      = called via POST from Render Cron Job (primary)
+        - "asyncio_loop"   = called by the asyncio fallback in main.py (backup)
+        - "admin_manual"   = called by an admin from the panel (one-off)
+    """
     import json
     try:
         now_str = datetime.now(timezone.utc).isoformat()
-        result_str = json.dumps(result)[:2000]  # cap at 2000 chars
+        result_str = json.dumps(result)[:2000]
         await db.execute(
             text("""
                 INSERT INTO system_config (key, value, updated_at)
@@ -44,6 +53,24 @@ async def _log_cron_run(db: AsyncSession, result: dict) -> None:
             """),
             {"res": result_str}
         )
+        await db.execute(
+            text("""
+                INSERT INTO system_config (key, value, updated_at)
+                VALUES ('cron_last_trigger_source', :src, now())
+                ON CONFLICT (key) DO UPDATE SET value = :src, updated_at = now()
+            """),
+            {"src": trigger_source}
+        )
+        # Per-source last-run keys so the admin card can flag 'http_cron dead'.
+        if trigger_source in ("http_cron", "asyncio_loop", "admin_manual"):
+            await db.execute(
+                text("""
+                    INSERT INTO system_config (key, value, updated_at)
+                    VALUES (:k, :v, now())
+                    ON CONFLICT (key) DO UPDATE SET value = :v, updated_at = now()
+                """),
+                {"k": f"cron_last_run_{trigger_source}", "v": now_str}
+            )
         await db.commit()
     except Exception as e:
         logger.warning("_log_cron_run: could not save cron log: %s", e)
@@ -52,6 +79,7 @@ async def _log_cron_run(db: AsyncSession, result: dict) -> None:
 @router.post("/internal/cron/dispatch-rfq-batches")
 async def cron_dispatch_rfq_batches(
     db: AsyncSession = Depends(get_db),
+    trigger_source: str = "http_cron",
 ):
     """
     Cron endpoint: check all open RFQs and dispatch next batch if interval elapsed.
@@ -168,7 +196,7 @@ async def cron_dispatch_rfq_batches(
     }
 
     # Log cron execution to system_config for admin visibility
-    await _log_cron_run(db, response)
+    await _log_cron_run(db, response, trigger_source=trigger_source)
 
     return response
 
@@ -225,24 +253,47 @@ async def cron_status(
         rows = {row[0]: row[1] for row in result.fetchall()}
         last_run = rows.get('cron_last_run')
         last_result = rows.get('cron_last_result')
+        last_trigger = rows.get('cron_last_trigger_source')
+        last_run_http = rows.get('cron_last_run_http_cron')
+        last_run_asyncio = rows.get('cron_last_run_asyncio_loop')
 
-        # Calculate how long ago the cron last ran
-        minutes_ago = None
-        if last_run:
+        def _minutes_ago(iso: Optional[str]) -> Optional[int]:
+            if not iso:
+                return None
             try:
-                last_run_dt = datetime.fromisoformat(last_run)
-                if last_run_dt.tzinfo is None:
-                    last_run_dt = last_run_dt.replace(tzinfo=timezone.utc)
-                elapsed = datetime.now(timezone.utc) - last_run_dt
-                minutes_ago = int(elapsed.total_seconds() / 60)
+                dt = datetime.fromisoformat(iso)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                return int((datetime.now(timezone.utc) - dt).total_seconds() / 60)
             except Exception:
-                pass
+                return None
+
+        minutes_ago = _minutes_ago(last_run)
+        minutes_ago_http = _minutes_ago(last_run_http)
+        minutes_ago_asyncio = _minutes_ago(last_run_asyncio)
+
+        # Health logic:
+        #   healthy: any cron fired in the last 20 min (covers 5-min backup + 15-min primary)
+        #   degraded: only the asyncio backup has been running -- Render cron is dead
+        #   stale: nothing fired in the last 20 min at all
+        if minutes_ago is None or minutes_ago >= 20:
+            status_label = "stale"
+        elif minutes_ago_http is None or (minutes_ago_http >= 60):
+            # asyncio firing but no http cron in the last hour -> primary down
+            status_label = "degraded"
+        else:
+            status_label = "healthy"
 
         return {
             "last_run": last_run,
             "minutes_ago": minutes_ago,
+            "last_trigger_source": last_trigger,
+            "last_run_http_cron": last_run_http,
+            "last_run_http_cron_minutes_ago": minutes_ago_http,
+            "last_run_asyncio_loop": last_run_asyncio,
+            "last_run_asyncio_loop_minutes_ago": minutes_ago_asyncio,
             "last_result": last_result,
-            "status": "healthy" if minutes_ago is not None and minutes_ago < 20 else "unknown",
+            "status": status_label,
         }
     except Exception as e:
         return {"error": str(e), "status": "unknown"}

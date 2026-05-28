@@ -652,6 +652,21 @@ const admin = {
   deleteEmailFailure: (id: string) =>
     apiClient.delete<{ id: string; deleted: boolean }>(`/admin/email-failures/${id}`),
 
+  cronStatus: () =>
+    apiClient.get<{
+      last_run: string | null;
+      minutes_ago: number | null;
+      last_trigger_source: string | null;
+      last_run_http_cron: string | null;
+      last_run_http_cron_minutes_ago: number | null;
+      last_run_asyncio_loop: string | null;
+      last_run_asyncio_loop_minutes_ago: number | null;
+      last_result: string | null;
+      status: 'healthy' | 'degraded' | 'stale' | 'unknown';
+    }>('/internal/cron/status'),
+  cronManualFire: () =>
+    apiClient.post<Record<string, unknown>>('/internal/cron/dispatch-rfq-batches?trigger_source=admin_manual'),
+
   crawlWebsiteForProvider: (website_url: string) =>
     apiClient.post<{ task_id: string; status: string }>('/admin/crawl-website', { website_url }),
 

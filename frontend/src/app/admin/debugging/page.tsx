@@ -198,6 +198,160 @@ interface NDAVoidResult {
 }
 
 
+// ---- Cron Health section ---------------------------------------------------
+// Surfaces /internal/cron/status so admins can see at a glance whether the
+// Render Cron Job is firing (primary) or only the asyncio fallback is
+// carrying. Most RFQ "second batch didn't send" reports trace back to the
+// Render cron service never being provisioned — this card makes that visible.
+
+interface CronStatus {
+  last_run: string | null;
+  minutes_ago: number | null;
+  last_trigger_source: string | null;
+  last_run_http_cron: string | null;
+  last_run_http_cron_minutes_ago: number | null;
+  last_run_asyncio_loop: string | null;
+  last_run_asyncio_loop_minutes_ago: number | null;
+  last_result: string | null;
+  status: 'healthy' | 'degraded' | 'stale' | 'unknown';
+}
+
+function CronHealthSection() {
+  const [cron, setCron] = useState<CronStatus | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [firing, setFiring] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await api.admin.cronStatus();
+      setCron(r.data as CronStatus);
+    } catch (e) {
+      setError((e as Error).message || 'request failed');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { load(); const t = setInterval(load, 30000); return () => clearInterval(t); }, [load]);
+
+  async function fireNow() {
+    if (!confirm('Run the RFQ dispatch poll right now? Safe — the interval guard prevents duplicate batches.')) return;
+    setFiring(true);
+    try {
+      await api.admin.cronManualFire();
+      await load();
+    } catch (e) {
+      alert('Manual fire failed: ' + ((e as Error).message || ''));
+    } finally {
+      setFiring(false);
+    }
+  }
+
+  const statusColor = cron?.status === 'healthy' ? 'emerald'
+    : cron?.status === 'degraded' ? 'amber'
+    : cron?.status === 'stale' ? 'red' : 'slate';
+
+  function relTime(min: number | null) {
+    if (min === null || min === undefined) return 'never';
+    if (min < 1) return 'just now';
+    if (min < 60) return `${min}m ago`;
+    const h = Math.floor(min / 60);
+    return `${h}h ${min % 60}m ago`;
+  }
+
+  let resultSummary: { dispatched: number; skipped: number; reasons: string[] } | null = null;
+  if (cron?.last_result) {
+    try {
+      const r = JSON.parse(cron.last_result) as { dispatched?: Array<{ rfq_id: string; providers_emailed: number }>; skipped?: Array<{ rfq_id: string; reason: string }> };
+      const dispatched = (r.dispatched || []).length;
+      const skipped = (r.skipped || []).length;
+      const reasons = Array.from(new Set((r.skipped || []).map(s => s.reason).slice(0, 5)));
+      resultSummary = { dispatched, skipped, reasons };
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Activity className="h-5 w-5" />
+          RFQ Dispatch Cron Health
+          {cron && (
+            <span className={`ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-${statusColor}-100 text-${statusColor}-800`}>
+              {cron.status}
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-500">
+            Render Cron Job (primary, every 15 min) and asyncio backup (every 5 min) both call
+            <code className="mx-1">/internal/cron/dispatch-rfq-batches</code>. Card auto-refreshes every 30s.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
+              <RefreshCw className={`h-3 w-3 mr-1 ${loading ? 'animate-spin' : ''}`} /> Refresh
+            </Button>
+            <Button variant="outline" size="sm" onClick={fireNow} disabled={firing}>
+              <Zap className={`h-3 w-3 mr-1 ${firing ? 'animate-pulse' : ''}`} /> Fire now
+            </Button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs">Could not load: {error}</div>
+        )}
+
+        {cron && (
+          <>
+            {cron.status === 'stale' && (
+              <div className="p-3 rounded-md bg-red-50 border border-red-200 text-red-800 text-xs">
+                <strong>STALE.</strong> No dispatch poll in over 20 minutes. Even the asyncio backup loop has not run. The API service may be down or the backup loop crashed at boot — check Render service logs.
+              </div>
+            )}
+            {cron.status === 'degraded' && (
+              <div className="p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-xs">
+                <strong>DEGRADED.</strong> The asyncio backup loop is firing but the Render Cron Job has not called the endpoint in over an hour. The Cron Job service is likely not provisioned. Open Render dashboard → Engineering_Services_Directory project → create <code>proreadyengineer-rfq-cron</code> via Blueprint sync of <code>render.yaml</code>, or create it manually with schedule <code>*/15 * * * *</code>.
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="p-3 rounded-md border border-slate-200 bg-slate-50">
+                <div className="text-slate-500">Last run (any trigger)</div>
+                <div className="font-semibold text-slate-900 mt-0.5">{relTime(cron.minutes_ago)}</div>
+                <div className="text-slate-400 mt-0.5">{cron.last_trigger_source || '—'}</div>
+              </div>
+              <div className="p-3 rounded-md border border-slate-200 bg-slate-50">
+                <div className="text-slate-500">Render Cron Job (primary)</div>
+                <div className="font-semibold text-slate-900 mt-0.5">{relTime(cron.last_run_http_cron_minutes_ago)}</div>
+                <div className="text-slate-400 mt-0.5">expected ≤ 15 min</div>
+              </div>
+              <div className="p-3 rounded-md border border-slate-200 bg-slate-50">
+                <div className="text-slate-500">Asyncio backup</div>
+                <div className="font-semibold text-slate-900 mt-0.5">{relTime(cron.last_run_asyncio_loop_minutes_ago)}</div>
+                <div className="text-slate-400 mt-0.5">expected ≤ 5 min</div>
+              </div>
+            </div>
+
+            {resultSummary && (
+              <div className="p-3 rounded-md border border-slate-200 bg-white text-xs">
+                <div className="font-medium text-slate-800 mb-1">Last poll outcome</div>
+                <div className="text-slate-600">Dispatched: <strong className="text-slate-900">{resultSummary.dispatched}</strong> · Skipped: <strong className="text-slate-900">{resultSummary.skipped}</strong></div>
+                {resultSummary.reasons.length > 0 && (
+                  <div className="text-slate-500 mt-1">Skip reasons: {resultSummary.reasons.join(', ')}</div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ---- Email Failures section ------------------------------------------------
 // Lists every broken email (sync send-error or async Resend bounce) with a
 // "Mark resolved" button. Pulled live from /admin/email-failures.
@@ -695,6 +849,8 @@ export default function DebuggingPage() {
           Refresh
         </Button>
       </div>
+
+      <CronHealthSection />
 
       <EmailFailuresSection />
 

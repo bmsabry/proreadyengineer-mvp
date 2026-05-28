@@ -69,15 +69,26 @@ async def lifespan(app: FastAPI):
     # -----------------------------------------------------------------------
 
     async def _dispatch_loop():
-        """Asyncio background dispatch loop - backup trigger every 15 minutes."""
+        """Asyncio background dispatch loop - backup trigger every 5 minutes.
+
+        Why 5 min not 15: with a 30-min RFQ_BATCH_INTERVAL_HOURS, a 15-min
+        poll routinely misses the dispatch window when ticks fall right
+        before the interval elapses (e.g. last batch 12:36 -> 13:06 tick
+        sees elapsed=29min<30 -> skip -> next tick 13:21 = 45min later,
+        looks broken to user). 5-min poll closes that gap; the interval
+        guard in internal.py + rfq_service.py prevents over-dispatch.
+        """
         from app.db.session import AsyncSessionLocal
-        logger.info("[dispatch_loop] Background dispatch loop started (15-min interval)")
+        logger.info("[dispatch_loop] Background dispatch loop started (5-min interval)")
         await asyncio.sleep(5)   # wait 5s on startup to let DB connections initialize
         while True:
             try:
                 from app.api.endpoints.internal import cron_dispatch_rfq_batches
                 async with AsyncSessionLocal() as db:
-                    result = await cron_dispatch_rfq_batches(db=db)
+                    # trigger_source="asyncio_loop" lets the admin Cron Health card
+                    # detect the case where the Render cron is dead and only the
+                    # backup loop is carrying.
+                    result = await cron_dispatch_rfq_batches(db=db, trigger_source="asyncio_loop")
                     logger.info(
                         "[dispatch_loop] fired: open=%s dispatched=%s skipped=%s interval=%.2fh",
                         result.get("open_rfqs_found", 0),
@@ -87,10 +98,10 @@ async def lifespan(app: FastAPI):
                     )
             except Exception as exc:
                 logger.error("[dispatch_loop] error: %s", exc, exc_info=True)
-            await asyncio.sleep(900)  # 900 seconds = 15 minutes
+            await asyncio.sleep(300)  # 300 seconds = 5 minutes
 
     dispatch_task = asyncio.create_task(_dispatch_loop())
-    logger.info("[startup] asyncio dispatch backup loop started (15-min interval)")
+    logger.info("[startup] asyncio dispatch backup loop started (5-min interval)")
     logger.info("[startup] Render Cron Job is PRIMARY dispatch trigger. asyncio loop is BACKUP.")
     print("[startup] Dual dispatch triggers: Render Cron (primary) + asyncio loop (backup).")
 
