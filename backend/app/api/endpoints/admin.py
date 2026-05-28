@@ -3085,20 +3085,43 @@ async def admin_list_providers(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(["admin"])),
 ):
-    """Admin: List providers with optional search and pagination."""
-    from sqlalchemy import select, func, or_
-    from app.models.provider import Provider
+    """Admin: List providers with optional search and pagination.
+
+    Search matches any of: provider name, firm name, city, primary specialty,
+    one of the firm's public contact emails (JSON `email_addresses`),
+    the email of a linked user account (via provider_memberships), or the
+    email the original ownership invite was sent to (`invite_email`).
+    """
+    from sqlalchemy import select, func, or_, cast, String
+    from app.models.provider import Provider, ProviderMembership
+    from app.models.user import User
 
     offset = (page - 1) * limit
     query = select(Provider)
-    count_query = select(func.count(Provider.id))
+    count_query = select(func.count(Provider.id.distinct()))
 
     if search:
+        # Sub-select for any provider id whose membership user (or invite_email)
+        # matches the search term. Done as a subquery so we don't duplicate
+        # provider rows when a firm has multiple members.
+        membership_email_match = (
+            select(ProviderMembership.provider_id)
+            .join(User, User.id == ProviderMembership.user_id, isouter=True)
+            .where(or_(
+                User.email.ilike(f"%{search}%"),
+                ProviderMembership.invite_email.ilike(f"%{search}%"),
+            ))
+        )
         search_filter = or_(
             Provider.name.ilike(f"%{search}%"),
             Provider.firm_name.ilike(f"%{search}%"),
             Provider.city.ilike(f"%{search}%"),
             Provider.primary_specialty.ilike(f"%{search}%"),
+            # email_addresses is a JSON list — cast to text for ilike. This
+            # produces matches like %"alice@example.com"% which is exactly
+            # what we want.
+            cast(Provider.email_addresses, String).ilike(f"%{search}%"),
+            Provider.id.in_(membership_email_match),
         )
         query = query.where(search_filter)
         count_query = count_query.where(search_filter)
