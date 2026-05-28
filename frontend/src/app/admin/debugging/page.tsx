@@ -236,45 +236,34 @@ function EmailFailuresSection() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const API = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000') + '/api/v1';
-
-  function authHeaders(): HeadersInit {
-    if (typeof window === 'undefined') return {};
-    const t = localStorage.getItem('access_token');
-    return t ? { Authorization: `Bearer ${t}` } : {};
-  }
-
+  // Use api.admin (axios apiClient) so the 401 auto-refresh interceptor fires
+  // when the access token expires. Raw fetch() bypasses it and surfaces 401.
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = await fetch(
-        `${API}/admin/email-failures?unresolved_only=${unresolvedOnly ? 'true' : 'false'}&limit=100&offset=0`,
-        { headers: authHeaders() }
-      );
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const j = await r.json();
-      setRows(j.items ?? []);
-      setTotal(j.total ?? 0);
+      const r = await api.admin.listEmailFailures(unresolvedOnly, 100, 0);
+      setRows((r.data.items ?? []) as EmailFailureRow[]);
+      setTotal(r.data.total ?? 0);
     } catch (e) {
-      setError((e as Error).message);
+      const msg = (e as { response?: { status?: number }; message?: string })?.response?.status
+        ? `HTTP ${(e as { response: { status: number } }).response.status}`
+        : ((e as Error).message || 'request failed');
+      setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [API, unresolvedOnly]);
+  }, [unresolvedOnly]);
 
   useEffect(() => { load(); }, [load]);
 
   async function markResolved(id: string) {
     setBusyId(id);
     try {
-      const r = await fetch(`${API}/admin/email-failures/${id}/resolve`, {
-        method: 'POST', headers: authHeaders(),
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await api.admin.resolveEmailFailure(id);
       await load();
     } catch (e) {
-      alert('Could not mark resolved: ' + (e as Error).message);
+      alert('Could not mark resolved: ' + ((e as Error).message || 'request failed'));
     } finally {
       setBusyId(null);
     }
@@ -284,13 +273,10 @@ function EmailFailuresSection() {
     if (!confirm('Permanently delete this failure record?')) return;
     setBusyId(id);
     try {
-      const r = await fetch(`${API}/admin/email-failures/${id}`, {
-        method: 'DELETE', headers: authHeaders(),
-      });
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await api.admin.deleteEmailFailure(id);
       await load();
     } catch (e) {
-      alert('Could not delete: ' + (e as Error).message);
+      alert('Could not delete: ' + ((e as Error).message || 'request failed'));
     } finally {
       setBusyId(null);
     }

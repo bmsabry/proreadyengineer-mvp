@@ -641,6 +641,17 @@ const admin = {
       { provider_ids }
     ),
 
+  listEmailFailures: (unresolved_only: boolean = true, limit: number = 100, offset: number = 0) =>
+    apiClient.get<{ total: number; items: Array<{ id: string; to_email: string; subject: string | null; source: string; error_code: number | null; error_message: string | null; resend_email_id: string | null; resolved: boolean; resolved_at: string | null; created_at: string | null }> }>(
+      `/admin/email-failures?unresolved_only=${unresolved_only}&limit=${limit}&offset=${offset}`
+    ),
+  emailFailuresUnresolvedCount: () =>
+    apiClient.get<{ count: number }>('/admin/email-failures/unresolved-count'),
+  resolveEmailFailure: (id: string) =>
+    apiClient.post<{ id: string; resolved: boolean }>(`/admin/email-failures/${id}/resolve`),
+  deleteEmailFailure: (id: string) =>
+    apiClient.delete<{ id: string; deleted: boolean }>(`/admin/email-failures/${id}`),
+
   crawlWebsiteForProvider: (website_url: string) =>
     apiClient.post<{ task_id: string; status: string }>('/admin/crawl-website', { website_url }),
 
