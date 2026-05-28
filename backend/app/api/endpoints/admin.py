@@ -5042,7 +5042,7 @@ async def _owner_user_for_provider(db: AsyncSession, provider_id: int) -> Option
     return res.scalar_one_or_none()
 
 
-@router.get("/admin/providers/email-sync-candidates")
+@router.get("/admin/email-sync-candidates")
 async def list_email_sync_candidates(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_role(["admin"])),
@@ -5214,7 +5214,7 @@ async def sync_provider_login_email(
     raise HTTPException(status_code=400, detail=result)
 
 
-@router.post("/admin/providers/bulk-sync-login-emails")
+@router.post("/admin/bulk-sync-login-emails")
 async def bulk_sync_provider_login_emails(
     payload: Dict[str, Any],
     db: AsyncSession = Depends(get_db),
