@@ -309,10 +309,11 @@ async def complete_file_upload(
 @router.post("/rfqs/{rfq_id}/nda/checkout")
 async def nda_checkout(
     rfq_id: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Create Stripe Checkout Session for $5 NDA fee.
+    """Create Stripe Checkout Session for $10 NDA fee.
 
     Returns {checkout_url, payment_attempt_id} for frontend redirect.
     After payment, Stripe redirects to /nda/{rfq_id}/sign?paid=true
@@ -361,17 +362,13 @@ async def nda_checkout(
         _active_sub = None
 
     if _active_sub:
-        # Best-effort: advance RFQ status. Does NOT block the free credit response.
-        try:
-            if str(rfq.rfq_status) in ('submitted', 'draft', 'awaiting_nda_payment',
-                                        'RFQStatus.submitted', 'RFQStatus.draft',
-                                        'RFQStatus.awaiting_nda_payment'):
-                from app.models.rfq import RFQStatus as _RS
-                rfq.rfq_status = _RS.awaiting_customer_signature
-                await db.commit()
-        except Exception as _commit_err:
-            _log.warning(f"NDA RFQ status update failed (non-critical): {_commit_err}")
+        # NOTE: Do NOT move the RFQ to awaiting_customer_signature here. The customer
+        # NDA signature is collected later (provider-triggered) and must never block
+        # dispatch. Leaving the RFQ in its pre-dispatch state lets the frontend's
+        # follow-up submit() call dispatch it normally (root-cause fix for stuck RFQs).
         _log.info(f"NDA free credit granted rfq={rfq_id} user={current_user.id}")
+        # Free credit == NDA fee satisfied -> dispatch now (idempotent).
+        _schedule_rfq_dispatch(background_tasks, rfq_id)
         return {
             "free_credit": True,
             "credits_remaining": 3,
@@ -400,9 +397,26 @@ async def nda_checkout(
     }
 
 
+
+def _schedule_rfq_dispatch(background_tasks, rfq_id: str):
+    """Reliably (re)trigger AI search + dispatch in the background, independent of
+    the frontend. submit_rfq is idempotent, so calling it after the NDA fee is paid
+    can never double-dispatch or duplicate matches."""
+    async def _run():
+        from app.db.session import AsyncSessionLocal
+        from app.services.rfq_service import submit_rfq
+        import logging as _lg
+        async with AsyncSessionLocal() as bg_db:
+            try:
+                await submit_rfq(bg_db, rfq_id)
+            except Exception as exc:
+                _lg.getLogger(__name__).error("post-NDA dispatch failed for %s: %s", rfq_id, exc)
+    background_tasks.add_task(_run)
+
 @router.post("/rfqs/{rfq_id}/nda/verify-payment")
 async def nda_verify_payment(
     rfq_id: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -450,6 +464,7 @@ async def nda_verify_payment(
         # Step 3: Already completed — nothing to do
         if str(payment.payment_status) == str(PaymentStatus.COMPLETED):
             _log.info("nda-verify-payment: Already COMPLETED for rfq=%s", rfq_id)
+            _schedule_rfq_dispatch(background_tasks, rfq_id)
             return {"verified": True, "reason": "Payment already verified"}
 
         # Step 4: Query Stripe directly using stored session ID
@@ -482,6 +497,7 @@ async def nda_verify_payment(
         payment.confirmed_at = datetime.now(timezone.utc)
         await db.commit()
 
+        _schedule_rfq_dispatch(background_tasks, rfq_id)
         return {"verified": True, "reason": "Payment verified and confirmed"}
 
     except Exception as e:
@@ -561,17 +577,19 @@ async def submit_rfq_endpoint(
     if rfq.customer_user_id != current_user.id and not is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
 
-    if rfq.rfq_status not in ("draft", None):
-        from app.models.enums import RfqStatus
-        if hasattr(rfq.rfq_status, "value"):
-            status_val = rfq.rfq_status.value
-        else:
-            status_val = str(rfq.rfq_status)
-        if status_val != "draft":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"RFQ already submitted (status: {status_val})"
-            )
+    # Allow submit/dispatch from any PRE-dispatch state. NDA RFQs pass through
+    # awaiting_nda_payment / awaiting_customer_signature after the customer pays the
+    # NDA fee and must still dispatch. Only reject if already dispatched or closed.
+    _status_val = (
+        rfq.rfq_status.value if hasattr(rfq.rfq_status, "value")
+        else (str(rfq.rfq_status) if rfq.rfq_status else None)
+    )
+    _SUBMITTABLE = {None, "draft", "submitted", "awaiting_nda_payment", "awaiting_customer_signature"}
+    if _status_val not in _SUBMITTABLE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"RFQ already submitted (status: {_status_val})"
+        )
 
     # Run the full AI search + dispatch in the background
     # This avoids 30-60 second request timeout on Render
@@ -819,7 +837,7 @@ async def _provider_has_annual_subscription(provider_id: int, db) -> bool:
     """Return True if the provider has an active annual subscription.
 
     Annual subscribers receive all dispatched RFQs for free without paying
-    the per-RFQ $50 unlock fee.
+    the per-RFQ $20 unlock fee.
 
     Args:
         provider_id: Provider database ID.
@@ -848,7 +866,7 @@ async def unlock_checkout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Create Stripe Checkout Session to unlock RFQ access for $50."""
+    """Create Stripe Checkout Session to unlock RFQ access for $20."""
     import logging
     import uuid as _uuid
     logger = logging.getLogger(__name__)
@@ -1244,7 +1262,7 @@ async def get_rfq_files(
     """Get download URLs for RFQ files.
 
     Access rules:
-    - Provider must have paid the $10 unlock fee.
+    - Provider must have paid the $20 unlock fee.
     - If NDA not required: files are accessible immediately after unlock.
     - If NDA required: files are only accessible after customer accepts provider quote
       AND the NDA is fully signed by both parties.

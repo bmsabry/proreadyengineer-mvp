@@ -1326,12 +1326,13 @@ async def _fulfill_nda_fee(
         nda = RFQNDA(rfq_id=rfq_id, nda_status=NdaStatus.PAYMENT_PENDING)
         db.add(nda)
 
-    # Move to customer signature pending
+    # Track NDA progress only. Do NOT change rfq_status here: the customer NDA
+    # signature is collected later (provider-triggered) and must never block
+    # dispatch. Keeping the RFQ in its pre-dispatch state lets the customer's
+    # follow-up submit() dispatch it normally. (Root-cause fix: previously this
+    # set AWAITING_CUSTOMER_SIGNATURE, which the submit guard then rejected,
+    # stranding every NDA RFQ.)
     nda.nda_status = NdaStatus.CUSTOMER_SIGNATURE_PENDING
-
-    # Update RFQ status
-    rfq = await db.get(RFQ, rfq_id)
-    rfq.rfq_status = RfqStatus.AWAITING_CUSTOMER_SIGNATURE
 
     await db.commit()
 

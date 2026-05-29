@@ -180,41 +180,80 @@ async def submit_rfq(
             raise ValueError("RFQ not found")
         logger.info("submit_rfq: found rfq status=%s nda=%s", rfq.rfq_status, rfq.nda_required)
 
-        if rfq.rfq_status != RfqStatus.DRAFT:
-            raise ValueError("RFQ is not in draft status")
+        # Coerce status (DB may store enum or raw string) to an RfqStatus.
+        _cur = rfq.rfq_status
+        if isinstance(_cur, str):
+            try:
+                _cur = RfqStatus(_cur)
+            except ValueError:
+                _cur = None
+
+        # Dispatch must work for NDA RFQs too. After the customer pays the NDA
+        # fee, the RFQ may sit in awaiting_nda_payment / awaiting_customer_signature;
+        # the customer NDA signature is collected later (provider-triggered) and
+        # MUST NOT block dispatch. So we treat every pre-dispatch state as submittable.
+        _PRE_DISPATCH = {
+            RfqStatus.DRAFT,
+            RfqStatus.SUBMITTED,
+            RfqStatus.AWAITING_NDA_PAYMENT,
+            RfqStatus.AWAITING_CUSTOMER_SIGNATURE,
+        }
+        if _cur not in _PRE_DISPATCH:
+            # Idempotent: already dispatching/open/closed/cancelled -> nothing to do.
+            logger.info(
+                "submit_rfq: rfq=%s already past pre-dispatch (status=%s); skipping re-dispatch",
+                rfq_id, rfq.rfq_status,
+            )
+            return
 
         rfq.rfq_status = RfqStatus.OPEN_FOR_DISPATCH
-        rfq.submitted_at = datetime.now(timezone.utc)
+        if not rfq.submitted_at:
+            rfq.submitted_at = datetime.now(timezone.utc)
 
-        from app.services.search_service import search_providers
-        logger.info("submit_rfq: running AI search rfq_id=%s", rfq_id)
-        # FIX: search_providers returns a tuple (results_list, pipeline_info)
-        match_results, _pipeline_info = await search_providers(
-            db,
-            query=rfq.project_description,
-            filters={},
-            limit=9999,
-            top_n=None,  # Get ALL ranked providers for dispatch
-        )
-        logger.info("submit_rfq: search returned %d results rfq_id=%s", len(match_results), rfq_id)
-
-        # FIX: match_results is a list of SearchResultItem dataclasses, not dicts
-        for rank_idx, result in enumerate(match_results, 1):
-            provider = result.provider  # dataclass attribute, not dict key
-            rfq_match = RFQMatch(
-                rfq_id=rfq.id,
-                provider_id=provider.id,
-                rank_position=rank_idx,
-                composite_score=int(result.score),  # .score is the float total
-                specialty_score=int(result.specialty_score),
-                capabilities_score=int(result.capabilities_score),
-                tier_score=int(result.tier_score),
-                scoring_inputs={},  # SearchResultItem has no scoring_inputs field
+        # Idempotency guard: if matches already exist (concurrent submit, retry, or a
+        # rescued stuck RFQ), do NOT re-run the AI search or duplicate match rows.
+        _existing_matches = (
+            await db.execute(
+                select(func.count()).select_from(RFQMatch).where(RFQMatch.rfq_id == rfq_id)
             )
-            db.add(rfq_match)
+        ).scalar() or 0
 
-        await db.commit()
-        logger.info("submit_rfq: stored %d matches rfq_id=%s", len(match_results), rfq_id)
+        if _existing_matches == 0:
+            from app.services.search_service import search_providers
+            logger.info("submit_rfq: running AI search rfq_id=%s", rfq_id)
+            # search_providers returns a tuple (results_list, pipeline_info)
+            match_results, _pipeline_info = await search_providers(
+                db,
+                query=rfq.project_description,
+                filters={},
+                limit=9999,
+                top_n=None,  # Get ALL ranked providers for dispatch
+            )
+            logger.info("submit_rfq: search returned %d results rfq_id=%s", len(match_results), rfq_id)
+
+            # match_results is a list of SearchResultItem dataclasses, not dicts
+            for rank_idx, result in enumerate(match_results, 1):
+                provider = result.provider  # dataclass attribute, not dict key
+                rfq_match = RFQMatch(
+                    rfq_id=rfq.id,
+                    provider_id=provider.id,
+                    rank_position=rank_idx,
+                    composite_score=int(result.score),  # .score is the float total
+                    specialty_score=int(result.specialty_score),
+                    capabilities_score=int(result.capabilities_score),
+                    tier_score=int(result.tier_score),
+                    scoring_inputs={},  # SearchResultItem has no scoring_inputs field
+                )
+                db.add(rfq_match)
+
+            await db.commit()
+            logger.info("submit_rfq: stored %d matches rfq_id=%s", len(match_results), rfq_id)
+        else:
+            await db.commit()
+            logger.info(
+                "submit_rfq: %d matches already exist for rfq=%s; skipping AI search (idempotent)",
+                _existing_matches, rfq_id,
+            )
 
         logger.info("submit_rfq: calling dispatch_next_batch rfq_id=%s", rfq_id)
         await dispatch_next_batch(db, rfq_id)
