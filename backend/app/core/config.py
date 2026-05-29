@@ -98,8 +98,6 @@ class Settings(BaseSettings):
     REGISTERED_SEARCH_LIMIT_PER_MONTH: int = 5
     SEARCH_TIER_1_LIMIT: int = 100
     SEARCH_TIER_1_PRICE: int = 2000  # $20.00/month
-    SEARCH_TIER_2_LIMIT: int = 100  # DEPRECATED: same as tier_1
-    SEARCH_TIER_2_PRICE: int = 2000  # DEPRECATED: $20.00/month (tier 2 no longer offered)
     RFQ_UNLOCK_PRICE: int = 5000  # $50.00
     NDA_FEE_PRICE: int = 1000  # $10.00
     PROVIDER_ANNUAL_SUBSCRIPTION_PRICE: int = 100000  # $1000.00/year

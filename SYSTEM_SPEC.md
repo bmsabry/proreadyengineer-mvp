@@ -82,7 +82,7 @@ site.** Some config constants and product-name strings are stale — see §20. L
 | **RFQ unlock** | Provider | **$50** (`amount=settings.RFQ_UNLOCK_PRICE`, =5000) | To read ANY RFQ they were matched to. **Free** for providers with an active `provider_annual` subscription. | `rfqs.py:987` |
 | **NDA handling fee** | Customer | **$10** (`amount=1000`) | Charged when the customer marks an RFQ "NDA required". Always, when NDA is required. | `rfqs.py:399` |
 | **Provider annual subscription** | Provider | **$1,000/yr** (`PROVIDER_ANNUAL_SUBSCRIPTION_PRICE=100000`) | Grants unlimited free RFQ unlocks while active. | `config.py`, `payments.py` |
-| **Customer search subscription** | Customer | tier pricing | Raises monthly search quota from 10 → 100. | `payments.py` |
+| **Customer search subscription** | Customer | **$20/month** (`search_tier_1`) | Raises monthly search quota from 10 → 100. Monthly only; **no annual customer plan**. (Tier 2 retired — no longer sold.) | `payments.py` |
 | **Provider full-profile-edit unlock** | Provider | one-time | Unlocks full profile editing (or comes free with annual sub). | `payment_service.py` |
 | **Advertisement** | Advertiser | subscription | Featured-firm / software-provider listings. | `ads.py`, `payment_service.py` |
 
@@ -333,7 +333,11 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 
 - **Provider annual** (`provider_annual`, $1,000/yr) — grants free RFQ unlocks while
   active (the unlock path checks for it and writes an unlocked `RFQUnlock` with no payment).
-- **Customer search** tiers — raise the monthly search quota from 10 → 100.
+- **Customer search** (`search_tier_1`, $20/month) — raises the monthly search quota from
+  10 → 100. **This is the only customer subscription, and it is monthly — there is no
+  annual customer plan.** `search_tier_2` has been **retired** (no longer sold/displayed);
+  any pre-existing tier-2 subscriber is still honored via the `.in_(['search_tier_1',
+  'search_tier_2'])` quota lookup, but it cannot be purchased.
 - **Provider full-profile-edit** — one-time unlock (or included with annual).
 - **Advertisement** — featured-firm / software-provider listings.
 

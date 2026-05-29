@@ -30,7 +30,6 @@ interface AdminUser {
 const MEMBERSHIP_QUOTA: Record<string, number> = {
   free: 10,
   search_tier_1: 100,
-  search_tier_2: 200,
 };
 
 function formatDate(iso: string | null) {
@@ -223,7 +222,6 @@ export default function AdminUsersPage() {
         <span>&#128275; Unregistered: <strong>3</strong></span>
         <span>&#128100; Free account: <strong>10</strong></span>
         <span>&#11088; Tier 1 ($10/mo): <strong>100</strong></span>
-        <span>&#128640; Tier 2 ($20/mo): <strong>200</strong></span>
         <span className="ml-auto text-xs italic">Auto-refreshes every 30s &bull; Updates on tab focus</span>
       </div>
 

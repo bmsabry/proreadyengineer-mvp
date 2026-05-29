@@ -731,15 +731,6 @@ export default function AdminSettingsPage() {
                 hint='Plan ID for 100 searches/month ($10/month).'
               />
               <FieldRow
-                label='PayPal Plan — Search Tier 2'
-                fieldName='paypal_plan_search_tier2'
-                value={form.paypal_plan_search_tier2}
-                onChange={handleChange}
-                isSet={isFieldSet('paypal_plan_search_tier2')}
-                isSecret
-                hint='Plan ID for 200 searches/month ($20/month).'
-              />
-              <FieldRow
                 label='PayPal Plan — Provider Profile'
                 fieldName='paypal_plan_provider_profile'
                 value={form.paypal_plan_provider_profile}

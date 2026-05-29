@@ -1182,10 +1182,8 @@ async def check_search_quota(
                 )
                 sub = sub_result.scalar_one_or_none()
                 if sub:
-                    if sub.subscription_type == 'search_tier_2':
-                        limit = PAID_SEARCH_LIMIT  # DEPRECATED tier: same as tier_1
-                    elif sub.subscription_type == 'search_tier_1':
-                        limit = PAID_SEARCH_LIMIT
+                    # search_tier_1 (current) or legacy search_tier_2 both grant the paid quota
+                    limit = PAID_SEARCH_LIMIT
             except Exception:
                 pass  # Keep default limit of 5
 

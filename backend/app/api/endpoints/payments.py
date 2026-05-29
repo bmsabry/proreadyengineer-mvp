@@ -253,7 +253,6 @@ async def stripe_create_search_subscription(
     # Map subscription_type to amount from settings (no hardcoded prices)
     amount_map = {
         "search_tier1": settings.SEARCH_TIER_1_PRICE,   # 2000 cents = $20/month
-        "search_tier2": settings.SEARCH_TIER_2_PRICE,   # 2000 cents = $20/month
     }
     amount = amount_map.get(subscription_type)
     if amount is None:

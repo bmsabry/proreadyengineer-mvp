@@ -126,7 +126,6 @@ export default function TermsPage() {
               <div className="flex justify-between py-2"><span>NDA Document Handling Fee</span><span className="font-semibold">$10.00</span></div>
               <div className="flex justify-between py-2"><span>Provider Profile Subscription</span><span className="font-semibold">$10.00/mo</span></div>
               <div className="flex justify-between py-2"><span>Search Tier 1 &mdash; 100 searches/mo</span><span className="font-semibold">$20.00/mo</span></div>
-              <div className="flex justify-between py-2"><span>Search Tier 2 &mdash; 200 searches/mo</span><span className="font-semibold">$20.00/mo</span></div>
               <div className="flex justify-between py-2"><span>Ad Slot Subscription</span><span className="font-semibold">$50.00/mo</span></div>
             </div>
             <p className="leading-relaxed">
