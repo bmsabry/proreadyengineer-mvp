@@ -27,6 +27,11 @@ from app.models.provider import Provider
 
 logger = logging.getLogger(__name__)
 
+# Monthly search quotas (single source of truth). Free tier matches the value
+# advertised to users and shown on the admin tracking screen.
+FREE_SEARCH_LIMIT = 10
+PAID_SEARCH_LIMIT = 100
+
 
 @dataclass
 class SearchResultItem:
@@ -1166,7 +1171,7 @@ async def check_search_quota(
                 return {'allowed': False, 'remaining': 0, 'limit': 0, 'used': 0}
 
             # Determine quota limit from active subscription
-            limit = 5  # default free tier
+            limit = FREE_SEARCH_LIMIT  # free tier (matches advertised/admin value)
             try:
                 sub_result = await fresh_db.execute(
                     select(Subscription).where(
@@ -1178,9 +1183,9 @@ async def check_search_quota(
                 sub = sub_result.scalar_one_or_none()
                 if sub:
                     if sub.subscription_type == 'search_tier_2':
-                        limit = 100  # DEPRECATED tier: same as tier_1
+                        limit = PAID_SEARCH_LIMIT  # DEPRECATED tier: same as tier_1
                     elif sub.subscription_type == 'search_tier_1':
-                        limit = 100
+                        limit = PAID_SEARCH_LIMIT
             except Exception:
                 pass  # Keep default limit of 5
 
@@ -1194,7 +1199,7 @@ async def check_search_quota(
         return {'allowed': used < limit, 'remaining': max(0, limit - used), 'limit': limit, 'used': used}
     except Exception as exc:
         logger.warning(f'[QUOTA] User quota check error: {exc}')
-        return {'allowed': True, 'remaining': 5, 'limit': 5, 'used': 0}
+        return {'allowed': True, 'remaining': FREE_SEARCH_LIMIT, 'limit': FREE_SEARCH_LIMIT, 'used': 0}
 
 
 async def increment_search_quota(
