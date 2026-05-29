@@ -1235,7 +1235,8 @@ async def get_unlock_status(
                 )
             )
             provider_nda = nda_result.scalar_one_or_none()
-            if provider_nda and provider_nda.provider_signed_at is not None:
+            # Access requires BOTH parties to have signed (mutual NDA fully signed).
+            if provider_nda and provider_nda.fully_signed_at is not None:
                 provider_nda_signed = True
             # If still not signed, poll Signwell directly (self-healing fallback)
             if not provider_nda_signed and provider_nda:
@@ -1253,9 +1254,12 @@ async def get_unlock_status(
             # NDA not required - treat as signed
             provider_nda_signed = True
 
+        # For NDA RFQs the full description is only revealed once the mutual NDA is
+        # fully signed. Until then the provider sees only the redacted preview.
+        _can_view_full = (not rfq.nda_required) or provider_nda_signed
         return {
             "unlocked": True,
-            "project_description": rfq.project_description,
+            "project_description": rfq.project_description if _can_view_full else None,
             "provider_nda_signed": provider_nda_signed,
             "quote_accepted": quote_accepted,
             **base_info
@@ -1308,25 +1312,9 @@ async def get_rfq_files(
     if not rfq:
         raise HTTPException(status_code=404, detail="RFQ not found")
 
-    # If NDA is required, gate documents behind quote acceptance + fully signed NDA
+    # If NDA is required, gate the full RFQ + files behind a fully-signed mutual NDA
+    # (provider signs to read -> customer countersigns -> both signed -> access).
     if rfq.nda_required:
-        # Check if provider's quote was accepted
-        quote_result = await db.execute(
-            select(QuoteModel).where(
-                QuoteModel.rfq_id == rfq_id,
-                QuoteModel.provider_id == membership.provider_id,
-                QuoteModel.quote_status == "accepted",
-            )
-        )
-        quote_accepted = quote_result.scalar_one_or_none() is not None
-
-        if not quote_accepted:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="DOCS_AFTER_ACCEPTANCE: Project documents are available after the customer accepts your quote."
-            )
-
-        # Quote was accepted - require fully signed NDA
         # First try to find an existing NDA record and self-heal if Signwell says complete
         nda_any_result = await db.execute(
             select(RFQNDA).where(
@@ -1686,9 +1674,10 @@ async def get_provider_nda_signing_url(
 ):
     """Get provider NDA signing URL after RFQ unlock.
 
-    Called when a provider has paid to unlock an RFQ that requires an NDA.
-    The customer must have already signed. Creates a provider signing
-    document instance and returns the embedded signing URL.
+    Called after a provider unlocks an NDA-required RFQ. Creates ONE mutual NDA
+    document (customer + this provider as signers), returns the provider's embedded
+    signing URL, and emails the customer to countersign. Does NOT require the
+    customer to have signed first. Once both sign, the provider can view the RFQ.
     """
     from sqlalchemy import select
     from app.models.rfq import RFQ, RFQUnlock

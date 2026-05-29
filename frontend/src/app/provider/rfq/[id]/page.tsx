@@ -653,13 +653,12 @@ function ProviderRFQPageInner() {
       // Always load existing quote status
       loadExistingQuote();
       // Load files if: no NDA required, OR (NDA required AND quote accepted AND NDA signed)
-      const canAccessFiles = !status.nda_required ||
-        (status.quote_accepted && status.provider_nda_signed);
+      const canAccessFiles = !status.nda_required || status.provider_nda_signed;
       if (canAccessFiles) {
         loadFiles();
       }
       // Poll for NDA signing only when: NDA required AND quote accepted AND NDA not yet signed
-      if (status.nda_required && status.quote_accepted && !status.provider_nda_signed) {
+      if (status.nda_required && !status.provider_nda_signed) {
         setNdaEmailPending(true);
         startNdaPoll();
       }
@@ -730,6 +729,23 @@ function ProviderRFQPageInner() {
       return;
     }
     handleProceedAnyway();
+  };
+
+  const handleSignNda = async () => {
+    try {
+      const res = await api.providerRFQ.initiateProviderNda(rfqId);
+      const data = res.data as { signing_url?: string; message?: string };
+      if (data?.signing_url) {
+        window.location.href = data.signing_url;
+        return;
+      }
+      toast.info(data?.message || 'NDA created \u2014 check your email to sign. The customer will be notified to countersign.');
+      setNdaEmailPending(true);
+      startNdaPoll();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } }; message?: string };
+      toast.error(err.response?.data?.detail || err.message || 'Could not start NDA signing.');
+    }
   };
 
   if (loading) return (
@@ -845,26 +861,35 @@ function ProviderRFQPageInner() {
                 </Card>
               )}
 
-              {/* NDA required + quote accepted + NDA not yet signed: show email pending */}
-              {status.nda_required && status.quote_accepted && !status.provider_nda_signed && (
+              {/* NDA required + not yet fully signed: provider must sign to view the RFQ */}
+              {status.nda_required && !status.provider_nda_signed && (
                 <Card className="border-amber-200 bg-amber-50">
                   <CardContent className="pt-6">
                     <div className="flex items-start gap-3">
                       <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
                       <div>
-                        <h3 className="font-semibold text-amber-900 mb-1">NDA Signature Required</h3>
+                        <h3 className="font-semibold text-amber-900 mb-1">Sign the NDA to view this project</h3>
                         <p className="text-sm text-amber-800 mb-3">
-                          Your quote was accepted! A Non-Disclosure Agreement has been sent to your email address. Please sign it to access project documents.
+                          This RFQ requires a mutual Non-Disclosure Agreement. Sign it to unlock the full project description and files. The customer will be notified to countersign; once both parties sign, you get full access and can submit a quote.
                         </p>
-                        <p className="text-xs text-amber-700">After signing, this page will automatically refresh to show project files.</p>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="mt-3 border-amber-400 text-amber-800 hover:bg-amber-100"
-                          onClick={() => loadStatus()}
-                        >
-                          <RefreshCw className="h-3 w-3 mr-1" />Check Signing Status
-                        </Button>
+                        <p className="text-xs text-amber-700 mb-3">After both signatures, this page refreshes automatically to show the full RFQ and files.</p>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="bg-amber-600 text-white hover:bg-amber-700"
+                            onClick={handleSignNda}
+                          >
+                            <ShieldAlert className="h-3 w-3 mr-1" />Sign NDA
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-amber-400 text-amber-800 hover:bg-amber-100"
+                            onClick={() => loadStatus()}
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />Check Status
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </CardContent>
@@ -872,7 +897,7 @@ function ProviderRFQPageInner() {
               )}
 
               {/* Files section: show when no NDA required OR (quote accepted AND NDA signed) */}
-              {(!status.nda_required || (status.quote_accepted && status.provider_nda_signed)) && (
+              {(!status.nda_required || status.provider_nda_signed) && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">

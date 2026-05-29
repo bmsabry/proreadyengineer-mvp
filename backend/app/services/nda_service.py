@@ -267,71 +267,89 @@ async def add_provider_to_nda(
     provider_user: User,
     db: AsyncSession,
 ) -> dict:
-    """Create provider-side NDA document after customer has signed.
-    Pre-fills customer fields, adds provider fields using template_fields.
-    Returns {document_id, signing_url}."""
+    """Provider-first NDA: create ONE mutual NDA document with BOTH the customer
+    and this provider as signers, at the moment the provider chooses to sign
+    (i.e. to read the RFQ).
+
+    - Does NOT require the customer to have signed first (that was the old,
+      circular precondition). The provider signs (embedded URL returned), and the
+      customer is emailed by Signwell to countersign.
+    - Idempotent: if this provider already has an NDA for this RFQ, returns it.
+    Returns {document_id, signing_url, nda_id}.
+    """
+    from sqlalchemy import select as _sel
+
+    # Idempotency: reuse an existing provider NDA for this RFQ + provider.
+    existing = (await db.execute(
+        _sel(RFQNDA).where(RFQNDA.rfq_id == rfq_id, RFQNDA.provider_id == provider_id)
+    )).scalar_one_or_none()
+    if existing and existing.signrequest_document_id:
+        signing_url = None
+        try:
+            h0 = await _headers(db)
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                doc = await client.get(
+                    f"{SIGNWELL_BASE_URL}/documents/{existing.signrequest_document_id}", headers=h0
+                )
+                if doc.status_code == 200:
+                    signing_url = _extract_signing_url(doc.json())
+        except Exception:
+            signing_url = None
+        return {"document_id": existing.signrequest_document_id, "signing_url": signing_url, "nda_id": str(existing.id)}
+
     h   = await _headers(db)
     tid = await _get_template_id(db)
-
-    # Validate customer NDA exists and customer has signed
-    customer_nda = (await db.execute(
-        select(RFQNDA).where(RFQNDA.rfq_id == rfq_id, RFQNDA.provider_id.is_(None))
-    )).scalar_one_or_none()
-    if not customer_nda:
-        raise ValueError(f"No customer NDA record found for RFQ {rfq_id}")
-    if not customer_nda.customer_signed_at:
-        raise ValueError(
-            f"Customer has not yet signed the NDA for RFQ {rfq_id}. "
-            f"Status: {customer_nda.nda_status}"
-        )
 
     rfq = (await db.execute(select(RFQ).where(RFQ.id == rfq_id))).scalar_one_or_none()
     if not rfq:
         raise ValueError(f"RFQ {rfq_id} not found")
+
+    # Customer details come from the RFQ owner (no prior customer NDA required).
+    cust_user = None
+    if rfq.customer_user_id:
+        cust_user = (await db.execute(
+            select(User).where(User.id == rfq.customer_user_id)
+        )).scalar_one_or_none()
+    if cust_user:
+        first = (cust_user.first_name or "").strip()
+        last  = (cust_user.last_name  or "").strip()
+        customer_name = f"{first} {last}".strip() or cust_user.email
+        customer_email = cust_user.email
+    else:
+        customer_name = getattr(rfq, "contact_name", None) or "Customer"
+        customer_email = getattr(rfq, "customer_email", None)
+    if not customer_email:
+        raise ValueError(f"RFQ {rfq_id} has no customer email to send the NDA to")
+
+    customer_company = (
+        (cust_user.business_name if cust_user else None)
+        or getattr(rfq, "business_name", None)
+        or customer_name
+    )
+    customer_state = (cust_user.state if cust_user else None) or "Not Specified"
 
     provider = (await db.execute(
         select(Provider).where(Provider.id == provider_id)
     )).scalar_one_or_none()
     if not provider:
         raise ValueError(f"Provider {provider_id} not found")
-
-    # Get customer user for name reconstruction
-    cust_user = (await db.execute(
-        select(User).where(User.id == customer_nda.customer_user_id)
-    )).scalar_one_or_none()
-    if cust_user:
-        first = (cust_user.first_name or "").strip()
-        last  = (cust_user.last_name  or "").strip()
-        customer_name = f"{first} {last}".strip() or cust_user.email
-    else:
-        customer_name = getattr(rfq, "contact_name", None) or "Customer"
-
-    # Use user account business_name first, then RFQ business_name, then person name
-    customer_company  = (
-        (cust_user.business_name if cust_user else None)
-        or getattr(rfq, "business_name", None)
-        or customer_name
-    )
-    effective_date    = _human_date(customer_nda.customer_signed_at)
-
-    provider_name     = getattr(provider, "name", None) or getattr(provider, "firm_name", None) or "Provider"
-    provider_company  = provider_name
-
+    provider_company = getattr(provider, "name", None) or getattr(provider, "firm_name", None) or "Provider"
     prov_first = (provider_user.first_name or "").strip()
     prov_last  = (provider_user.last_name  or "").strip()
     prov_signer_name = f"{prov_first} {prov_last}".strip() or provider_user.email
 
-    # Fetch actual placeholder names from template (must match exactly)
-    _customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
+    from datetime import date as _date
+    effective_date = _date.today().strftime("%m/%d/%Y")
 
-    # Build template_fields to pre-fill ALL text values (NOT signing_elements)
+    customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
+
     template_fields = [
         {"api_id": "customer_name",        "value": customer_name},
         {"api_id": "customer_name2",       "value": customer_name},
         {"api_id": "customer_company",     "value": customer_company},
-        {"api_id": "customer_entity_type", "value": customer_entity_type},
+        {"api_id": "customer_entity_type", "value": "Company"},
         {"api_id": "effective_date",       "value": effective_date},
-        {"api_id": "governing_state",      "value": (cust_user.state if cust_user else None) or "Not Specified"},
+        {"api_id": "governing_state",      "value": customer_state},
         {"api_id": "provider_name",        "value": prov_signer_name},
         {"api_id": "provider_name2",       "value": prov_signer_name},
         {"api_id": "provider_company",     "value": provider_company},
@@ -340,28 +358,24 @@ async def add_provider_to_nda(
         {"api_id": "provider_signature",   "value": ""},
     ]
 
-    # Signwell REST API uses "recipients" and "template_fields" (per official SDK)
     payload = {
-            "template_id": tid,
+        "template_id": tid,
         "test_mode":   False,
-        "subject":     f"NDA for Engineering RFQ #{rfq_id} - Provider Copy",
-        "message":     "Please review and sign the NDA to access the full RFQ details.",
-        "recipients": [{
-            "id":               "1",
-            "name":             prov_signer_name,
-            "email":            provider_user.email,
-            "placeholder_name": provider_placeholder_name,
-        }],
+        "embedded_signing": True,  # so the provider can sign in-app immediately
+        "subject":     f"NDA required to view Engineering RFQ #{rfq_id}",
+        "message":     ("A provider wishes to review your RFQ. Both parties must sign this "
+                        "mutual NDA before the full RFQ and project files are shared."),
+        "recipients": [
+            {"id": "1", "name": customer_name,    "email": customer_email,    "placeholder_name": customer_placeholder_name},
+            {"id": "2", "name": prov_signer_name, "email": provider_user.email, "placeholder_name": provider_placeholder_name},
+        ],
         "template_fields": template_fields,
     }
 
-    logger.info("[SIGNWELL] add_provider_to_nda payload: %s", json.dumps(payload, default=str)[:1000])
-
+    logger.info("[SIGNWELL] add_provider_to_nda (mutual) rfq=%s provider=%s", rfq_id, provider_id)
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"{SIGNWELL_BASE_URL}/document_templates/documents",
-            json=payload,
-            headers=h,
+            f"{SIGNWELL_BASE_URL}/document_templates/documents", json=payload, headers=h,
         )
         try:
             resp.raise_for_status()
@@ -372,23 +386,27 @@ async def add_provider_to_nda(
 
     doc_data    = resp.json()
     document_id = doc_data["id"]
-    signing_url = _extract_signing_url(doc_data)
-    logger.info("Created provider NDA doc %s for RFQ %s provider %s",
-                document_id, rfq_id, provider_id)
+    # Embedded URL for the PROVIDER (recipient id "2"); fall back to first available.
+    signing_url = None
+    for signer in (doc_data.get("recipients") or doc_data.get("signers") or []):
+        if str(signer.get("id")) == "2":
+            signing_url = signer.get("embedded_signing_url") or signer.get("sign_page_url")
+            break
+    if not signing_url:
+        signing_url = _extract_signing_url(doc_data)
 
-    # Create provider-specific NDA row
     prov_nda = RFQNDA(
         rfq_id=rfq_id,
         provider_id=provider_id,
-        customer_user_id=customer_nda.customer_user_id,
+        customer_user_id=rfq.customer_user_id,
         signrequest_document_id=document_id,
         signrequest_template_id=tid,
-        nda_status="provider_signature_pending",
+        nda_status="pending_signatures",
     )
     db.add(prov_nda)
     await db.commit()
     await db.refresh(prov_nda)
-    return {"document_id": document_id, "signing_url": signing_url}
+    return {"document_id": document_id, "signing_url": signing_url, "nda_id": str(prov_nda.id)}
 
 async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSession) -> None:
     """Process Signwell webhook events.
@@ -428,12 +446,34 @@ async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSessi
             payload.get("signer", {}).get("email")
             or payload.get("data", {}).get("signer", {}).get("email")
         )
+        signer_email = (signer_email or "").strip().lower()
         logger.info("Signer completed: doc=%s signer=%s nda_id=%s", document_id, signer_email, nda.id)
         if nda.provider_id is None:
+            # Legacy customer-only document.
             nda.customer_signed_at = now
             nda.nda_status = "provider_signature_pending"
         else:
-            nda.provider_signed_at = now
+            # Mutual document with exactly two signers (customer + provider).
+            # Match the customer by email; anyone who isn't the customer is the provider.
+            cust_email = None
+            try:
+                if nda.customer_user_id:
+                    _cu = (await db.execute(
+                        select(User).where(User.id == nda.customer_user_id)
+                    )).scalar_one_or_none()
+                    cust_email = (_cu.email or "").strip().lower() if _cu else None
+            except Exception:
+                cust_email = None
+            if signer_email and cust_email and signer_email == cust_email:
+                nda.customer_signed_at = now
+            else:
+                nda.provider_signed_at = now
+            if nda.customer_signed_at and nda.provider_signed_at:
+                nda.nda_status = "fully_signed"
+                if not nda.fully_signed_at:
+                    nda.fully_signed_at = now
+            else:
+                nda.nda_status = "partially_signed"
         await db.commit()
 
     elif event_type == "document_completed":

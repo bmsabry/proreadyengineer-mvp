@@ -186,3 +186,48 @@ async def test_submit_already_open_is_noop(db_session, customer_user):
 async def test_submit_missing_rfq_raises(db_session):
     with pytest.raises(ValueError, match="RFQ not found"):
         await submit_rfq(db_session, uuid.uuid4())
+
+
+@pytest.mark.asyncio
+async def test_mutual_nda_webhook_distinguishes_signers(db_session, customer_user):
+    """Webhook must record customer vs provider signatures separately on a mutual
+    NDA, and mark fully_signed only once BOTH parties have signed."""
+    from app.models.nda import RFQNDA
+    from app.services.nda_service import handle_signwell_webhook
+
+    rfq = await _make_rfq(db_session, customer_user.id, RfqStatus.OPEN_FOR_UNLOCK, True)
+    provider = Provider(name="Webhook Co", firm_name="Webhook Co")
+    db_session.add(provider)
+    await db_session.commit()
+    await db_session.refresh(provider)
+
+    nda = RFQNDA(
+        rfq_id=rfq.id,
+        provider_id=provider.id,
+        customer_user_id=customer_user.id,
+        signrequest_document_id="DOC-MUTUAL-1",
+        nda_status="pending_signatures",
+    )
+    db_session.add(nda)
+    await db_session.commit()
+
+    # Provider signs first (a non-customer email) -> only provider recorded.
+    await handle_signwell_webhook(
+        "document_signer_completed",
+        {"data": {"object": {"id": "DOC-MUTUAL-1"}}, "signer": {"email": "provider@firm.com"}},
+        db_session,
+    )
+    await db_session.refresh(nda)
+    assert nda.provider_signed_at is not None
+    assert nda.customer_signed_at is None  # NOT both yet
+
+    # Customer countersigns -> now fully signed.
+    await handle_signwell_webhook(
+        "document_signer_completed",
+        {"data": {"object": {"id": "DOC-MUTUAL-1"}}, "signer": {"email": customer_user.email}},
+        db_session,
+    )
+    await db_session.refresh(nda)
+    assert nda.customer_signed_at is not None
+    assert nda.fully_signed_at is not None
+    assert str(nda.nda_status).endswith("fully_signed")
