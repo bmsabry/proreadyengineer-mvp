@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -180,38 +180,51 @@ async def submit_rfq(
             raise ValueError("RFQ not found")
         logger.info("submit_rfq: found rfq status=%s nda=%s", rfq.rfq_status, rfq.nda_required)
 
-        # Coerce status (DB may store enum or raw string) to an RfqStatus.
-        _cur = rfq.rfq_status
-        if isinstance(_cur, str):
-            try:
-                _cur = RfqStatus(_cur)
-            except ValueError:
-                _cur = None
+        # Capture fields we need before the atomic claim (the ORM object may expire
+        # after commit).
+        _project_description = rfq.project_description
 
-        # Dispatch must work for NDA RFQs too. After the customer pays the NDA
-        # fee, the RFQ may sit in awaiting_nda_payment / awaiting_customer_signature;
-        # the customer NDA signature is collected later (provider-triggered) and
-        # MUST NOT block dispatch. So we treat every pre-dispatch state as submittable.
-        _PRE_DISPATCH = {
+        # ---- ATOMIC CLAIM (concurrency-safe) --------------------------------------
+        # Dispatch can be triggered more than once for the same RFQ, nearly at the
+        # same time: the frontend calls submit() AND the backend schedules dispatch
+        # after the NDA fee / free credit. A read-then-write guard is NOT safe under
+        # that concurrency (two callers both read "no matches" and both run the AI
+        # search -> DUPLICATE matches and duplicate teaser emails). Instead we flip
+        # the status with a single conditional UPDATE: only the caller whose UPDATE
+        # actually changes a row (rowcount == 1) "wins" and proceeds to search +
+        # dispatch; every other concurrent caller gets rowcount == 0 and bails.
+        #
+        # NDA RFQs are included in the claimable set: after the customer pays the NDA
+        # fee the RFQ sits in awaiting_nda_payment / awaiting_customer_signature, and
+        # the customer signature is collected later (provider-triggered) and must
+        # never block dispatch.
+        _PRE_DISPATCH = [
             RfqStatus.DRAFT,
             RfqStatus.SUBMITTED,
             RfqStatus.AWAITING_NDA_PAYMENT,
             RfqStatus.AWAITING_CUSTOMER_SIGNATURE,
-        }
-        if _cur not in _PRE_DISPATCH:
-            # Idempotent: already dispatching/open/closed/cancelled -> nothing to do.
+        ]
+        _claim = await db.execute(
+            update(RFQ)
+            .where(RFQ.id == rfq_id, RFQ.rfq_status.in_(_PRE_DISPATCH))
+            .values(
+                rfq_status=RfqStatus.OPEN_FOR_DISPATCH,
+                submitted_at=func.coalesce(RFQ.submitted_at, datetime.now(timezone.utc)),
+            )
+        )
+        await db.commit()
+        if (_claim.rowcount or 0) == 0:
+            # Already dispatching/open/closed/cancelled, OR another concurrent
+            # trigger won the claim. Either way, this call must not dispatch again.
             logger.info(
-                "submit_rfq: rfq=%s already past pre-dispatch (status=%s); skipping re-dispatch",
-                rfq_id, rfq.rfq_status,
+                "submit_rfq: rfq=%s not claimed (already advanced or won by another trigger); skipping",
+                rfq_id,
             )
             return
+        logger.info("submit_rfq: rfq=%s claimed for dispatch", rfq_id)
 
-        rfq.rfq_status = RfqStatus.OPEN_FOR_DISPATCH
-        if not rfq.submitted_at:
-            rfq.submitted_at = datetime.now(timezone.utc)
-
-        # Idempotency guard: if matches already exist (concurrent submit, retry, or a
-        # rescued stuck RFQ), do NOT re-run the AI search or duplicate match rows.
+        # Belt-and-suspenders: if matches already exist (a prior winner crashed after
+        # claiming, or a manual rescue), do NOT re-run the AI search or duplicate rows.
         _existing_matches = (
             await db.execute(
                 select(func.count()).select_from(RFQMatch).where(RFQMatch.rfq_id == rfq_id)
@@ -224,7 +237,7 @@ async def submit_rfq(
             # search_providers returns a tuple (results_list, pipeline_info)
             match_results, _pipeline_info = await search_providers(
                 db,
-                query=rfq.project_description,
+                query=_project_description,
                 filters={},
                 limit=9999,
                 top_n=None,  # Get ALL ranked providers for dispatch
