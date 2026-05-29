@@ -135,6 +135,7 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
   const totalQuotes = rfqs.reduce((s, r) => s + (r.quote_count || 0), 0);
   const avgQuotes = total > 0 ? (totalQuotes / total).toFixed(1) : '0';
   const ndaSigned = rfqs.filter(r => r.nda_required && r.rfq_status === 'customer_selected_provider').length;
+  const ndaAwaiting = rfqs.filter(r => r.nda_awaiting_customer_signature).length;
 
   const quotedWithDate = rfqs.filter(r => r.quote_count > 0 && r.submitted_at);
   const avgDays = quotedWithDate.length > 0
@@ -155,6 +156,20 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
         <TrendingUp className="h-5 w-5 text-[#0F2B54]" />
         <h2 className="text-base font-bold text-slate-900">Activity Summary</h2>
       </div>
+
+      {ndaAwaiting > 0 && (
+        <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 flex items-start gap-2">
+          <AlertCircle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-xs font-bold text-amber-900">
+              Action required: {ndaAwaiting} NDA{ndaAwaiting > 1 ? 's' : ''} awaiting your signature
+            </p>
+            <p className="text-xs text-amber-800 mt-0.5">
+              A provider signed to access your RFQ &mdash; check your email to countersign so they can proceed.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 mb-5">
         <StatCard label="Total RFQs" value={total} color="bg-slate-50 border-slate-200" />
@@ -390,16 +405,6 @@ function CustomerDashboardInner() {
             <p className="text-sm font-medium text-emerald-800">{paymentBanner}</p>
           </div>
           <button onClick={() => setPaymentBanner(null)} className="text-emerald-600 hover:text-emerald-800 text-lg leading-none">&times;</button>
-        </div>
-      )}
-
-      {/* NDA awaiting the customer's countersignature (provider already signed) */}
-      {rfqs.some(r => r.nda_awaiting_customer_signature) && (
-        <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
-          <p className="text-sm font-medium text-amber-900">
-            &#9888; Action required: {rfqs.filter(r => r.nda_awaiting_customer_signature).length} NDA(s) awaiting your signature.
-            A provider signed an NDA to access your RFQ &mdash; check your email for the signing request and countersign so they can proceed.
-          </p>
         </div>
       )}
 
