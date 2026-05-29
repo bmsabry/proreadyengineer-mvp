@@ -936,6 +936,63 @@ async def get_paypal_access_token(
         return r.json()["access_token"]
 
 
+async def verify_paypal_webhook_signature(db: AsyncSession, headers: dict, webhook_event: dict) -> bool:
+    """Verify a PayPal webhook via PayPal's verify-webhook-signature API.
+
+    Returns True only on a confirmed SUCCESS. Returns False if credentials or the
+    webhook id are not configured, or if PayPal does not confirm the signature.
+    """
+    import httpx
+    from app.services.config_service import get_runtime_config as _grc
+    cfg = await _grc(db)
+    client_id   = cfg.get("PAYPAL_CLIENT_ID", "") or ""
+    client_secret = cfg.get("PAYPAL_CLIENT_SECRET", "") or ""
+    webhook_id  = cfg.get("PAYPAL_WEBHOOK_ID", "") or ""
+    mode        = cfg.get("PAYPAL_MODE", "sandbox") or "sandbox"
+    if not (client_id and client_secret and webhook_id):
+        logger.warning("PayPal webhook verification skipped: missing client id/secret/webhook id")
+        return False
+
+    def _h(name):
+        # header lookup is case-insensitive
+        for k, v in headers.items():
+            if k.lower() == name:
+                return v
+        return None
+
+    body = {
+        "transmission_id":   _h("paypal-transmission-id"),
+        "transmission_time": _h("paypal-transmission-time"),
+        "cert_url":          _h("paypal-cert-url"),
+        "auth_algo":         _h("paypal-auth-algo"),
+        "transmission_sig":  _h("paypal-transmission-sig"),
+        "webhook_id":        webhook_id,
+        "webhook_event":     webhook_event,
+    }
+    if not all([body["transmission_id"], body["transmission_sig"], body["cert_url"], body["auth_algo"], body["transmission_time"]]):
+        logger.warning("PayPal webhook verification failed: missing transmission headers")
+        return False
+
+    try:
+        token = await get_paypal_access_token(client_id, client_secret, mode)
+        base = _paypal_base(mode)
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.post(
+                f"{base}/v1/notifications/verify-webhook-signature",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=body,
+            )
+            r.raise_for_status()
+            status_ = r.json().get("verification_status")
+            ok = status_ == "SUCCESS"
+            if not ok:
+                logger.warning("PayPal webhook verification_status=%s", status_)
+            return ok
+    except Exception as exc:
+        logger.error("PayPal webhook verification error: %s", exc)
+        return False
+
+
 async def create_paypal_order(
     db: AsyncSession,
     purpose: str,
@@ -1156,7 +1213,7 @@ async def create_paypal_subscription(
         "db_id": str(sub.id),
     }
 
-async def handle_paypal_webhook(db: AsyncSession, payload: dict) -> None:
+async def handle_paypal_webhook(db: AsyncSession, payload: dict, signature_verified: bool = False) -> None:
     """Handle PayPal webhook events (idempotent, fully implemented)."""
     event_type = payload.get("event_type", "")
     resource   = payload.get("resource", {})
@@ -1170,7 +1227,7 @@ async def handle_paypal_webhook(db: AsyncSession, payload: dict) -> None:
     webhook_event = WebhookEvent(
         provider_name="paypal", external_event_id=event_id,
         event_type=event_type, payload=payload,
-        signature_verified=True, processing_status="processing",
+        signature_verified=signature_verified, processing_status="processing",
         received_at=datetime.utcnow())
     db.add(webhook_event)
     await db.commit()

@@ -149,7 +149,8 @@ def create_application() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=allowed_origins,
-        allow_origin_regex=r"https://.*\.onrender\.com",
+        # Scoped to THIS project's own Render services (not any *.onrender.com site).
+        allow_origin_regex=r"https://(proreadyengineer|promechdirectory)[a-z0-9-]*\.onrender\.com",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

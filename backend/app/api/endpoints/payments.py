@@ -368,11 +368,24 @@ async def paypal_webhook(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
-    """Handle PayPal/Braintree webhooks (legacy transaction processing)."""
+    """Handle PayPal webhooks. Verifies PayPal's transmission signature before
+    processing; in production an unverified event is rejected (fail-closed)."""
+    from app.services.payment_service import verify_paypal_webhook_signature
+    from app.core.config import settings as _settings
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
     payload = await request.json()
+    verified = await verify_paypal_webhook_signature(db, dict(request.headers), payload)
+
+    if not verified:
+        if _settings.is_production:
+            _log.warning("[paypal_webhook] unverified event rejected in production")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid signature")
+        _log.warning("[paypal_webhook] signature NOT verified (non-production) — processing for dev only")
 
     try:
-        await handle_paypal_webhook(db, payload)
+        await handle_paypal_webhook(db, payload, signature_verified=verified)
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
