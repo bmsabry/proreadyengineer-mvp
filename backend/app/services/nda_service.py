@@ -181,86 +181,6 @@ async def _get_template_signing_elements(db: AsyncSession) -> dict:
     return elements_dict
 
 
-async def get_customer_signing_url(rfq_id, db: AsyncSession) -> str:
-    """Get fresh embedded signing URL for customer NDA."""
-    nda = (await db.execute(
-        select(RFQNDA).where(RFQNDA.rfq_id == rfq_id, RFQNDA.provider_id.is_(None))
-    )).scalar_one_or_none()
-    if not nda or not nda.signrequest_document_id:
-        raise ValueError(f"No NDA document found for RFQ {rfq_id}")
-
-    h = await _headers(db)
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(
-            f"{SIGNWELL_BASE_URL}/documents/{nda.signrequest_document_id}", headers=h
-        )
-        resp.raise_for_status()
-
-    url = _extract_signing_url(resp.json())
-    if not url:
-        raise ValueError(f"No signing URL in Signwell doc {nda.signrequest_document_id}")
-    return url
-
-async def create_customer_nda(
-    rfq_id,
-    customer_user: User,
-    rfq: "RFQ",
-    db: AsyncSession,
-) -> dict:
-    """Record NDA payment for an RFQ.
-
-    Does NOT call Signwell. The actual NDA signing (via create_post_acceptance_nda)
-    is triggered only after the customer approves a specific provider quote,
-    at which point both parties are fully known and all 12 template fields
-    can be populated with real data.
-
-    Creates an RFQNDA record to track that payment was received.
-    Returns {document_id: None, signing_url: None, status: 'payment_recorded'}.
-    """
-    from sqlalchemy import select as _sel
-
-    # Idempotency: if a record already exists, return it
-    existing = (await db.execute(
-        _sel(RFQNDA).where(
-            RFQNDA.rfq_id == rfq_id,
-            RFQNDA.provider_id == None,  # noqa: E711
-        )
-    )).scalar_one_or_none()
-
-    if existing:
-        logger.info(
-            "[NDA] Payment record already exists for RFQ %s (status=%s) - returning existing",
-            rfq_id, existing.nda_status,
-        )
-        return {
-            "document_id": None,
-            "signing_url": None,
-            "status": existing.nda_status.value if hasattr(existing.nda_status, "value") else str(existing.nda_status),
-            "message": "NDA payment already recorded. Signing instructions will be sent after a provider quote is approved.",
-        }
-
-    # Create a record to track that payment was received
-    # signrequest_document_id is None - no Signwell doc yet
-    nda = RFQNDA(
-        rfq_id=rfq_id,
-        provider_id=None,
-        customer_user_id=customer_user.id,
-        signrequest_document_id=None,
-        signrequest_template_id=None,
-        nda_status="customer_signature_pending",
-    )
-    db.add(nda)
-    await db.commit()
-    await db.refresh(nda)
-
-    logger.info("[NDA] Payment recorded for RFQ %s - Signwell will be triggered post-acceptance", rfq_id)
-    return {
-        "document_id": None,
-        "signing_url": None,
-        "status": "customer_signature_pending",
-        "message": "NDA payment recorded. Signing instructions will be sent to both parties after a provider quote is approved.",
-    }
-
 async def add_provider_to_nda(
     rfq_id,
     provider_id: int,
@@ -514,12 +434,8 @@ async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSessi
 
         await db.commit()
 
-        # If provider NDA fully signed, try to advance RFQ to dispatch
-        if nda.provider_id is not None:
-            try:
-                await _maybe_open_rfq_for_dispatch(nda.rfq_id, db)
-            except Exception as exc:
-                logger.error("Error updating RFQ status after NDA completion: %s", exc)
+        # NDA fully signed. Dispatch already happened at submit time (the current
+        # workflow dispatches on submit), so there is nothing further to advance here.
     else:
         logger.debug("Unhandled Signwell event type: %s", event_type)
 
@@ -528,48 +444,6 @@ async def _s3_upload_bytes(data: bytes, s3_key: str, content_type: str, db: Asyn
     """Upload bytes to S3 using the file_service."""
     from app.services.file_service import upload_file_bytes
     await upload_file_bytes(data, s3_key, content_type)
-
-
-async def _check_and_heal_customer_signed(customer_nda: RFQNDA, db: AsyncSession) -> bool:
-    """Check Signwell API for the customer NDA document status.
-    If signed remotely but webhook was missed, updates customer_signed_at and returns True.
-    Returns False if genuinely unsigned."""
-    if not customer_nda.signrequest_document_id:
-        return False
-    try:
-        h = await _headers(db)
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.get(
-                f"{SIGNWELL_BASE_URL}/documents/{customer_nda.signrequest_document_id}",
-                headers=h,
-            )
-            resp.raise_for_status()
-        doc = resp.json()
-        doc_status = doc.get("status", "")
-        # Check document-level status
-        is_signed = doc_status in ("completed", "signed")
-        # Also check individual signers
-        if not is_signed:
-            for signer in (doc.get("recipients") or doc.get("signers") or []):
-                if signer.get("status") in ("completed", "signed"):
-                    is_signed = True
-                    break
-        if is_signed:
-            now = datetime.now(timezone.utc)
-            customer_nda.customer_signed_at = now
-            if customer_nda.nda_status not in ("fully_signed", "provider_signature_pending"):
-                customer_nda.nda_status = "provider_signature_pending"
-            await db.commit()
-            logger.info(
-                "[SIGNWELL] Self-healed customer_signed_at for NDA %s (doc %s, remote status=%s)",
-                customer_nda.id, customer_nda.signrequest_document_id, doc_status,
-            )
-            return True
-        return False
-    except Exception as exc:
-        logger.warning("[SIGNWELL] _check_and_heal_customer_signed failed for NDA %s: %s",
-                       customer_nda.id, exc)
-        return False
 
 
 async def _heal_nda_if_complete(nda: RFQNDA, db: AsyncSession) -> bool:
@@ -616,15 +490,6 @@ async def _heal_nda_if_complete(nda: RFQNDA, db: AsyncSession) -> bool:
     except Exception as exc:
         logger.warning("[SIGNWELL] _heal_nda_if_complete failed for NDA %s: %s", nda.id, exc)
         return False
-
-
-async def _maybe_open_rfq_for_dispatch(rfq_id, db: AsyncSession) -> None:
-    """Legacy: No-op placeholder. Dispatch now happens at submit_rfq time."""
-    # NOTE: In the new workflow, AI search + dispatch happens when the RFQ is first submitted.
-    # This function is kept for backward compatibility with webhook handlers but does nothing.
-    logger.info("_maybe_open_rfq_for_dispatch called for RFQ %s (no-op in new workflow)", rfq_id)
-
-
 
 
 async def create_post_acceptance_nda(
@@ -806,46 +671,3 @@ async def create_post_acceptance_nda(
     await db.refresh(nda)
     return {"document_id": document_id, "nda_id": str(nda.id)}
 
-
-async def confirm_customer_signed_from_signwell(rfq_id, db: AsyncSession) -> dict:
-    """Primary path (not webhook) to confirm customer NDA signing.
-    Called by the frontend after iframe signals completion.
-    - If already signed in DB, just advances RFQ and returns.
-    - If not yet signed, polls Signwell API and heals if confirmed signed.
-    - Advances RFQ from awaiting_customer_signature -> open_for_dispatch.
-    Returns a status dict.
-    """
-    customer_nda = (await db.execute(
-        select(RFQNDA).where(RFQNDA.rfq_id == rfq_id, RFQNDA.provider_id.is_(None))
-    )).scalar_one_or_none()
-
-    if not customer_nda:
-        return {"confirmed": False, "reason": "No NDA record found for this RFQ"}
-
-    # If already recorded as signed, just advance RFQ
-    if customer_nda.customer_signed_at:
-        await _maybe_open_rfq_for_dispatch(rfq_id, db)
-        return {
-            "confirmed": True,
-            "nda_status": str(customer_nda.nda_status),
-            "healed": False,
-            "message": "Customer signature already recorded; RFQ advanced.",
-        }
-
-    # Check Signwell directly
-    healed = await _check_and_heal_customer_signed(customer_nda, db)
-    if healed:
-        await _maybe_open_rfq_for_dispatch(rfq_id, db)
-        return {
-            "confirmed": True,
-            "nda_status": str(customer_nda.nda_status),
-            "healed": True,
-            "message": "Customer signature confirmed via Signwell API; RFQ dispatching.",
-        }
-
-    return {
-        "confirmed": False,
-        "nda_status": str(customer_nda.nda_status),
-        "healed": False,
-        "message": "Customer has not yet completed signing in Signwell.",
-    }

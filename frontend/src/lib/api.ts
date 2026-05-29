@@ -310,17 +310,9 @@ const rfqs = {
   ndaVerifyPayment: (rfqId: string) =>
     apiClient.post<{ verified: boolean; reason: string }>(`/rfqs/${rfqId}/nda/verify-payment`),
 
-  ndaInitiate: (rfqId: string) =>
-    apiClient.post<{ signing_url: string; document_id?: string; status?: string }>(`/rfqs/${rfqId}/nda/initiate`),
-
-  ndaSigningUrl: (rfqId: string) =>
-    apiClient.get<{ signing_url: string }>(`/rfqs/${rfqId}/nda/signing-url`),
-
   ndaStatus: (rfqId: string) =>
     apiClient.get<{ nda_status: string; signing_url?: string; fully_signed_at?: string; nda_required?: boolean }>(`/rfqs/${rfqId}/nda/status`),
 
-  ndaConfirmSigned: (rfqId: string) =>
-    apiClient.post<{ confirmed: boolean; nda_status?: string; rfq_status?: string; healed?: boolean; message?: string; reason?: string }>(`/rfqs/${rfqId}/nda/confirm-signed`),
   
   getStatus: (rfqId: string) => 
     apiClient.get<{ rfq_status: string; quote_count: number }>(`/rfqs/${rfqId}/status`),
