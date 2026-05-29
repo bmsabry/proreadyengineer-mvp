@@ -82,17 +82,19 @@ async def get_my_rfqs(
         if key not in nda_status_map:
             nda_status_map[key] = nda_st.value if hasattr(nda_st, "value") else str(nda_st)
 
+    # Batched counts (avoid N+1: one grouped query each instead of 2 per RFQ).
+    match_counts = dict((await db.execute(
+        select(RFQMatch.rfq_id, F.count()).where(RFQMatch.rfq_id.in_(all_rfq_ids)).group_by(RFQMatch.rfq_id)
+    )).all()) if all_rfq_ids else {}
+    dispatch_counts = dict((await db.execute(
+        select(RFQDispatch.rfq_id, F.count()).where(RFQDispatch.rfq_id.in_(all_rfq_ids)).group_by(RFQDispatch.rfq_id)
+    )).all()) if all_rfq_ids else {}
+
     result = []
     for r in rows:
         uid = r.id
-        # Count total matched providers
-        total_matched = (await db.execute(
-            select(F.count()).select_from(RFQMatch).where(RFQMatch.rfq_id == uid)
-        )).scalar() or 0
-        # Count dispatched providers (teaser emails sent)
-        dispatched_count = (await db.execute(
-            select(F.count()).select_from(RFQDispatch).where(RFQDispatch.rfq_id == uid)
-        )).scalar() or 0
+        total_matched = match_counts.get(uid, 0)
+        dispatched_count = dispatch_counts.get(uid, 0)
         remaining = max(0, total_matched - dispatched_count)
         result.append({
             "id": str(uid),
