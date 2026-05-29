@@ -248,7 +248,7 @@ async def cron_status(
     """Return last cron execution info. Used by admin panel to verify cron is firing."""
     try:
         result = await db.execute(
-            text("SELECT key, value FROM system_config WHERE key IN ('cron_last_run', 'cron_last_result')")
+            text("SELECT key, value FROM system_config WHERE key IN ('cron_last_run', 'cron_last_result', 'cron_last_trigger_source', 'cron_last_run_http_cron', 'cron_last_run_asyncio_loop')")
         )
         rows = {row[0]: row[1] for row in result.fetchall()}
         last_run = rows.get('cron_last_run')
