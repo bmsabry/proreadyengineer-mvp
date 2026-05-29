@@ -197,7 +197,7 @@ async def _build_template_fields(db: AsyncSession, values: dict) -> list:
     """
     h = await _headers(db)
     tid = await _get_template_id(db)
-    valid: set = set()
+    text_fields: list = []  # (api_id, label) for every TEXT field in the template
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h)
@@ -209,17 +209,19 @@ async def _build_template_fields(db: AsyncSession, values: dict) -> list:
             flat.extend(f) if isinstance(f, list) else flat.append(f)
         for f in flat:
             if isinstance(f, dict) and f.get("type") == "text" and f.get("api_id"):
-                valid.add(f["api_id"])
+                text_fields.append((f["api_id"], (f.get("label") or f.get("name") or "")))
     except Exception as exc:  # pragma: no cover - network/template fetch
         logger.warning("[SIGNWELL] could not read template fields (%s); sending provided values", exc)
-        valid = set(values.keys())
-    out = [
-        {"api_id": k, "value": ("" if v is None else str(v))}
-        for k, v in values.items()
-        if k in valid
-    ]
-    logger.info("[SIGNWELL] template_fields matched %d/%d (valid template ids: %s)",
-                len(out), len(values), sorted(valid))
+        return [{"api_id": k, "value": ("" if v is None else str(v))} for k, v in values.items()]
+    # Match each template field to a value by api_id OR label, so a field whose
+    # api_id was auto-generated (e.g. 'TextField_1') but whose label is
+    # 'provider_company' still gets filled. Then send the field's REAL api_id.
+    out = []
+    for api_id, label in text_fields:
+        key = api_id if api_id in values else (label if label in values else None)
+        if key is not None and values.get(key) is not None:
+            out.append({"api_id": api_id, "value": str(values[key])})
+    logger.info("[SIGNWELL] mapped %d/%d template text fields", len(out), len(text_fields))
     return out
 
 
