@@ -134,3 +134,13 @@ removed.
   cannot).
 
 See `CODE_AUDIT_2026-05-28.md` for the full findings register.
+
+## 12. Gotcha: SignWell template ID
+
+`SIGNWELL_TEMPLATE_ID` (Admin → Settings → Document Signing; stored in `system_config`)
+**must be the template's API UUID** (e.g. `162095ae-2e32-4afd-b170-fb5753d8e923`),
+**not** the share-link slug from the SignWell `https://www.signwell.com/new_doc/<slug>/`
+URL. The slug is rejected by the API with `404 "Couldn't find the template"`, which
+silently breaks the entire NDA flow. Get the UUID from `GET /api/v1/document_templates`
+or the template's API settings in SignWell. (This was the real cause of NDA failures in
+May 2026 — the config held the `new_doc` slug.)

@@ -54,6 +54,10 @@ async def _get_template_id(db: AsyncSession) -> str:
             "Signwell template ID not configured. "
             "Go to Admin > Settings > Document Signing to add it."
         )
+    # IMPORTANT: this must be the template's API ID (a UUID, e.g.
+    # 162095ae-2e32-4afd-b170-fb5753d8e923), NOT the share-link slug from the
+    # SignWell "new_doc/<slug>" URL. The slug returns 404 from the API. Find the
+    # UUID via GET /api/v1/document_templates or the template's API settings page.
     return tid.strip()
 
 
