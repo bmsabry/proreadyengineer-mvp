@@ -26,6 +26,26 @@ from app.services.auth_service import hash_password
 # Use SQLite in-memory for tests
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
+# --- Test-harness portability: render Postgres-only DDL on SQLite ----------------
+# Production runs Postgres (pgvector + server_default text("NOW()") etc.). For the
+# SQLite-backed unit tests we translate those so Base.metadata.create_all() works.
+from sqlalchemy.ext.compiler import compiles as _compiles
+from sqlalchemy.sql.elements import TextClause as _TextClause
+try:
+    from pgvector.sqlalchemy import Vector as _Vector
+
+    @_compiles(_Vector, "sqlite")
+    def _render_vector_sqlite(element, compiler, **kw):  # noqa: ANN001
+        return "BLOB"
+except Exception:  # pragma: no cover
+    pass
+
+@_compiles(_TextClause, "sqlite")
+def _render_text_sqlite(element, compiler, **kw):  # noqa: ANN001
+    t = element.text.strip().lower()
+    return {"now()": "CURRENT_TIMESTAMP", "false": "0", "true": "1"}.get(t, element.text)
+
+
 
 @pytest.fixture(scope="session")
 def event_loop():

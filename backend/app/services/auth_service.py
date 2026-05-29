@@ -8,6 +8,17 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+
+def _as_aware(dt):
+    """Coerce a possibly naive datetime to UTC-aware for safe comparison.
+
+    Postgres stores tz-aware datetimes, but some drivers/DBs (and SQLite in tests)
+    return naive ones; comparing naive vs aware raises TypeError. Treat naive as UTC.
+    """
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 import bcrypt
 import jwt
 from sqlalchemy import select
@@ -107,7 +118,7 @@ async def authenticate_user(
     if not user:
         return None
 
-    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
+    if user.locked_until and _as_aware(user.locked_until) > datetime.now(timezone.utc):
         return None
 
     if not verify_password(password, user.password_hash):
@@ -263,7 +274,7 @@ async def rotate_refresh_token(
         raise ValueError('Invalid refresh token')
     if old_record.revoked_at:
         raise ValueError('Token already revoked')
-    if old_record.expires_at < datetime.now(timezone.utc):
+    if _as_aware(old_record.expires_at) < datetime.now(timezone.utc):
         raise ValueError('Token expired')
     new_record = await create_refresh_token_record(db, user_id=old_record.user_id, token=new_token)
     old_record.revoked_at = datetime.now(timezone.utc)

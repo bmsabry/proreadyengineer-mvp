@@ -1,7 +1,7 @@
 """Pydantic settings configuration for the application."""
 
 from typing import List, Optional, Union
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import os
 
@@ -160,6 +160,27 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development environment."""
         return self.ENVIRONMENT.lower() == "development"
+
+    _INSECURE_SECRET_DEFAULT = "change-me-in-production"
+
+    @model_validator(mode="after")
+    def _enforce_secret_key(self):
+        """Fail fast in production if SECRET_KEY was never overridden.
+
+        A default signing key means anyone can forge JWTs (incl. admin tokens),
+        so we refuse to boot in production and warn loudly elsewhere.
+        """
+        if self.SECRET_KEY == self._INSECURE_SECRET_DEFAULT:
+            if self.is_production:
+                raise ValueError(
+                    "SECRET_KEY is still the insecure default in production. "
+                    "Set a strong random SECRET_KEY in the environment before deploying."
+                )
+            import logging
+            logging.getLogger(__name__).warning(
+                "SECRET_KEY is the insecure default. This is only safe for local development."
+            )
+        return self
 
 
 # Global settings instance
