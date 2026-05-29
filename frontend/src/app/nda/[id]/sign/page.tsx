@@ -58,8 +58,8 @@ function CustomerNdaSignContent() {
     submitCalledRef.current = true;
     // Verify payment with Stripe so PaymentAttempt status updates from Initiated to Completed
     // (belt-and-suspenders: webhook may also do this, but this ensures it happens immediately)
-    api.rfqs.ndaVerifyPayment(rfqId).catch(() => {});
-    api.rfqs.submit(rfqId).catch(() => {});
+    api.rfqs.ndaVerifyPayment(rfqId).catch((e) => console.debug('ignored error', e));
+    api.rfqs.submit(rfqId).catch((e) => console.debug('ignored error', e));
   }, [isPaidReturn, authLoading, rfqId]);
 
   // Button handler - subscribed user gets free credit, others go to Stripe
@@ -70,7 +70,7 @@ function CustomerNdaSignContent() {
       const data = res.data as { free_credit?: boolean; checkout_url?: string; credits_remaining?: number };
       if (data.free_credit) {
         setFreeCreditApplied(true);
-        api.rfqs.submit(rfqId).catch(() => {});
+        api.rfqs.submit(rfqId).catch((e) => console.debug('ignored error', e));
         setIsPaying(false);
         return;
       }

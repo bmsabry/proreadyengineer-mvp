@@ -1559,7 +1559,7 @@ def _to_public_response(ad) -> dict:
         try:
             image_url = generate_download_url(ad.image_s3_key)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     content = ad.llm_extracted_content or {}
     contact_info = content.get("contact_info") or {}

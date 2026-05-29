@@ -1,5 +1,6 @@
 """RFQ API endpoints."""
 
+import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -255,7 +256,7 @@ async def get_rfq(
             try:
                 file_dict["download_url"] = generate_download_url_from_config(f.s3_key, s3_config, expire_seconds=3600)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         file_responses.append(file_dict)
 
     rfq_data["files"] = file_responses
@@ -507,7 +508,7 @@ async def nda_verify_payment(
         try:
             await db.rollback()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return {"verified": False, "reason": f"Verification error: {type(e).__name__}: {e}"}
 
 
@@ -1140,7 +1141,7 @@ async def verify_payment(
         try:
             await db.rollback()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return {"unlocked": False, "reason": f"Verification error: {type(e).__name__}: {e}"}
 
 
@@ -1331,7 +1332,7 @@ async def get_rfq_files(
                     await _heal_nda_if_complete(provider_nda, db)
                     current_nda_status = provider_nda.nda_status.value if hasattr(provider_nda.nda_status, "value") else str(provider_nda.nda_status)
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
             if current_nda_status != "fully_signed":
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,

@@ -84,7 +84,7 @@ function LoginPageContent() {
           setInviteEmail(info.sent_to_email);
         }
       })
-      .catch(() => {});
+      .catch((e) => console.debug('ignored error', e));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extractedInvite]);
 

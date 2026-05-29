@@ -56,7 +56,7 @@ async def _resolve_admin_email(db: Optional[AsyncSession] = None) -> Optional[st
             if v:
                 return str(v).strip()
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     env_val = getattr(settings, "ADMIN_EMAIL", None)
     if env_val:
@@ -68,7 +68,7 @@ async def _resolve_admin_email(db: Optional[AsyncSession] = None) -> Optional[st
         if SUPPORT_ADMIN_EMAIL:
             return str(SUPPORT_ADMIN_EMAIL).strip()
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     from_addr = getattr(settings, "FROM_EMAIL", None) or getattr(settings, "EMAIL_FROM", None)
     return str(from_addr).strip() if from_addr else None
@@ -169,7 +169,7 @@ async def _send_admin_alert(
             logger.info("[email_failure_service] suppressing self-alert for admin address")
             return
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     subj_str = (subject or "(no subject)").strip()

@@ -143,7 +143,7 @@ def _safe_list(val: Any) -> List[str]:
             if isinstance(parsed, list):
                 return [str(v) for v in parsed]
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return [val] if val.strip() else []
     return [str(val)]
 

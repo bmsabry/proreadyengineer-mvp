@@ -1,5 +1,6 @@
 """Admin API endpoints."""
 
+import logging
 import csv
 import json
 import secrets
@@ -103,7 +104,7 @@ async def admin_stats(
                 if row and row[0] and str(row[0]).strip() not in ("dummy-key", "your-key-here", ""):
                     return True
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return False
 
     api_keys: Dict[str, bool] = {
@@ -499,7 +500,7 @@ async def admin_terminate_rfq_dispatch(
         )
         db.add(audit)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     await db.commit()
     return {"message": "RFQ dispatch terminated", "rfq_id": rfq_id}
@@ -1010,7 +1011,7 @@ async def admin_remove_user(
         )
         db.add(audit)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     await db.commit()
 
@@ -1112,7 +1113,7 @@ async def get_system_config(
         try:
             await db.rollback()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     def _is_set(key: str) -> bool:
         return key in db_keys
@@ -1278,7 +1279,7 @@ async def admin_debug_config_test(
         try:
             await db.rollback()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return results
 
     # Step 2: Check table columns
@@ -2167,7 +2168,7 @@ async def admin_debug_test_stripe(
                 or account.get("email", "Stripe Account")
             )
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         pi = stripe_lib.PaymentIntent.create(
             amount=100,
@@ -2180,7 +2181,7 @@ async def admin_debug_test_stripe(
         try:
             stripe_lib.PaymentIntent.cancel(pi_id)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         return {
             "status": "success",
@@ -3425,7 +3426,7 @@ async def _admin_fetch_website_text(url: str) -> str:
         try:
             p.feed(html)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return " ".join(p._parts), p._links
 
     def _is_internal(href: str, domain: str) -> bool:
@@ -4347,7 +4348,7 @@ async def admin_force_complete_payment(
         )
         db.add(audit)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     await db.commit()
     await db.commit()
@@ -4507,7 +4508,7 @@ async def admin_refund_payment(
         )
         db.add(audit)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     await db.commit()
 
@@ -4674,7 +4675,7 @@ async def admin_bulk_resolve_nda_initiated(
             )
             db.add(audit)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     await db.commit()
     _log.info("Bulk resolved %d NDA fee payments from initiated to completed (admin: %s)", updated, current_user.id)
@@ -4804,7 +4805,7 @@ async def admin_force_fulfill_subscription(
         db.add(audit)
         await db.commit()
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     return {"success": True, "payment_id": payment_id, "purpose": purpose, "message": msg}
 
@@ -4865,7 +4866,7 @@ async def admin_bulk_resolve_nda_initiated(
             )
             db.add(audit)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         report["completed"] += 1
         report["details"].append({
@@ -5136,7 +5137,7 @@ async def _do_sync_one(
         if hasattr(owner, "email_verified"):
             owner.email_verified = False
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     audit = AuditLog(
         actor_user_id=actor.id,

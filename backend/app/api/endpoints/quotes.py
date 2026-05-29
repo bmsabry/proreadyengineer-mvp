@@ -1,5 +1,6 @@
 """Quote API endpoints."""
 
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -299,7 +300,7 @@ async def get_customer_quotes(
     try:
         s3_config = await get_runtime_config(db)
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     responses = []
     for q in quotes:
@@ -325,7 +326,7 @@ async def get_customer_quotes(
             try:
                 doc_download_url = generate_download_url_from_config(q.document_s3_key, s3_config, expire_seconds=3600)
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         quote_dict = {
             "id": q.id,

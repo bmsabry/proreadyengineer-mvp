@@ -96,7 +96,7 @@ export default function RFQDetailPage() {
             setNdaFullySigned(true);
           }
         })
-        .catch(() => {});
+        .catch((e) => console.debug('ignored error', e));
     } else if (providerSelected) {
       setNdaFullySigned(true);
     }

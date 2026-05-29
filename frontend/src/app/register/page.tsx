@@ -148,7 +148,7 @@ function RegisterPageContent() {
         const data = res.data;
         applyFirmData(data.firm_name || '', data.phone || '', data.state || '', data.email || '');
       })
-      .catch(() => {});
+      .catch((e) => console.debug('ignored error', e));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 

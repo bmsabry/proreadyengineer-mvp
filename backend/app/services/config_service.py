@@ -27,7 +27,7 @@ async def _ensure_table_exists(db: AsyncSession) -> bool:
         try:
             await db.rollback()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         # Table missing - create it
         try:
             await db.execute(text(
@@ -52,7 +52,7 @@ async def _ensure_table_exists(db: AsyncSession) -> bool:
             try:
                 await db.rollback()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
             return False
 
 
@@ -69,7 +69,7 @@ async def _get_table_columns(db: AsyncSession) -> set:
         try:
             await db.rollback()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         return set()
 
 
@@ -94,7 +94,7 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
             try:
                 await fresh.rollback()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
     def _get(key: str, default: str = '') -> str:
         val = (
@@ -168,7 +168,7 @@ async def get_config_value(db: AsyncSession, key: str) -> Optional[str]:
         try:
             await db.rollback()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     val = getattr(settings, key.lower(), None) or getattr(settings, key, None)
     return str(val) if val else None
 
@@ -255,5 +255,5 @@ async def save_config_values(
             try:
                 await fresh.rollback()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
             raise RuntimeError(f"Config save failed: {exc}") from exc

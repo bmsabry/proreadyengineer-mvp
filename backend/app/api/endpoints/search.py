@@ -336,7 +336,7 @@ async def search_query(
             try:
                 await db.rollback()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
         # -------------------------------------------------------------------
         # Step 4: Build response - validate each provider individually (BUG-2)

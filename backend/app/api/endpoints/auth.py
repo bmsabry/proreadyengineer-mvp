@@ -1,5 +1,6 @@
 """Authentication API endpoints."""
 
+import logging
 import re
 from typing import Optional
 from pydantic import BaseModel
@@ -429,7 +430,7 @@ async def logout(
             )
             await db.commit()
     except Exception:
-        pass
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     return {"message": "Successfully logged out"}
 
 

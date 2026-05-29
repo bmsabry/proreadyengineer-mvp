@@ -1,5 +1,6 @@
 """Crawl and LLM extraction tasks for provider profile auto-fill."""
 
+import logging
 import asyncio
 import json
 import shutil
@@ -36,7 +37,7 @@ def crawl_and_extract_task(self, website_url: str, provider_id: str):
                             if sub.success:
                                 all_text.append(sub.markdown or sub.cleaned_html or '')
                         except Exception:
-                            pass
+                            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
             raw_text = '\n\n'.join(all_text)[:80000]  # Limit to 80k chars
             return raw_text
