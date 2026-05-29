@@ -57,10 +57,10 @@ export default function ForCustomersPage() {
                 Get Started Free
               </Link>
             </div>
-            {/* Tier 1 */}
+            {/* Search Plan */}
             <div className="bg-[#0F2B54] rounded-xl p-6 shadow-md border border-[#0F2B54] text-white">
               <div className="mb-4">
-                <span className="text-xs font-semibold uppercase tracking-wider text-blue-200">Tier 1 — Most Popular</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-blue-200">Search Plan</span>
                 <div className="mt-2 flex items-baseline gap-1">
                   <span className="text-3xl font-bold">$20</span>
                   <span className="text-blue-200">/month</span>

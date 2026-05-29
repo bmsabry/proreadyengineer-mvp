@@ -79,7 +79,7 @@ function MiniBar({ value, max, color }: MiniBarProps) {
 function SubscriptionCard({ subStatus, isLoading }: SubscriptionCardProps) {
   const isActive = subStatus?.has_active === true;
   const tier = subStatus?.subscription_type;
-  const displayTier = tier === 'search_tier2' ? 'Tier 2' : 'Tier 1';
+  const displayTier = 'Search Plan';
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-6 mt-4">
@@ -104,7 +104,7 @@ function SubscriptionCard({ subStatus, isLoading }: SubscriptionCardProps) {
               <Zap className="h-4 w-4" /> Upgrade — $20/month
             </button>
           </Link>
-          <p className="text-xs text-slate-400 text-center mt-2">100 searches/month with Tier 1</p>
+          <p className="text-xs text-slate-400 text-center mt-2">100 searches/month</p>
         </>
       ) : (
         <>
@@ -146,7 +146,7 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
     : null;
 
   const tier = subStatus?.has_active
-    ? (subStatus.subscription_type === 'search_tier2' ? 'Tier 2' : 'Tier 1')
+    ? 'Search Plan'
     : 'Free';
   const createdAt = user?.created_at;
 

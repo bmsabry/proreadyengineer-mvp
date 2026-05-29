@@ -118,7 +118,7 @@ async def get_user_subscriptions(
         return {
             SubscriptionType.PROVIDER_ANNUAL.value: ("Annual Professional", "year", "$1,000/yr"),
             SubscriptionType.ADVERTISEMENT.value: ("Monthly Advertisement", "month", "$50/mo"),
-            SubscriptionType.SEARCH_TIER_1.value: ("Search Tier 1", "month", None),
+            SubscriptionType.SEARCH_TIER_1.value: ("Search Plan", "month", None),
             SubscriptionType.SEARCH_TIER_2.value: ("Search Tier 2", "month", None),
             SubscriptionType.PROVIDER_PROFILE.value: ("Provider Profile", "month", None),
         }.get(st, (st.replace("_", " ").title(), "month", None))

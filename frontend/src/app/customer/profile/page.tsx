@@ -153,7 +153,7 @@ export default function CustomerProfilePage() {
                   isSubscribed ? 'bg-emerald-500/20 text-emerald-200' : 'bg-white/10 text-white/70'
                 }`}>
                   {isSubscribed ? <Star className="h-3 w-3" /> : <User className="h-3 w-3" />}
-                  {isSubscribed ? 'Tier 1 Subscriber' : 'Free Account'}
+                  {isSubscribed ? 'Search Subscriber' : 'Free Account'}
                 </span>
                 {emailVerified ? (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-200">
@@ -252,7 +252,7 @@ export default function CustomerProfilePage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <Star className="h-5 w-5 text-emerald-500" />
-                      <span className="font-semibold text-slate-800 text-lg">Tier 1 Subscriber</span>
+                      <span className="font-semibold text-slate-800 text-lg">Search Subscriber</span>
                     </div>
                     <p className="text-slate-500 text-sm mt-0.5">100 searches / month &middot; $20/month</p>
                     {cancelAtDate ? (
@@ -354,7 +354,7 @@ export default function CustomerProfilePage() {
                   <p className="text-xs text-slate-400 mt-1">{searchesRemaining} searches remaining &middot; Upgrade for 100/month</p>
                 </div>
                 <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
-                  <p className="text-sm text-blue-800 font-medium">&#x1F680; Upgrade to Tier 1 &mdash; $20/month</p>
+                  <p className="text-sm text-blue-800 font-medium">&#x1F680; Upgrade to Search Plan &mdash; $20/month</p>
                   <p className="text-xs text-blue-600 mt-0.5">Get 100 searches/month, priority RFQ matching, and full platform access.</p>
                 </div>
               </div>

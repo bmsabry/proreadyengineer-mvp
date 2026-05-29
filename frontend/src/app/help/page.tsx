@@ -115,7 +115,7 @@ export default function HelpPage() {
             <div className="text-sm text-amber-900">
               <div className="font-semibold mb-1">Want instant answers?</div>
               <div className="text-amber-800">
-                Our AI Help Assistant answers any question about the platform. It's included with any paid subscription (Customer Search Tier 1/2 or Provider Profile/Annual).{' '}
+                Our AI Help Assistant answers any question about the platform. It's included with any paid subscription (Customer Search subscription or Provider Profile/Annual).{' '}
                 <Link href={status.authenticated ? '/customer/dashboard' : '/register'} className="underline font-medium">
                   {status.authenticated ? 'View plans' : 'Sign up'}
                 </Link>{' '}

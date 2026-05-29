@@ -264,7 +264,7 @@ function PaywallView({ status, onSubscribe }: { status: HelpStatus; onSubscribe:
       <div className="text-xs text-slate-600 bg-slate-50 rounded-lg p-3 mb-3 border border-slate-100">
         <div className="font-medium text-slate-800 mb-1">Included with:</div>
         <ul className="list-disc pl-4 space-y-0.5">
-          <li>Customer Search Tier 1 (monthly)</li>
+          <li>Customer Search subscription (monthly)</li>
           <li>Provider Profile monthly or Provider Annual</li>
         </ul>
       </div>
