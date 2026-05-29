@@ -79,7 +79,7 @@ site.** Some config constants and product-name strings are stale — see §20. L
 
 | Charge | Who pays | Live amount | When / rule | Code |
 |---|---|---|---|---|
-| **RFQ unlock** | Provider | **$20** (`amount=2000`) | To read ANY RFQ they were matched to. **Free** for providers with an active `provider_annual` subscription. | `rfqs.py:987` |
+| **RFQ unlock** | Provider | **$50** (`amount=settings.RFQ_UNLOCK_PRICE`, =5000) | To read ANY RFQ they were matched to. **Free** for providers with an active `provider_annual` subscription. | `rfqs.py:987` |
 | **NDA handling fee** | Customer | **$10** (`amount=1000`) | Charged when the customer marks an RFQ "NDA required". Always, when NDA is required. | `rfqs.py:399` |
 | **Provider annual subscription** | Provider | **$1,000/yr** (`PROVIDER_ANNUAL_SUBSCRIPTION_PRICE=100000`) | Grants unlimited free RFQ unlocks while active. | `config.py`, `payments.py` |
 | **Customer search subscription** | Customer | tier pricing | Raises monthly search quota from 10 → 100. | `payments.py` |
@@ -88,8 +88,9 @@ site.** Some config constants and product-name strings are stale — see §20. L
 
 **Search quota:** Free = **10** searches/month, paid = **100** (`FREE_SEARCH_LIMIT=10`,
 `PAID_SEARCH_LIMIT=100` in `search_service.py`). Counter resets monthly. ⚠️ The
-`config.py` constants `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` and `RFQ_UNLOCK_PRICE=5000`
-are **NOT used** by the live paths — do not "fix" code to match them (§20).
+`config.py` constant `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` is **NOT used** by the live
+search path — do not "fix" code to match it (§20). (The RFQ unlock fee now correctly
+reads `RFQ_UNLOCK_PRICE=5000` → $50.)
 
 ---
 
@@ -205,7 +206,7 @@ field), so in practice they must be set in Admin → Settings, not env. See §20
 
 - Access to an RFQ is granted by an `RFQUnlock` row with **`unlock_status == "unlocked"`**.
   Every backend access check recognizes only this value. Two ways to get it:
-  1. Pay the **$20** unlock fee (Stripe) → `PaymentAttempt` + `RFQUnlock(unlocked)`.
+  1. Pay the **$50** unlock fee (Stripe) → `PaymentAttempt` + `RFQUnlock(unlocked)`.
   2. Hold an active **`provider_annual`** subscription → free `RFQUnlock(unlocked)` with
      **no** `PaymentAttempt` (this absence is how subscription unlocks are distinguished).
   ⚠️ Historical bug: subscription unlocks once wrote a non-recognized status
@@ -229,7 +230,7 @@ This is the flow most often re-explained. Do not redesign it without the owner's
 
 1. Customer marks an RFQ **NDA required** and pays the **$10** NDA fee (always, when NDA
    required). The RFQ then **dispatches normally** — the NDA does NOT hold up dispatch.
-2. A provider receives the teaser and **unlocks** ($20, or free for annual subscribers).
+2. A provider receives the teaser and **unlocks** ($50, or free for annual subscribers).
 3. To **read** the RFQ, the provider clicks **Sign NDA**. The backend
    (`nda_service.add_provider_to_nda`) creates **ONE mutual NDA document** in SignWell with
    **both** the provider and the customer as signers. The provider signs; the customer is
@@ -467,8 +468,9 @@ as a bug, even if tests pass.
 7. **Do not pre-fill signer form fields** in `add_provider_to_nda` (it breaks the
    customer's signing screen and injects guessed legal values).
 8. **`nda_fee` fulfillment must not change `rfq_status`** (it once stranded NDA RFQs).
-9. **Live fees are $20 provider unlock / $10 customer NDA / $1,000 provider annual.**
-   Trust the checkout `amount=`, not stale config constants or product-name strings.
+9. **Live fees are $50 provider unlock / $10 customer NDA / $1,000 provider annual.**
+   Trust the checkout `amount=`, not product-name strings. (Provider unlock now reads the
+   `RFQ_UNLOCK_PRICE=5000` constant.)
 10. **Search quota is 10 free / 100 paid** (`search_service.py`), not the `config.py` 5.
 11. **Webhooks stay idempotent and signature-verified** (Stripe/PayPal); dedup via
     `WebhookEvent`.
@@ -484,9 +486,6 @@ Things that look wrong/confusing but are intentional, or are real bugs not yet f
 Documented so they stop costing time. **None of these should be "fixed" by making the
 live behaviour match the stale value** — the live behaviour is correct.
 
-- **RFQ unlock fee:** live charge is **$20** (`rfqs.py:987 amount=2000`), but
-  `config.py RFQ_UNLOCK_PRICE=5000` ($50) and the Stripe product name/description say
-  "$50". The constant/name are stale. (Decide & reconcile deliberately if you touch this.)
 - **Search limit:** live is **10/100** (`search_service.py`); `config.py`
   `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` is unused.
 - **`OPENAI_LLM_MODEL` default differs:** `config.py` says `gpt-4o-mini`; runtime-config

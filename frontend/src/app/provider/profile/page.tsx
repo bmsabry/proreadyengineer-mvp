@@ -521,7 +521,7 @@ export default function ProviderProfilePage() {
                     </div>
                     <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
                       <p className="text-sm font-medium text-blue-800">Upgrade to Annual Pro for $1,000/year</p>
-                      <p className="text-xs text-blue-600 mt-0.5">Get automatic RFQ delivery with no $20 unlock fees. Pays for itself with just 50 RFQs.</p>
+                      <p className="text-xs text-blue-600 mt-0.5">Get automatic RFQ delivery with no $50 unlock fees. Pays for itself with just 20 RFQs.</p>
                     </div>
                   </div>
                 ) : (
@@ -532,7 +532,7 @@ export default function ProviderProfilePage() {
                           <User className="h-5 w-5 text-slate-400" />
                           <span className="font-semibold text-slate-800 text-lg">Free Account</span>
                         </div>
-                        <p className="text-slate-500 text-sm mt-0.5">Pay $20 per RFQ unlock &mdash; no profile edits included</p>
+                        <p className="text-slate-500 text-sm mt-0.5">Pay $50 per RFQ unlock &mdash; no profile edits included</p>
                       </div>
                       <Link href="/provider/upgrade" className="px-4 py-2 bg-[#0F2B54] text-white rounded-lg text-sm font-semibold hover:bg-[#1a3a6b] transition-colors flex items-center gap-1.5">
                         <Zap className="h-4 w-4" /> View Plans
@@ -564,7 +564,7 @@ export default function ProviderProfilePage() {
                         <p className="text-2xl font-bold text-slate-700">$500<span className="text-sm font-normal text-slate-500"> once</span></p>
                         <ul className="mt-2 space-y-1 text-xs text-slate-600">
                           <li className="flex items-center gap-1"><CheckCircle className="h-3 w-3 text-emerald-500" /> Unlimited profile edits</li>
-                          <li className="flex items-center gap-1"><span className="h-3 w-3 flex-shrink-0">&#8212;</span> RFQs still $20/unlock</li>
+                          <li className="flex items-center gap-1"><span className="h-3 w-3 flex-shrink-0">&#8212;</span> RFQs still $50/unlock</li>
                           <li className="flex items-center gap-1"><span className="h-3 w-3 flex-shrink-0">&#8212;</span> No rank-up requests</li>
                         </ul>
                         <button onClick={handleProfileEditCheckout}

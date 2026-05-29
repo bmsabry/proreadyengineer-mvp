@@ -119,7 +119,7 @@ function LockedCard({ status, onUnlock, checkingOut }: { status: UnlockStatus; o
       </CardContent>
       <CardFooter className="flex flex-col gap-3">
         <Button onClick={onUnlock} disabled={checkingOut} size="lg" className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-          {checkingOut ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Processing...</> : <><CreditCard className="h-4 w-4 mr-2"/>Unlock for $20 - One-time fee</>}
+          {checkingOut ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Processing...</> : <><CreditCard className="h-4 w-4 mr-2"/>Unlock for $50 - One-time fee</>}
         </Button>
         <p className="text-xs text-gray-500 text-center">Secure payment via Stripe. Only the first 5 quotes are shown to the customer.</p>
       </CardFooter>
@@ -802,7 +802,7 @@ function ProviderRFQPageInner() {
               <div>
                 <h3 className="text-lg font-bold text-slate-900 mb-1">RFQ Is Closed</h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
-                  This RFQ is closed and no longer accepting bids. You can still pay $20 to view
+                  This RFQ is closed and no longer accepting bids. You can still pay $50 to view
                   the project details for reference, but you will not be able to submit a quote.
                 </p>
               </div>

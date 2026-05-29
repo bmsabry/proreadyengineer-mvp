@@ -94,7 +94,7 @@ export default function RFQsPage() {
                   {(t.status === 'unlocked' || t.status === 'quoted') ? (
                     <Button size="sm" variant="outline" onClick={() => router.push('/provider/rfq/' + t.rfq_id)} className="gap-1 rounded-xl text-xs shrink-0">View Details <ArrowRight className="h-3 w-3" /></Button>
                   ) : (
-                    <Button size="sm" onClick={() => router.push('/provider/rfq/' + t.rfq_id)} className="bg-[#0F2B54] hover:bg-[#1a3a6b] text-white gap-1 rounded-xl text-xs shrink-0"><Lock className="h-3 w-3" /> View &amp; Unlock ($20)</Button>
+                    <Button size="sm" onClick={() => router.push('/provider/rfq/' + t.rfq_id)} className="bg-[#0F2B54] hover:bg-[#1a3a6b] text-white gap-1 rounded-xl text-xs shrink-0"><Lock className="h-3 w-3" /> View &amp; Unlock ($50)</Button>
                   )}
                 </div>
               </div>

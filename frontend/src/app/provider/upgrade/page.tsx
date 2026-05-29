@@ -224,7 +224,7 @@ export default function ProviderUpgradePage() {
 
   const annualFeatures: PricingFeature[] = [
     { text: 'Receive ALL matching RFQs automatically', included: true },
-    { text: 'Unlimited RFQ access — no $20 per-unlock fee', included: true },
+    { text: 'Unlimited RFQ access — no $50 per-unlock fee', included: true },
     { text: 'Quote every RFQ you receive', included: true },
     { text: 'Unlimited profile updates (all 17 fields)', included: true },
     { text: 'Request Rank Up for better search placement', included: true },
@@ -234,15 +234,15 @@ export default function ProviderUpgradePage() {
   const profileEditFeatures: PricingFeature[] = [
     { text: 'Update all 17 profile fields — once', included: true },
     { text: 'Improve your search ranking immediately', included: true },
-    { text: 'RFQ access still requires $20/RFQ unlock', included: false },
-    { text: 'Requires $20/RFQ unlock fee', included: false },
+    { text: 'RFQ access still requires $50/RFQ unlock', included: false },
+    { text: 'Requires $50/RFQ unlock fee', included: false },
   ];
 
   const perRfqFeatures: PricingFeature[] = [
     { text: 'Access individual RFQ details', included: true },
     { text: 'Submit quotes on unlocked RFQs', included: true },
     { text: 'No profile editing included', included: false },
-    { text: 'Requires $20/RFQ unlock fee', included: false },
+    { text: 'Requires $50/RFQ unlock fee', included: false },
   ];
 
   return (

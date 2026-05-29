@@ -852,7 +852,7 @@ async def _provider_has_annual_subscription(provider_id: int, db) -> bool:
     """Return True if the provider has an active annual subscription.
 
     Annual subscribers receive all dispatched RFQs for free without paying
-    the per-RFQ $20 unlock fee.
+    the per-RFQ $50 unlock fee.
 
     Args:
         provider_id: Provider database ID.
@@ -881,7 +881,7 @@ async def unlock_checkout(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Create Stripe Checkout Session to unlock RFQ access for $20."""
+    """Create Stripe Checkout Session to unlock RFQ access for $50."""
     import logging
     import uuid as _uuid
     logger = logging.getLogger(__name__)
@@ -984,7 +984,7 @@ async def unlock_checkout(
         session_data = await create_stripe_checkout_session(
             db=db,
             purpose="rfq_unlock",
-            amount=2000,  # $20.00 RFQ unlock fee
+            amount=_settings.RFQ_UNLOCK_PRICE,  # $50.00 RFQ unlock fee (config RFQ_UNLOCK_PRICE)
             currency="usd",
             user=current_user,
             related_entity_type="rfq",
@@ -1290,7 +1290,7 @@ async def get_rfq_files(
     """Get download URLs for RFQ files.
 
     Access rules:
-    - Provider must have paid the $20 unlock fee.
+    - Provider must have paid the $50 unlock fee.
     - If NDA not required: files are accessible immediately after unlock.
     - If NDA required: files are only accessible after customer accepts provider quote
       AND the NDA is fully signed by both parties.
