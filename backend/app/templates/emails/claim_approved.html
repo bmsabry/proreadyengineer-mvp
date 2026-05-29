@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Provider Claim Approved - ProMechDirectory{% endblock %}
+{% block content %}
+<h2 style="color: #166534;">Your firm claim was approved</h2>
+<p>Good news{% if provider_name %}, {{ provider_name }}{% endif %} &mdash; your request to claim this firm profile has been approved. You now manage the listing.</p>
+<p>You can update your profile, services, and contact details from your dashboard.</p>
+<p style="text-align: center; margin-top: 24px;"><a href="{{ profile_url }}" class="button">Manage Your Profile</a></p>
+{% endblock %}

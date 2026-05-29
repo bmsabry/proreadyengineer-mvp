@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Action Required: Sign NDA - ProMechDirectory{% endblock %}
+{% block content %}
+<h2 style="color: #92400e;">Action required: sign the NDA for your RFQ</h2>
+<p>A provider has requested access to your RFQ, which requires a mutual NDA. Please review and sign so they can proceed.</p>
+<p style="text-align: center; margin-top: 24px;"><a href="{{ sign_url }}" class="button">Review &amp; Sign NDA</a></p>
+<p style="color: #6b7280; font-size: 13px; margin-top: 24px;">This signing request expires in {{ expires_in }}. Reference: {{ nda_id }}</p>
+{% endblock %}

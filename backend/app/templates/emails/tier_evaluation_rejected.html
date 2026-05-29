@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Tier Evaluation Result - ProMechDirectory{% endblock %}
+{% block content %}
+<h2 style="color: #1e40af;">Tier evaluation result</h2>
+<p>Hello{% if provider_name %}, {{ provider_name }}{% endif %} &mdash; thank you for your tier evaluation request. After review, your firm remains on its current tier ({{ new_tier }}) for now.</p>
+<p>You're welcome to strengthen your profile and request another evaluation in the future.</p>
+<p style="text-align: center; margin-top: 24px;"><a href="{{ profile_url }}" class="button">Review Your Profile</a></p>
+{% endblock %}

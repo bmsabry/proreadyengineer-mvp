@@ -324,19 +324,25 @@ async def _send_email_now(
                 db=db,
             )
 
-    # --- 3. Console fallback ---
-    logger.warning(
-        "EMAIL NOT SENT (no delivery method configured). "
-        f"To={to} | Subject={subject!r} | "
-        "Set RESEND_API_KEY or SMTP_HOST environment variables "
-        "(or configure via admin panel) to enable delivery."
-    )
-    if not is_admin_alert:
-        await _record_send_failure(
-            to=to, subject=subject, source="sync_no_provider",
-            error_message="No email transport configured (RESEND_API_KEY/SMTP_HOST both unset)",
-            db=db,
+    # --- 3. Delivery failed ---
+    # If a transport WAS configured, the specific failure (sync_api_error /
+    # sync_smtp_error) was already recorded above. Do NOT also log a misleading
+    # "no transport configured" row -- that produced two Broken/Bounced entries
+    # per failed send. Only record sync_no_provider when neither Resend nor SMTP
+    # is configured at all.
+    if not (cfg["resend_api_key"] or cfg["smtp_host"]):
+        logger.warning(
+            "EMAIL NOT SENT (no delivery method configured). "
+            f"To={to} | Subject={subject!r} | "
+            "Set RESEND_API_KEY or SMTP_HOST environment variables "
+            "(or configure via admin panel) to enable delivery."
         )
+        if not is_admin_alert:
+            await _record_send_failure(
+                to=to, subject=subject, source="sync_no_provider",
+                error_message="No email transport configured (RESEND_API_KEY/SMTP_HOST both unset)",
+                db=db,
+            )
     if text_content:
         logger.warning(f"Email body preview:\n{text_content[:500]}")
     return False

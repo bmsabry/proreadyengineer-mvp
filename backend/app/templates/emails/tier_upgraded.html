@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Tier Upgrade Approved - ProMechDirectory{% endblock %}
+{% block content %}
+<h2 style="color: #166534;">Tier upgrade approved</h2>
+<p>Congratulations{% if provider_name %}, {{ provider_name }}{% endif %} &mdash; your firm's ranking tier has been upgraded.</p>
+<div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+        <tr><td style="padding: 6px 0; font-weight: bold; color: #374151; width: 140px;">Previous tier:</td><td style="padding: 6px 0; color: #111827;">{{ old_tier }}</td></tr>
+        <tr><td style="padding: 6px 0; font-weight: bold; color: #374151;">New tier:</td><td style="padding: 6px 0; color: #111827;">{{ new_tier }}</td></tr>
+    </table>
+</div>
+<p style="text-align: center; margin-top: 24px;"><a href="{{ profile_url }}" class="button">View Your Profile</a></p>
+{% endblock %}
