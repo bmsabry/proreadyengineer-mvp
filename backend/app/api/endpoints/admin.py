@@ -1602,15 +1602,22 @@ async def admin_debug_test_signwell_connection(
                         except Exception:
                             data = {}
                         items = data if isinstance(data, list) else (data.get("document_templates") or data.get("templates") or data.get("data") or [])
-                        item_ids = [str(t.get("id", "")) for t in (items if isinstance(items, list) else [])][:5]
+                        items = items if isinstance(items, list) else []
+                        template_list = [
+                            {"id": str(t.get("id", "")), "name": (t.get("name") or "(unnamed)")}
+                            for t in items
+                        ][:10]
                         return {
                             "success": True,
                             "message": f"Signwell API key is valid! ({label} endpoint responded 200)",
                             "key_preview": key_preview,
                             "key_length": len(api_key),
                             "endpoint_used": path,
-                            "items_found": len(item_ids),
-                            "item_ids": item_ids,
+                            # Field names match the admin UI; include names so the
+                            # admin can copy the correct API template UUID.
+                            "templates_found": len(items),
+                            "template_ids": [t["id"] for t in template_list],
+                            "templates": template_list,
                         }
                     elif resp.status_code == 401:
                         return {

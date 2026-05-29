@@ -1209,8 +1209,12 @@ export default function DebuggingPage() {
                   <div className="font-semibold">✅ {signwellTestResult.message}</div>
                   <div>Key preview: <code className="bg-green-100 px-1 rounded">{signwellTestResult.key_preview}</code> (length: {signwellTestResult.key_length})</div>
                   <div>Templates found: <strong>{signwellTestResult.templates_found}</strong></div>
-                  {signwellTestResult.template_ids?.length > 0 && (
-                    <div>Template IDs: {signwellTestResult.template_ids.join(', ')}</div>
+                  {signwellTestResult.templates?.length > 0 && (
+                    <ul className="list-disc ml-5">
+                      {signwellTestResult.templates.map(function(t: { id: string; name: string }) {
+                        return <li key={t.id}><strong>{t.name}</strong> &mdash; <code className="bg-green-100 px-1 rounded">{t.id}</code></li>;
+                      })}
+                    </ul>
                   )}
                 </div>
               ) : (
