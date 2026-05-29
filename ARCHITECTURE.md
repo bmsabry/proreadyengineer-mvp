@@ -79,6 +79,22 @@ When a customer marks an RFQ **NDA required**:
 5. Once fully signed, the provider sees the **full project description + files** and can
    submit a quote. Until then, only a redacted preview is shown.
 
+**Notifications are part of the NDA workflow (not optional).** At each step the
+waiting party MUST be told there is an action for them:
+
+- Provider clicks **Sign NDA** → SignWell emails the **provider** their signing link
+  (signer 1). The document uses email-based signing with `apply_signing_order: true`
+  — do NOT use document-level `embedded_signing`, which suppresses ALL invitation
+  emails (that bug left the customer un-notified).
+- Provider signs → SignWell automatically emails the **customer** (signer 2) to
+  countersign, AND the customer's portal shows an **"Action required: NDA awaiting
+  your signature"** banner (`/customer/my-rfqs` returns
+  `nda_awaiting_customer_signature` = provider signed but customer hasn't).
+- Both signed → the provider's RFQ view unlocks (full description + files + bid).
+
+Any future change to the NDA flow must preserve both channels (email + in-app/portal)
+for whichever party is being waited on.
+
 There is exactly **one** NDA model. The older customer-iframe-first path (`/nda/initiate`,
 `/nda/confirm-signed`, `create_customer_nda`, `get_customer_signing_url`, etc.) has been
 removed.
