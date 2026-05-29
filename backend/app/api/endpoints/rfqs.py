@@ -921,7 +921,10 @@ async def unlock_checkout(
                     rfq_id=rfq_id,
                     provider_id=_provider_id_for_sub,
                     unlocked_by_user_id=current_user.id,
-                    unlock_status="granted_by_subscription",
+                    # Use the recognized UNLOCKED status: every access check looks for
+                    # "unlocked", so a custom status would grant nothing. (No payment
+                    # row is created, so this is still distinguishable as a free unlock.)
+                    unlock_status=UnlockStatus.UNLOCKED,
                     unlocked_at=_dt.datetime.utcnow(),
                 )
                 db.add(_unlock)
@@ -933,7 +936,12 @@ async def unlock_checkout(
             frontend_url = getattr(_settings, "FRONTEND_URL", "https://promechdirectory.onrender.com")
             return {
                 "checkout_url": None,
+                "url": f"{frontend_url}/provider/rfq/{rfq_id}",
                 "payment_attempt_id": None,
+                # already_paid lets the existing frontend handler verify access and
+                # reload straight into the unlocked RFQ instead of erroring on the
+                # missing checkout URL.
+                "already_paid": True,
                 "granted_by_subscription": True,
                 "redirect_url": f"{frontend_url}/provider/rfq/{rfq_id}",
             }
