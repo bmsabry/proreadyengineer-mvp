@@ -1,0 +1,534 @@
+# ProReadyEngineer / ProMechDirectory — Canonical System Specification
+
+> **This is the single source of truth for how this application works.**
+> Read it before changing anything. If code and this document disagree, that is a
+> bug in one of them — reconcile it, don't guess. When you change a behaviour or flow,
+> **update this document in the same commit.** Where this file conflicts with
+> `HANDOFF.md`, `DEVELOPMENT_HISTORY.md`, `api_contract_v1.md`, or older notes, **this
+> file wins.**
+>
+> Last verified against the code on **2026-05-29** (branch `main`). Section §20 lists
+> known inconsistencies between the live behaviour and stale constants/comments — read
+> it before trusting any number you find inline in the code.
+
+---
+
+## 0. How to work in this repo (read first)
+
+1. **Read this file, then verify against the code.** Numbers and flows here were read
+   out of the running code on the date above, but code changes — confirm the specific
+   lines before you rely on them for anything money-, legal-, or signature-related.
+2. **Do not break the invariants in §19.** They encode business rules the owner has had
+   to re-explain repeatedly. They are not stylistic preferences.
+3. **One source of truth per concept.** This project has been burned by duplicated /
+   half-migrated logic. Don't add a second NDA model, a second dispatch trigger, or a
+   parallel "notifications" mechanism. Extend the existing one.
+4. **Deploy flow:** push to `main` on `github.com/bmsabry/proreadyengineer-mvp` → Render
+   auto-deploys the `proreadyengineer-api` and `proreadyengineer-web` services. There is
+   no separate staging. CI (`.github/workflows/ci.yml`) runs the backend unit tests on
+   every push/PR; a red run is a real regression.
+5. **Secrets** live in the Render dashboard (write-only) and in `system_config` (DB,
+   editable via Admin → Settings). They are NOT in the repo. See §17.
+
+---
+
+## 1. What the product is
+
+A B2B engineering marketplace with four personas:
+
+- **Customer** — posts an RFQ (request for quote) describing an engineering project,
+  optionally requires an NDA, and receives quotes from matched providers.
+- **Provider** — an engineering firm. Gets matched to RFQs by AI, pays to unlock and
+  read an RFQ, optionally signs an NDA, and submits a quote.
+- **Advertiser** — pays for featured-firm / software-provider listings.
+- **Admin** — operates the platform (settings, users, providers, RFQs, payments,
+  webhooks, campaigns, ads, support, debugging).
+
+A single user row can hold multiple roles (the `users.roles` column is a text array:
+`customer`, `provider`, `advertiser`, `admin`).
+
+**Revenue:** provider per-RFQ unlock fees, an optional customer NDA fee, provider annual
+subscriptions, customer search subscriptions, and advertising. See §3.
+
+---
+
+## 2. Stack & hosting
+
+- **Backend:** FastAPI (Python 3.11), SQLAlchemy **async**, Alembic, slowapi rate limiting.
+- **Frontend:** Next.js 15 (App Router), React 19, TypeScript, Tailwind + shadcn-style UI,
+  `sonner` toasts, axios API client.
+- **DB:** PostgreSQL 15 + **pgvector** (provider embeddings). SQLite is used only for the
+  unit-test suite.
+- **Hosting:** Render, defined in `render.yaml`. Services: `proreadyengineer-api`
+  (backend), `proreadyengineer-web` (frontend), `proreadyengineer-redis`,
+  `proreadyengineer-db`, and the `proreadyengineer-rfq-cron` cron job.
+- **External services:** DeepInfra (AI, via the `OPENAI_*` settings), Stripe (live payment
+  processor), PayPal (sandbox, **not configured** — effectively unused), SignWell (NDA
+  e-signature — the API-key env var is named `SIGNREQUEST_API_KEY`/`SIGNWELL_API_KEY` for
+  historical reasons), Resend (email), AWS S3 (file storage).
+
+Brand naming is mixed in the code ("ProReadyEngineer", "ProMechDirectory",
+`@promechdirectory.com` email). They refer to the same product.
+
+---
+
+## 3. Money model
+
+**The authoritative amount is the `amount=` value (in cents) at the Stripe checkout call
+site.** Some config constants and product-name strings are stale — see §20. Live values:
+
+| Charge | Who pays | Live amount | When / rule | Code |
+|---|---|---|---|---|
+| **RFQ unlock** | Provider | **$20** (`amount=2000`) | To read ANY RFQ they were matched to. **Free** for providers with an active `provider_annual` subscription. | `rfqs.py:987` |
+| **NDA handling fee** | Customer | **$10** (`amount=1000`) | Charged when the customer marks an RFQ "NDA required". Always, when NDA is required. | `rfqs.py:399` |
+| **Provider annual subscription** | Provider | **$1,000/yr** (`PROVIDER_ANNUAL_SUBSCRIPTION_PRICE=100000`) | Grants unlimited free RFQ unlocks while active. | `config.py`, `payments.py` |
+| **Customer search subscription** | Customer | tier pricing | Raises monthly search quota from 10 → 100. | `payments.py` |
+| **Provider full-profile-edit unlock** | Provider | one-time | Unlocks full profile editing (or comes free with annual sub). | `payment_service.py` |
+| **Advertisement** | Advertiser | subscription | Featured-firm / software-provider listings. | `ads.py`, `payment_service.py` |
+
+**Search quota:** Free = **10** searches/month, paid = **100** (`FREE_SEARCH_LIMIT=10`,
+`PAID_SEARCH_LIMIT=100` in `search_service.py`). Counter resets monthly. ⚠️ The
+`config.py` constants `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` and `RFQ_UNLOCK_PRICE=5000`
+are **NOT used** by the live paths — do not "fix" code to match them (§20).
+
+---
+
+## 4. Data model (key tables)
+
+UUIDs unless noted. Providers use integer ids.
+
+- **User** (`users`) — `id`, `email`, `roles` (text[]: customer/provider/advertiser/admin),
+  `first_name`, `last_name`, `business_name`, `state`, auth fields, `created_at`.
+- **Provider** (`providers`, **int id**) — firm profile, `embedding` (pgvector),
+  ranking tier, `full_profile_edit_paid`, claim/membership relations.
+- **RFQ** (`rfqs`) — `id`, `customer_user_id`, `nda_required` (bool), `rfq_status`
+  (`RfqStatus`), `quote_count`, `selected_provider_id`, project description + metadata.
+- **RFQFile** (`rfq_files`) — uploaded project files (S3 keys).
+- **RFQMatch** (`rfq_matches`) — AI match results: `rfq_id`, `provider_id`, rank/score.
+- **RFQDispatchBatch** / **RFQDispatch** — teaser dispatch batching + per-provider sends.
+- **RFQUnlock** (`rfq_unlocks`) — `rfq_id`, `provider_id`, **`unlock_status`**
+  (`UnlockStatus`). `unlock_status == "unlocked"` is the ONLY value that grants access
+  (§8). Subscription-granted unlocks also write `"unlocked"` but have no `PaymentAttempt`.
+- **RFQNDA** (`rfq_ndas`) — one row per (rfq, provider). Fields: `rfq_id`, `provider_id`,
+  `customer_user_id`, `nda_status` (`NdaStatus`), `signrequest_document_id`,
+  `signrequest_template_id`, `signed_pdf_s3_key`, `audit_trail_s3_key`,
+  **`customer_signed_at`**, **`provider_signed_at`**, **`fully_signed_at`**, timestamps.
+- **Quote** (`quotes`) — provider's bid: pricing, turnaround, assumptions, scope,
+  `quote_status` (`QuoteStatus`), optional quote document (S3).
+- **PaymentAttempt** — one row per checkout attempt; `purpose` (`PaymentPurpose`),
+  `status` (`PaymentStatus`), deterministic `idempotency_key`.
+- **WebhookEvent** — inbound webhook dedup/audit (`provider`, `external_event_id`,
+  `signature_verified`, `processing_status`).
+- **Subscription** — `subscription_type` (`SubscriptionType`), `status`, period dates,
+  Stripe ids.
+- **SystemConfig** (`system_config`) — runtime config / secrets editable via Admin →
+  Settings. Read through `config_service` (see §17).
+- Plus: Advertisement, Campaign/Invite, SupportTicket, EmailFailure, Search models.
+
+Enums live in `app/models/enums.py` (RfqStatus, QuoteStatus, NdaStatus, UnlockStatus,
+PaymentStatus, PaymentPurpose, SubscriptionType/Status, AdStatus, etc.).
+
+---
+
+## 5. RFQ lifecycle (`RfqStatus`)
+
+```
+draft
+  → submitted
+     → (awaiting_nda_payment → awaiting_customer_signature)   # NDA RFQs only, transitional
+        → open_for_dispatch
+           → dispatching
+              → open_for_unlock
+                 → quote_limit_reached
+                 → customer_selected_provider
+                 → closed_no_selection
+                 → cancelled
+```
+
+The `awaiting_nda_payment` / `awaiting_customer_signature` states are **transitional
+only and MUST NOT block dispatch** (§19). They exist for bookkeeping; dispatch proceeds
+once the customer's $10 NDA fee is recorded.
+
+---
+
+## 6. Search & AI matching (the "three LLMs")
+
+Search powers both the public provider search and RFQ→provider matching. Config is read
+**runtime-config-first** (the `system_config` DB table via `config_service.get_runtime_config`),
+falling back to env / `settings`. Default provider is **DeepInfra**
+(`OPENAI_API_BASE=https://api.deepinfra.com/v1/openai`).
+
+Three distinct AI uses (the project calls them "the three LLMs"):
+
+1. **Embeddings** — `BAAI/bge-large-en-v1.5` (default). Provider profiles are embedded and
+   stored on `Provider.embedding`; candidate retrieval is a pgvector cosine prefilter
+   (top ~50). Keys: dedicated `EMBEDDING_API_KEY`/`EMBEDDING_API_BASE` if both set, else
+   the `OPENAI_*` keys. (`search_service.py`)
+2. **Search/ranking chat LLM** — default `moonshotai/Kimi-K2.5` (via `OPENAI_*`). Used for
+   query→structured-intent extraction and the two ranking passes
+   (`llm_pass1_filter`, `llm_pass2_rank`). (`search_service.py`)
+3. **Doc/help chat LLM** — `DOC_LLM_*` keys (fallback to `OPENAI_*`), default
+   `gpt-4o-mini`. Powers the help chatbot and document collapse. (`help_service.py`)
+
+(A support-ticket classifier in `support_service.py` reuses the runtime LLM keys.)
+
+`EMBEDDING_*` and `DOC_LLM_*` are **runtime-config keys only** (no Pydantic settings
+field), so in practice they must be set in Admin → Settings, not env. See §20.
+
+---
+
+## 7. Dispatch (matching + teaser emails)
+
+- **Trigger:** an RFQ dispatches when it is **submitted** (for NDA RFQs, after the $10
+  customer fee is recorded — but the NDA itself never blocks dispatch). `submit_rfq`
+  runs the AI search, writes ranked `RFQMatch` rows, sets the RFQ to `open_for_dispatch`,
+  and sends teaser emails in batches. (`rfq_service.py`)
+- **Concurrency-safe:** `submit_rfq` claims the RFQ with a single conditional
+  `UPDATE ... WHERE rfq_status IN (<pre-dispatch states>)`. Only the winning caller
+  searches/dispatches; concurrent triggers no-op. This prevents duplicate matches/emails.
+  It is also idempotent (skips re-search if `RFQMatch` rows already exist).
+- **Batching:** `RFQ_DISPATCH_BATCH_SIZE=5` providers per batch; interval
+  `RFQ_DISPATCH_BATCH_INTERVAL_HOURS` (default 24, **15-minute floor** enforced).
+  `RFQ_MAX_QUOTES=5` — once 5 quotes arrive the RFQ hits `quote_limit_reached`.
+- **Schedulers (live mechanism — NOT Celery):**
+  - **Primary:** the Render cron `proreadyengineer-rfq-cron` (`*/15 * * * *`) POSTs
+    `/api/v1/internal/cron/dispatch-rfq-batches`.
+  - **Backup:** an in-process asyncio loop in `app/main.py` calls the same dispatch
+    function (~every 5 min). Both honour the interval floor.
+  - The internal cron endpoint is **unauthenticated by design** (CRON_SECRET was removed).
+  - **Celery exists in the code but no worker/beat runs in `render.yaml`** — the entire
+    Celery layer is dormant in production. Emails and dispatch run inline / via cron. See §20.
+
+---
+
+## 8. Provider unlock & access gating
+
+- Access to an RFQ is granted by an `RFQUnlock` row with **`unlock_status == "unlocked"`**.
+  Every backend access check recognizes only this value. Two ways to get it:
+  1. Pay the **$20** unlock fee (Stripe) → `PaymentAttempt` + `RFQUnlock(unlocked)`.
+  2. Hold an active **`provider_annual`** subscription → free `RFQUnlock(unlocked)` with
+     **no** `PaymentAttempt` (this absence is how subscription unlocks are distinguished).
+  ⚠️ Historical bug: subscription unlocks once wrote a non-recognized status
+  (`granted_by_subscription`) and stayed locked. Never reintroduce a status other than
+  `"unlocked"` for granting access.
+- **For NDA RFQs**, the full project description + files are *additionally* gated on the
+  mutual NDA being fully signed. The provider unlock endpoint returns:
+  - `unlocked` — has an unlocked `RFQUnlock`.
+  - `provider_has_signed` — THIS provider has signed (`provider_signed_at` set), may still
+    be waiting on the customer.
+  - `provider_nda_signed` — BOTH parties signed (`fully_signed_at` set) → full access.
+  - `_can_view_full = (not nda_required) or provider_nda_signed`.
+
+---
+
+## 9. NDA flow — "sign to read" (mutual, provider-first) — CRITICAL
+
+This is the flow most often re-explained. Do not redesign it without the owner's say-so.
+
+**Intended end-to-end:**
+
+1. Customer marks an RFQ **NDA required** and pays the **$10** NDA fee (always, when NDA
+   required). The RFQ then **dispatches normally** — the NDA does NOT hold up dispatch.
+2. A provider receives the teaser and **unlocks** ($20, or free for annual subscribers).
+3. To **read** the RFQ, the provider clicks **Sign NDA**. The backend
+   (`nda_service.add_provider_to_nda`) creates **ONE mutual NDA document** in SignWell with
+   **both** the provider and the customer as signers. The provider signs; the customer is
+   then emailed by SignWell to countersign. There is **no "customer signs first"
+   precondition**.
+4. SignWell records each signer separately (matched by email) and marks the NDA
+   `fully_signed` only once **both** have signed. The backend also defensively polls
+   SignWell on every status read (`_sync_nda_signatures`) so it does not depend solely on
+   the webhook.
+5. Once fully signed, the provider sees the **full description + files** and can quote.
+   Until then, only the redacted teaser/preview is shown.
+
+**SignWell integration specifics (these have each caused outages — respect them):**
+
+- **Template ID must be the API UUID**, e.g. `162095ae-2e32-4afd-b170-fb5753d8e923`
+  (`SIGNWELL_TEMPLATE_ID` in `system_config`, set via Admin → Settings → Document Signing).
+  It is **NOT** the share-link slug from `https://www.signwell.com/new_doc/<slug>/` — the
+  slug returns `404 "Couldn't find the template"` and silently breaks the whole NDA flow.
+  When you recreate a template in SignWell, re-copy its API UUID.
+- **Auth header is `X-Api-Key`** (not Bearer). Base URL `https://www.signwell.com/api/v1`.
+  Key is read from `system_config` (`SIGNWELL_API_KEY`). Render returns this secret as
+  empty via API/dashboard (write-only) — only the running process (Render Web Shell) can
+  read it live for diagnostics.
+- **Label vs api_id:** when you rename a field's label in the SignWell editor (e.g. to
+  `provider_company`, `prs`), SignWell **keeps the original auto api_id**
+  (`TextField_1`, `Signature_1`). So api_ids in the API ≠ the labels you see. The account
+  has exactly **one** template (`promechdirectory NDA 3`).
+- **Do NOT pre-fill the signers' form fields** in `add_provider_to_nda`
+  (`template_fields = []`). Pre-filling every field (a) injected guessed legal values and
+  (b) left the customer (signer 2) with an all-pre-filled form, which SignWell collapses to
+  a "Thanks for filling out your document" screen with **no signature prompt**. Each party
+  fills/confirms their own details at signing.
+- **Signing order:** the document uses email-based signing with `apply_signing_order: True`
+  (provider = signer "1", customer = signer "2"). **Do NOT set document-level
+  `embedded_signing`** — it suppresses ALL SignWell invitation emails (that was the bug
+  that left the customer un-notified).
+- **Webhook:** `/api/v1/webhooks/signrequest` (name kept for historical registration —
+  do not rename). It records each signer and downloads the signed PDF to S3 on completion.
+
+**Notifications are part of the NDA workflow, not optional.** At every step the waiting
+party MUST be told there is an action for them, through BOTH channels:
+
+- Provider clicks Sign NDA → SignWell emails the **provider** their signing link.
+- Provider signs → SignWell automatically emails the **customer** to countersign, AND the
+  customer's portal surfaces it (see §16 — it appears in the **Activity Summary** panel as
+  an amber "Action required: N NDA(s) awaiting your signature" callout; the
+  `/customer/my-rfqs` payload sets `nda_awaiting_customer_signature = true` when the
+  provider has signed but the customer hasn't).
+- Both signed → the provider's RFQ view unlocks (full description + files + quote form).
+
+Any future change to the NDA flow MUST preserve both channels (SignWell email + in-app
+portal) for whichever party is being waited on, and MUST keep in-app notifications inside
+the existing **Activity Summary** pattern — not as bolted-on one-off banners.
+
+**There is exactly ONE provider-first NDA model.** The old customer-iframe-first path
+(`/nda/initiate`, `/nda/confirm-signed`, `create_customer_nda`, `get_customer_signing_url`)
+has been removed. A separate `create_post_acceptance_nda` exists for a post-quote-acceptance
+NDA path; note it still uses customer-first ordering and DOES pre-fill fields (§20).
+
+---
+
+## 10. Quotes
+
+- A provider with full access submits a quote (`QuoteForm`): min/max price (USD),
+  turnaround, assumptions, scope notes, optional quote document. An AI extractor can
+  pre-fill the form from an uploaded quote document.
+- The customer reviews quotes on the RFQ and **accepts** one
+  (`/customer/quotes/{id}/accept`). On acceptance the provider sees the customer's contact
+  details (revealed only at `quote_status == "accepted"`), and the RFQ moves to
+  `customer_selected_provider`.
+- `RFQ_MAX_QUOTES = 5`: only the first 5 quotes are accepted/shown; the RFQ then reaches
+  `quote_limit_reached`.
+
+---
+
+## 11. Payments & webhooks
+
+- **Stripe** is the live processor. Stripe-hosted Checkout for one-time fees and
+  subscriptions (`create_stripe_checkout_session`). Secret/keys read from runtime config.
+- **Idempotency:** every checkout uses a deterministic `idempotency_key`; `PaymentAttempt`
+  rows dedupe, and fulfillment functions early-return on an existing COMPLETED/active record.
+- **Webhooks:**
+  - Stripe → `/api/v1/payments/webhooks/stripe`: signature-verified
+    (`stripe.Webhook.construct_event`), deduped via `WebhookEvent`, fulfillment idempotent.
+  - PayPal → `/api/v1/payments/webhooks/paypal`: signature-verified against PayPal's
+    verify-webhook-signature API, **fail-closed in production**. PayPal is not configured,
+    so this path is effectively unused.
+  - SignWell → `/api/v1/webhooks/signrequest` (see §9). **Not** signature-verified (§20).
+  - Resend → `/api/v1/payments/webhooks/resend`: records bounces/complaints/failures.
+- **Fulfillment map** (`fulfill_payment_purpose` routes by `PaymentPurpose`):
+  - `rfq_unlock` → `rfq_service.complete_rfq_unlock` (writes unlocked `RFQUnlock`).
+  - `nda_fee` → finds/creates `RFQNDA`, sets `customer_signature_pending`; **does NOT
+    change `rfq_status`** (must not strand the RFQ — §19).
+  - `search_subscription`, `provider_annual_subscription`, `advertisement_subscription`,
+    `full_profile_edit_unlock` → create/renew the relevant `Subscription` / flag.
+
+---
+
+## 12. Subscriptions
+
+- **Provider annual** (`provider_annual`, $1,000/yr) — grants free RFQ unlocks while
+  active (the unlock path checks for it and writes an unlocked `RFQUnlock` with no payment).
+- **Customer search** tiers — raise the monthly search quota from 10 → 100.
+- **Provider full-profile-edit** — one-time unlock (or included with annual).
+- **Advertisement** — featured-firm / software-provider listings.
+
+---
+
+## 13. Email & notifications (Resend)
+
+- Sent via Resend API (`https://api.resend.com/emails`), SMTP fallback, then console +
+  failure record. Templates are Jinja2 under `app/templates/emails`.
+- Active notification emails include: RFQ teaser (`rfq_teaser`), quote received
+  (`quote_received`), quote accepted (`quote_accepted`), welcome, password reset, email
+  verification, ad approved/rejected, campaign invite.
+- **Failure tracking:** send failures and inbound bounce/complaint webhooks are recorded
+  as `EmailFailure` rows and surface in Admin → Debugging (the nav row turns red).
+- ⚠️ Some referenced templates (`nda_customer_ready`, `nda_provider_ready`,
+  `subscription_confirmed`, `claim_approved`, `tier_upgraded`) are **missing from the
+  templates directory** and would raise at render time if those specific sends fire (§20).
+  Note the *NDA workflow notifications in §9 rely on SignWell's own emails*, not these.
+
+---
+
+## 14. Files & storage (AWS S3)
+
+- Uploads via presigned POST (25 MB cap); downloads via presigned GET. RFQ files, quote
+  documents (`quote-documents/...`), and signed NDA PDFs (`ndas/{rfq_id}/...`) live in the
+  S3 bucket (`promechdirectory-uploads` per `render.yaml`).
+- Text extraction supports PDF (PyPDF2), DOCX (python-docx), and plain text.
+
+---
+
+## 15. Auth & security
+
+- JWT (HS256) access (60 min) + refresh (7 day) tokens; bcrypt password hashing; account
+  lockout; slowapi rate limiting (the `@limiter.limit` decorator must be the **outer**
+  decorator on a route).
+- `SECRET_KEY` is generated by Render; the app **refuses to boot in production** if it is
+  left at the insecure default (`config.py` model validator).
+- CORS is scoped to the project's own origins (not any `*.onrender.com`).
+- Email verification is required (`REQUIRE_EMAIL_VERIFICATION=True`).
+- ⚠️ Frontend stores access/refresh tokens in `localStorage` (XSS exposure) — moving to
+  httpOnly cookies is tracked backlog (§20).
+
+---
+
+## 16. Frontend structure & UI conventions
+
+**Routes by area** (`frontend/src/app`):
+- Public/marketing: `/`, `/search`, `/for-customers`, `/for-providers`, `/advertise`,
+  `/featured-firms`, `/software-providers`, `/providers/[id]`, `/contact`, `/help`,
+  `/privacy`, `/terms`.
+- Auth: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`,
+  `/check-email`.
+- Customer portal (`/customer/*`): `dashboard`, `rfq/new`, `rfq/[id]`,
+  `rfq/[id]/tracking`, `quotes`, `active-rfqs`, `quoted-rfqs`, `accepted-rfqs`,
+  `all-rfqs`, `cancelled-rfqs`, `profile`.
+- Provider portal (`/provider/*`): `dashboard`, `rfq/[id]` (the unlock→sign→view→quote
+  flow), `rfqs`, list pages, `nda/[id]/sign`, `profile`, `profile/full-edit`, `upgrade`,
+  `claim`, `add-firm`, `advertise`.
+- Shared: `/nda/[id]/sign` (customer NDA pay/sign), `/rfqs/[id]/unlock`.
+- Admin (`/admin/*`): `dashboard`, `rfqs`(+`[id]`), `claims`, `providers`, `payments`,
+  `webhooks`, `campaigns`, `support`(+`[id]`), `ads`, `users`, `data-extraction`,
+  `debugging`, `settings`.
+
+**API client:** `frontend/src/lib/api.ts` — axios instance, `Authorization: Bearer
+<localStorage access_token>` request interceptor, single-flight 401→refresh→retry response
+interceptor. Some pages bypass the interceptor with raw `fetch` (they do not get the
+refresh-retry) — see §20.
+
+**UI/UX conventions (follow these — the owner enforces them):**
+- The **Activity Summary** panel (customer `AnalyticsPanel` on the dashboard, and the
+  provider analytics panel) is THE place where stats and **action-required notifications**
+  appear. New notifications for a persona go here, not as separate top-of-page banners.
+- **"Action required" pattern:** amber card (`bg-amber-50 border-amber-200`) with an
+  `AlertCircle` icon, a bold "Action required: …" heading, and explanatory subtext.
+- Status pills via the shared `STATUS_COLORS` map; NDA state via `NdaBadge`.
+- Toasts via `sonner` (`toast.success/error/info`).
+- Customer shared list logic in `app/customer/_shared/RfqListPage.tsx`
+  (`CustomerRFQ` type, `ACTIVE_STATUSES`, `useRfqs`, `RfqCard`).
+
+---
+
+## 17. Config & secrets
+
+- **Runtime-config-first:** most settings (LLM keys/models, Stripe, PayPal, Resend, AWS,
+  SignWell key + template id, RFQ batch params) are read from the `system_config` DB table
+  via `config_service`, falling back to env / `settings`. They are editable live in
+  **Admin → Settings** (tabs: AI, Payments, Email, Storage, Doc Signing, RFQ).
+  `get_config_value` is uncached, so a corrected value takes effect immediately (no restart).
+- **Where real secret values live:** the Render dashboard (`proreadyengineer-api` →
+  Environment, write-only/masked) and `system_config`. The repo holds none. The Render API
+  and dashboard return secret values as empty/masked — to read one live, use the Render Web
+  Shell of the running service.
+- `EMBEDDING_*` and `DOC_LLM_*` are runtime-config-only keys (no env settings field).
+
+---
+
+## 18. Deploy & CI
+
+- `render.yaml`: `proreadyengineer-api` (build `pip install -r requirements.txt`; start
+  `alembic upgrade head && uvicorn main:app`), `proreadyengineer-web`,
+  `proreadyengineer-redis`, `proreadyengineer-db`, and `proreadyengineer-rfq-cron`
+  (`*/15 * * * *` → POST the dispatch endpoint).
+- **Deploy:** push to `main` → Render auto-deploys api + web.
+- **CI:** `.github/workflows/ci.yml` runs `pytest tests/unit` on push/PR (SQLite-backed,
+  no DB service). Covers NDA dispatch (incl. the stuck-RFQ regression + mutual-NDA webhook),
+  auth, payment idempotency keys, and search-quota constants. Legacy suites
+  (`test_payment_service`, `test_file_service`, `test_search_service`, `test_rfq_service`,
+  `test_auth_service`) are **quarantined** (skipped) pending rewrite against the current API.
+
+---
+
+## 19. Invariants — rules that must never break
+
+These encode business rules the owner has had to repeat. Treat a change that violates one
+as a bug, even if tests pass.
+
+1. **Dispatch never waits on a signature.** NDA RFQs dispatch as soon as the customer's
+   $10 fee is recorded. The `awaiting_*` statuses are transitional and must not gate
+   `submit_rfq`. (Regression test exists.)
+2. **`unlock_status == "unlocked"` is the only access gate.** Both paid and
+   subscription-granted unlocks write exactly this. Never invent another status to grant
+   access.
+3. **NDA is provider-first and mutual, one document, one model.** Provider signs first to
+   read; customer is then asked to countersign; both signatures = full access. No
+   "customer signs first" precondition. No second NDA model.
+4. **NDA notifications use both channels and the existing UI pattern.** SignWell email +
+   in-app, and the in-app notice lives in the **Activity Summary** panel (amber
+   action-required card), not a bespoke banner.
+5. **SignWell template id is the API UUID, never the `new_doc` slug.**
+6. **Never set document-level `embedded_signing`** on the mutual NDA (it kills invitation
+   emails). Use email-based signing with `apply_signing_order`.
+7. **Do not pre-fill signer form fields** in `add_provider_to_nda` (it breaks the
+   customer's signing screen and injects guessed legal values).
+8. **`nda_fee` fulfillment must not change `rfq_status`** (it once stranded NDA RFQs).
+9. **Live fees are $20 provider unlock / $10 customer NDA / $1,000 provider annual.**
+   Trust the checkout `amount=`, not stale config constants or product-name strings.
+10. **Search quota is 10 free / 100 paid** (`search_service.py`), not the `config.py` 5.
+11. **Webhooks stay idempotent and signature-verified** (Stripe/PayPal); dedup via
+    `WebhookEvent`.
+12. **Production refuses to boot with the default `SECRET_KEY`** — keep that guard.
+13. **One dispatch mechanism in prod:** Render cron + the in-process backup loop. Do not
+    add a third trigger or assume a Celery worker exists.
+
+---
+
+## 20. Known inconsistencies & landmines (current as of 2026-05-29)
+
+Things that look wrong/confusing but are intentional, or are real bugs not yet fixed.
+Documented so they stop costing time. **None of these should be "fixed" by making the
+live behaviour match the stale value** — the live behaviour is correct.
+
+- **RFQ unlock fee:** live charge is **$20** (`rfqs.py:987 amount=2000`), but
+  `config.py RFQ_UNLOCK_PRICE=5000` ($50) and the Stripe product name/description say
+  "$50". The constant/name are stale. (Decide & reconcile deliberately if you touch this.)
+- **Search limit:** live is **10/100** (`search_service.py`); `config.py`
+  `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` is unused.
+- **`OPENAI_LLM_MODEL` default differs:** `config.py` says `gpt-4o-mini`; runtime-config
+  default is `moonshotai/Kimi-K2.5` (the live model). Runtime config wins.
+- **Celery is dormant in production:** no worker/beat in `render.yaml`. Dispatch runs via
+  Render cron + the in-process asyncio loop; emails send inline. The beat schedule also
+  references a nonexistent `app.tasks.maintenance` module. Don't rely on `.delay()`.
+- **In-process dispatch loop** runs ~every 5 min despite a "15 min" comment.
+- **Signed-NDA-PDF S3 upload is broken:** `nda_service._s3_upload_bytes` imports
+  `upload_file_bytes` from `file_service`, which doesn't exist (the real function is
+  `upload_bytes_to_s3`). The error is caught and only logged, so signed PDFs silently fail
+  to store. (Real bug — fix when prioritized.)
+- **Missing email templates:** `nda_customer_ready`, `nda_provider_ready`,
+  `subscription_confirmed`, `claim_approved`, `tier_upgraded`, `tier_evaluation_rejected`
+  are referenced but absent — those specific sends would raise. (NDA workflow notices use
+  SignWell email, so the NDA flow itself is unaffected.)
+- **`create_post_acceptance_nda` still pre-fills `template_fields` and uses customer-first
+  signer order** (opposite of `add_provider_to_nda`). If that path is exercised, it may hit
+  the same "thanks for filling out" issue that was fixed in the provider-first path.
+- **SignWell webhook is not signature-verified** (`SIGNWELL_WEBHOOK_SECRET` exists but is
+  unused in the handler). Defensive polling (`_sync_nda_signatures`) compensates.
+- **Internal cron endpoint is unauthenticated** (CRON_SECRET removed by design).
+- **Frontend:** two near-duplicate API modules (`providerRFQ` vs `providerRfqAccess`);
+  several pages use raw `fetch` and bypass the 401→refresh interceptor; auth tokens are in
+  `localStorage` (httpOnly-cookie migration is tracked backlog).
+- **Render free-tier Web Shell** frequently fails to attach ("instance not found"),
+  especially during deploys; retry until an instance id appears. The shell is the only
+  place secrets (e.g. the SignWell key) are readable for live diagnostics.
+
+---
+
+## 21. Maintenance rule
+
+When you change any flow, fee, status, gate, integration, or UI convention described here:
+
+1. Update the relevant section of this file **in the same commit** as the code change.
+2. If you change a number, update §3 / §19 and remove or correct the stale constant in §20.
+3. If you fix a §20 landmine, move it out of §20 (and into the body) so the doc reflects
+   reality.
+4. Keep this file as the single source of truth — fold new knowledge in here rather than
+   creating parallel docs.
+
+_Companion docs:_ `ARCHITECTURE.md` (short pointer to this file), `HANDOFF.md` /
+`DEVELOPMENT_HISTORY.md` (historical), `api_contract_v1.md` (route contract, may lag),
+`DEPLOYMENT_GUIDE.md` (ops). Where any of them conflicts with this file, this file wins.

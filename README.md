@@ -1,6 +1,6 @@
 # 🏭 ProMechDirectory
 
-> 📐 **Start here:** [`ARCHITECTURE.md`](ARCHITECTURE.md) is the authoritative,
+> 📐 **Start here:** [`SYSTEM_SPEC.md`](SYSTEM_SPEC.md) is the authoritative,
 > up-to-date description of the system's flows, money model, and constraints.
 
 **B2B Engineering Services Marketplace Platform**
