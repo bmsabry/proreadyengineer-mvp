@@ -185,6 +185,44 @@ async def _get_template_signing_elements(db: AsyncSession) -> dict:
     return elements_dict
 
 
+async def _build_template_fields(db: AsyncSession, values: dict) -> list:
+    """Build template_fields for ONLY the text-field api_ids that actually exist
+    in the configured Signwell template.
+
+    This adapts to whatever the template looks like and prevents 422
+    "not_in_templates" errors when the template's fields differ from our defaults
+    (e.g. a recreated template with a generic 'TextField_1'). Signature fields are
+    NEVER included here -- signatures are collected from the signers at signing
+    time, not pre-filled as template_fields.
+    """
+    h = await _headers(db)
+    tid = await _get_template_id(db)
+    valid: set = set()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(f"{SIGNWELL_BASE_URL}/document_templates/{tid}", headers=h)
+            resp.raise_for_status()
+            data = resp.json()
+        raw = data.get("fields") or data.get("template_fields") or []
+        flat = []
+        for f in raw:
+            flat.extend(f) if isinstance(f, list) else flat.append(f)
+        for f in flat:
+            if isinstance(f, dict) and f.get("type") == "text" and f.get("api_id"):
+                valid.add(f["api_id"])
+    except Exception as exc:  # pragma: no cover - network/template fetch
+        logger.warning("[SIGNWELL] could not read template fields (%s); sending provided values", exc)
+        valid = set(values.keys())
+    out = [
+        {"api_id": k, "value": ("" if v is None else str(v))}
+        for k, v in values.items()
+        if k in valid
+    ]
+    logger.info("[SIGNWELL] template_fields matched %d/%d (valid template ids: %s)",
+                len(out), len(values), sorted(valid))
+    return out
+
+
 async def add_provider_to_nda(
     rfq_id,
     provider_id: int,
@@ -267,20 +305,18 @@ async def add_provider_to_nda(
 
     customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    template_fields = [
-        {"api_id": "customer_name",        "value": customer_name},
-        {"api_id": "customer_name2",       "value": customer_name},
-        {"api_id": "customer_company",     "value": customer_company},
-        {"api_id": "customer_entity_type", "value": "Company"},
-        {"api_id": "effective_date",       "value": effective_date},
-        {"api_id": "governing_state",      "value": customer_state},
-        {"api_id": "provider_name",        "value": prov_signer_name},
-        {"api_id": "provider_name2",       "value": prov_signer_name},
-        {"api_id": "provider_company",     "value": provider_company},
-        {"api_id": "provider_entity_type", "value": "Company"},
-        {"api_id": "customer_signature",   "value": ""},
-        {"api_id": "provider_signature",   "value": ""},
-    ]
+    template_fields = await _build_template_fields(db, {
+        "customer_name":        customer_name,
+        "customer_name2":       customer_name,
+        "customer_company":     customer_company,
+        "customer_entity_type": "Company",
+        "effective_date":       effective_date,
+        "governing_state":      customer_state,
+        "provider_name":        prov_signer_name,
+        "provider_name2":       prov_signer_name,
+        "provider_company":     provider_company,
+        "provider_entity_type": "Company",
+    })
 
     payload = {
         "template_id": tid,
@@ -588,21 +624,19 @@ async def create_post_acceptance_nda(
         customer_placeholder_name = "Customer"
         provider_placeholder_name = "Provider"
 
-    # Step 3: Build 12 template_fields (exactly like admin test)
-    template_fields = [
-        {"api_id": "customer_name",        "value": customer_name},
-        {"api_id": "customer_name2",       "value": customer_name},
-        {"api_id": "customer_company",     "value": business_name or customer_name},
-        {"api_id": "customer_entity_type", "value": customer_entity_type},
-        {"api_id": "provider_name",        "value": provider_signer_name},
-        {"api_id": "provider_name2",       "value": provider_signer_name},
-        {"api_id": "provider_company",     "value": provider_company},
-        {"api_id": "provider_entity_type", "value": "Company"},
-        {"api_id": "effective_date",       "value": effective_date},
-        {"api_id": "governing_state",      "value": customer_state or "Not Specified"},
-        {"api_id": "customer_signature",   "value": ""},
-        {"api_id": "provider_signature",   "value": ""},
-    ]
+    # Build template_fields for whatever text fields the template actually has.
+    template_fields = await _build_template_fields(db, {
+        "customer_name":        customer_name,
+        "customer_name2":       customer_name,
+        "customer_company":     business_name or customer_name,
+        "customer_entity_type": customer_entity_type,
+        "provider_name":        provider_signer_name,
+        "provider_name2":       provider_signer_name,
+        "provider_company":     provider_company,
+        "provider_entity_type": "Company",
+        "effective_date":       effective_date,
+        "governing_state":      customer_state or "Not Specified",
+    })
 
     # Step 4: Build payload (exactly like admin test)
     payload = {
