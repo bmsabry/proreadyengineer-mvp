@@ -1,5 +1,12 @@
 # ProReadyEngineer — Complete Handoff Document
 
+> **⚠️ This handoff doc is partly historical.** For the *current* architecture,
+> money model, RFQ/dispatch/NDA/payment flows, statuses, and known constraints,
+> read **`ARCHITECTURE.md`** (kept up to date) and **`CODE_AUDIT_2026-05-28.md`**.
+> Sections below marked as 'open issues' from April 2026 have largely been
+> resolved in the May 2026 cleanup — see ARCHITECTURE.md §11 for the live backlog.
+
+
 > **For the receiving agent:** Read this first, then `DEVELOPMENT_HISTORY.md`, then load `secrets.env`.
 
 ---

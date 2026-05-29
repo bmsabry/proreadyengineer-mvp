@@ -53,7 +53,7 @@
 | GET | /rfqs/{rfq_id} | Yes | customer, admin | Get RFQ details and current status |
 | POST | /rfqs/{rfq_id}/files/initiate | Yes | customer | Get presigned URL to upload RFQ attachment |
 | POST | /rfqs/{rfq_id}/files/complete | Yes | customer | Confirm RFQ file upload, queue extraction |
-| POST | /rfqs/{rfq_id}/nda/checkout | Yes | customer | Initiate NDA payment and signing flow ($5 fee) |
+| POST | /rfqs/{rfq_id}/nda/checkout | Yes | customer | Initiate customer NDA handling fee ($10) — provider-first mutual NDA flow |
 | GET | /rfqs/{rfq_id}/status | Yes | customer, admin | Get detailed RFQ lifecycle status |
 | POST | /rfqs/{rfq_id}/submit | Yes | customer | Submit RFQ for provider matching and dispatch |
 
@@ -178,3 +178,12 @@
 6. All file uploads validated by MIME type and size
 7. SQL injection prevention via parameterized queries
 8. XSS prevention via output encoding
+
+
+## Removed (legacy NDA endpoints, May 2026)
+
+The customer-iframe-first NDA endpoints were removed when the NDA flow was
+consolidated into one mutual, provider-first 'sign-to-read' model:
+`POST /rfqs/{rfq_id}/nda/initiate`, `GET /rfqs/{rfq_id}/nda/signing-url`,
+`POST /rfqs/{rfq_id}/nda/confirm-signed`. Provider NDA signing is now
+`POST /provider/rfqs/{rfq_id}/nda/signing-url`. See ARCHITECTURE.md §6.

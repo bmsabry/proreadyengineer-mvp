@@ -370,3 +370,28 @@ Fix: `down_revision = '92a49adae23c'` so the help_chat migration is a single lin
 8. **SignWell not SignRequest** — User made this call. The webhook is named /webhooks/signrequest for compatibility.
 9. **RESEND_API_KEY is available** (from agent secrets injection).
 10. **Agent works within Agent Zero framework** — The project lives at `/a0/usr/projects/website_for_engineering_directory/`. The deploy/ subdirectory is the git-tracked portion.
+
+---
+
+## May 2026 — Stabilization, security, and NDA consolidation
+
+A full audit (`CODE_AUDIT_2026-05-28.md`) was run and acted on:
+
+- **RFQ dispatch:** fixed the trap where NDA-required RFQs stranded in
+  `awaiting_customer_signature` and never dispatched. `submit_rfq` is now tolerant of
+  pre-dispatch states and **concurrency-safe** (atomic claim) so duplicate triggers
+  can't double-dispatch.
+- **NDA consolidated to ONE model** — mutual, provider-first "sign to read" (see
+  ARCHITECTURE.md §6). The legacy customer-iframe-first path (endpoints + service
+  functions) was removed.
+- **Security:** production refuses to boot on the default `SECRET_KEY`; PayPal webhook
+  now verifies signatures (fail-closed); CORS scoped to project origins; a latent
+  naive/aware datetime bug in refresh-token/lockout checks was hardened.
+- **Correctness:** subscriber RFQ unlocks now use the recognized `unlocked` status (they
+  were granted but never honored); free-tier search limit corrected to 10 (matched the
+  admin UI / advertised value); an N+1 in the customer RFQ list was batched.
+- **Hygiene:** 34 broad `except Exception: pass` blocks and 6 fire-and-forget frontend
+  `.catch(() => {})` now log instead of swallowing; stale fee comments corrected.
+- **Safety net:** added a GitHub Actions CI that runs the backend unit suite on every
+  push/PR (none existed before); added regression tests for the dispatch trap, the
+  mutual-NDA webhook, auth, payments, and search quota.
