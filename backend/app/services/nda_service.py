@@ -285,40 +285,24 @@ async def add_provider_to_nda(
     if not customer_email:
         raise ValueError(f"RFQ {rfq_id} has no customer email to send the NDA to")
 
-    customer_company = (
-        (cust_user.business_name if cust_user else None)
-        or getattr(rfq, "business_name", None)
-        or customer_name
-    )
-    customer_state = (cust_user.state if cust_user else None) or "Not Specified"
-
     provider = (await db.execute(
         select(Provider).where(Provider.id == provider_id)
     )).scalar_one_or_none()
     if not provider:
         raise ValueError(f"Provider {provider_id} not found")
-    provider_company = getattr(provider, "name", None) or getattr(provider, "firm_name", None) or "Provider"
     prov_first = (provider_user.first_name or "").strip()
     prov_last  = (provider_user.last_name  or "").strip()
     prov_signer_name = f"{prov_first} {prov_last}".strip() or provider_user.email
 
-    from datetime import date as _date
-    effective_date = _date.today().strftime("%m/%d/%Y")
-
     customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    template_fields = await _build_template_fields(db, {
-        "customer_name":        customer_name,
-        "customer_name2":       customer_name,
-        "customer_company":     customer_company,
-        "customer_entity_type": "Company",
-        "effective_date":       effective_date,
-        "governing_state":      customer_state,
-        "provider_name":        prov_signer_name,
-        "provider_name2":       prov_signer_name,
-        "provider_company":     provider_company,
-        "provider_entity_type": "Company",
-    })
+    # Do NOT pre-fill the signers' form fields. Each party fills and confirms
+    # their OWN details (name, company, entity type, governing state, date) at
+    # signing time. Pre-filling injected guessed/placeholder values into a legal
+    # NDA, and left the customer (signer 2) with an all-pre-filled form that
+    # Signwell short-circuited to a "thanks for filling out" screen instead of
+    # prompting for their signature.
+    template_fields: list = []
 
     # Email-based signing with a signing ORDER: the provider (signer 1) is emailed
     # first; once they sign, Signwell automatically emails the customer (signer 2)
