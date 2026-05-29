@@ -25,6 +25,7 @@ export interface CustomerRFQ {
   total_matched: number;
   dispatched_count: number;
   remaining_count: number;
+  nda_awaiting_customer_signature?: boolean;
 }
 
 export const ACTIVE_STATUSES = ['submitted', 'open_for_dispatch', 'dispatching', 'open_for_unlock'];

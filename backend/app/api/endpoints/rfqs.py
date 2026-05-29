@@ -91,6 +91,17 @@ async def get_my_rfqs(
         select(RFQDispatch.rfq_id, F.count()).where(RFQDispatch.rfq_id.in_(all_rfq_ids)).group_by(RFQDispatch.rfq_id)
     )).all()) if all_rfq_ids else {}
 
+    # RFQs with a mutual NDA the PROVIDER has signed but the customer has not yet
+    # countersigned -> the customer has an action awaiting them (portal task).
+    awaiting_rows = (await db.execute(
+        select(RFQNDA.rfq_id).where(
+            RFQNDA.rfq_id.in_(all_rfq_ids),
+            RFQNDA.provider_signed_at.isnot(None),
+            RFQNDA.customer_signed_at.is_(None),
+        )
+    )).all() if all_rfq_ids else []
+    awaiting_customer_sig = {str(x[0]) for x in awaiting_rows}
+
     result = []
     for r in rows:
         uid = r.id
@@ -113,6 +124,7 @@ async def get_my_rfqs(
             "total_matched": total_matched,
             "dispatched_count": dispatched_count,
             "remaining_count": remaining,
+            "nda_awaiting_customer_signature": str(uid) in awaiting_customer_sig,
         })
     return result
 

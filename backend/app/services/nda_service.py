@@ -320,16 +320,20 @@ async def add_provider_to_nda(
         "provider_entity_type": "Company",
     })
 
+    # Email-based signing with a signing ORDER: the provider (signer 1) is emailed
+    # first; once they sign, Signwell automatically emails the customer (signer 2)
+    # to countersign. Do NOT set document-level embedded_signing -- it suppresses
+    # ALL invitation emails, which is why the customer was never notified.
     payload = {
         "template_id": tid,
         "test_mode":   False,
-        "embedded_signing": True,  # so the provider can sign in-app immediately
+        "apply_signing_order": True,
         "subject":     f"NDA required to view Engineering RFQ #{rfq_id}",
         "message":     ("A provider wishes to review your RFQ. Both parties must sign this "
                         "mutual NDA before the full RFQ and project files are shared."),
         "recipients": [
-            {"id": "1", "name": customer_name,    "email": customer_email,    "placeholder_name": customer_placeholder_name},
-            {"id": "2", "name": prov_signer_name, "email": provider_user.email, "placeholder_name": provider_placeholder_name},
+            {"id": "1", "name": prov_signer_name, "email": provider_user.email, "placeholder_name": provider_placeholder_name},
+            {"id": "2", "name": customer_name,    "email": customer_email,      "placeholder_name": customer_placeholder_name},
         ],
         "template_fields": template_fields,
     }
@@ -348,11 +352,12 @@ async def add_provider_to_nda(
 
     doc_data    = resp.json()
     document_id = doc_data["id"]
-    # Embedded URL for the PROVIDER (recipient id "2"); fall back to first available.
+    # Provider is signer id "1"; return their hosted signing URL so the "Sign NDA"
+    # button can send them straight there (Signwell also emails them as a backup).
     signing_url = None
     for signer in (doc_data.get("recipients") or doc_data.get("signers") or []):
-        if str(signer.get("id")) == "2":
-            signing_url = signer.get("embedded_signing_url") or signer.get("sign_page_url")
+        if str(signer.get("id")) == "1":
+            signing_url = signer.get("sign_page_url") or signer.get("embedded_signing_url")
             break
     if not signing_url:
         signing_url = _extract_signing_url(doc_data)

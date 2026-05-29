@@ -393,6 +393,16 @@ function CustomerDashboardInner() {
         </div>
       )}
 
+      {/* NDA awaiting the customer's countersignature (provider already signed) */}
+      {rfqs.some(r => r.nda_awaiting_customer_signature) && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-3">
+          <p className="text-sm font-medium text-amber-900">
+            &#9888; Action required: {rfqs.filter(r => r.nda_awaiting_customer_signature).length} NDA(s) awaiting your signature.
+            A provider signed an NDA to access your RFQ &mdash; check your email for the signing request and countersign so they can proceed.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-6 py-8">
