@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Subscription Confirmed - ProMechDirectory{% endblock %}
+{% block content %}
+<h2 style="color: #1e40af;">Subscription Confirmed</h2>
+<p>Thank you &mdash; your subscription is now active.</p>
+
+<div style="background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; padding: 16px; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+        <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #374151; width: 120px;">Plan:</td>
+            <td style="padding: 6px 0; color: #111827;">{{ subscription_type }}</td>
+        </tr>
+        <tr>
+            <td style="padding: 6px 0; font-weight: bold; color: #374151;">Amount:</td>
+            <td style="padding: 6px 0; color: #111827;">{{ amount }}</td>
+        </tr>
+    </table>
+</div>
+
+<p>You can view invoices, update your payment method, or cancel anytime from your billing page.</p>
+<p style="text-align: center; margin-top: 24px;">
+    <a href="{{ billing_portal_url }}" class="button">Manage Subscription</a>
+</p>
+<p style="color: #6b7280; font-size: 13px; margin-top: 24px;">
+    If you did not authorize this subscription, please contact support.
+</p>
+{% endblock %}

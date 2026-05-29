@@ -353,8 +353,9 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 - **Failure tracking:** send failures and inbound bounce/complaint webhooks are recorded
   as `EmailFailure` rows and surface in Admin → Debugging (the nav row turns red).
 - ⚠️ Some referenced templates (`nda_customer_ready`, `nda_provider_ready`,
-  `subscription_confirmed`, `claim_approved`, `tier_upgraded`) are **missing from the
-  templates directory** and would raise at render time if those specific sends fire (§20).
+  `claim_approved`, `tier_upgraded`, `tier_evaluation_rejected`) are still **missing from
+  the templates directory**; if those specific sends fire they render an empty body and
+  Resend rejects them with a 422 (§20). `subscription_confirmed` was created 2026-05-29.
   Note the *NDA workflow notifications in §9 rely on SignWell's own emails*, not these.
 
 ---
@@ -502,10 +503,13 @@ live behaviour match the stale value** — the live behaviour is correct.
   `upload_file_bytes` from `file_service`, which doesn't exist (the real function is
   `upload_bytes_to_s3`). The error is caught and only logged, so signed PDFs silently fail
   to store. (Real bug — fix when prioritized.)
-- **Missing email templates:** `nda_customer_ready`, `nda_provider_ready`,
-  `subscription_confirmed`, `claim_approved`, `tier_upgraded`, `tier_evaluation_rejected`
-  are referenced but absent — those specific sends would raise. (NDA workflow notices use
-  SignWell email, so the NDA flow itself is unaffected.)
+- **Missing email templates (latent):** `nda_customer_ready`, `nda_provider_ready`,
+  `claim_approved`, `tier_upgraded`, `tier_evaluation_rejected` are referenced but absent.
+  A missing template renders an **empty body**, so the send hits Resend, gets a **422
+  validation_error**, AND then also logs a misleading 'no transport configured' row — two
+  Broken/Bounced rows per send. (`subscription_confirmed` hit exactly this and was created
+  2026-05-29; the others remain and will fail the same way if triggered.) NDA workflow
+  notices use SignWell email, so the NDA flow itself is unaffected.
 - **`create_post_acceptance_nda` still pre-fills `template_fields` and uses customer-first
   signer order** (opposite of `add_provider_to_nda`). If that path is exercised, it may hit
   the same "thanks for filling out" issue that was fixed in the provider-first path.
