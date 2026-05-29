@@ -493,6 +493,66 @@ async def _s3_upload_bytes(data: bytes, s3_key: str, content_type: str, db: Asyn
     await upload_file_bytes(data, s3_key, content_type)
 
 
+async def _sync_nda_signatures(nda: RFQNDA, db: AsyncSession) -> RFQNDA:
+    """Poll Signwell for the document's per-recipient signing status and record it
+    on the NDA (provider_signed_at / customer_signed_at / fully_signed). This makes
+    status checks reflect reality even if the webhook never fired. Safe to call on
+    every status read; it only writes when something changed.
+    """
+    if not nda.signrequest_document_id:
+        return nda
+    if str(getattr(nda, "nda_status", "")) == "fully_signed":
+        return nda
+    try:
+        h = await _headers(db)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{SIGNWELL_BASE_URL}/documents/{nda.signrequest_document_id}", headers=h
+            )
+            resp.raise_for_status()
+        doc = resp.json()
+        # Resolve the customer's email so we can tell signers apart.
+        cust_email = None
+        if nda.customer_user_id:
+            cu = (await db.execute(select(User).where(User.id == nda.customer_user_id))).scalar_one_or_none()
+            cust_email = (cu.email or "").strip().lower() if cu else None
+        recips = doc.get("recipients") or doc.get("signers") or []
+        signed_emails = [
+            (r.get("email") or "").strip().lower()
+            for r in recips
+            if r.get("status") in ("completed", "signed") or r.get("completed") or r.get("signed_at")
+        ]
+        now = datetime.now(timezone.utc)
+        changed = False
+        for em in signed_emails:
+            if cust_email and em == cust_email:
+                if not nda.customer_signed_at:
+                    nda.customer_signed_at = now; changed = True
+            else:
+                if not nda.provider_signed_at:
+                    nda.provider_signed_at = now; changed = True
+        doc_complete = doc.get("status") in ("completed", "signed")
+        if (nda.customer_signed_at and nda.provider_signed_at) or doc_complete:
+            if str(getattr(nda, "nda_status", "")) != "fully_signed":
+                nda.nda_status = "fully_signed"; changed = True
+            if not nda.fully_signed_at:
+                nda.fully_signed_at = now; changed = True
+            if not nda.customer_signed_at:
+                nda.customer_signed_at = now
+            if not nda.provider_signed_at:
+                nda.provider_signed_at = now
+        elif (nda.customer_signed_at or nda.provider_signed_at) and str(getattr(nda, "nda_status", "")) not in ("fully_signed", "partially_signed"):
+            nda.nda_status = "partially_signed"; changed = True
+        if changed:
+            await db.commit()
+            await db.refresh(nda)
+            logger.info("[SIGNWELL] synced NDA %s: prov=%s cust=%s status=%s",
+                        nda.id, bool(nda.provider_signed_at), bool(nda.customer_signed_at), nda.nda_status)
+    except Exception as exc:
+        logger.warning("[SIGNWELL] _sync_nda_signatures failed for NDA %s: %s", nda.id, exc)
+    return nda
+
+
 async def _heal_nda_if_complete(nda: RFQNDA, db: AsyncSession) -> bool:
     """Check Signwell API to see if the document is fully completed by all parties.
     If yes, updates nda_status to 'fully_signed' and saves to DB.

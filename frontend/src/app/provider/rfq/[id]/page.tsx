@@ -28,6 +28,7 @@ interface UnlockStatus {
   nda_required?: boolean;
   nda_status?: string;
   provider_nda_signed?: boolean;
+  provider_has_signed?: boolean;
   quote_accepted?: boolean;
   business_name?: string;
   project_description_preview?: string;
@@ -868,28 +869,47 @@ function ProviderRFQPageInner() {
                     <div className="flex items-start gap-3">
                       <ShieldAlert className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
                       <div>
-                        <h3 className="font-semibold text-amber-900 mb-1">Sign the NDA to view this project</h3>
-                        <p className="text-sm text-amber-800 mb-3">
-                          This RFQ requires a mutual Non-Disclosure Agreement. Sign it to unlock the full project description and files. The customer will be notified to countersign; once both parties sign, you get full access and can submit a quote.
-                        </p>
-                        <p className="text-xs text-amber-700 mb-3">After both signatures, this page refreshes automatically to show the full RFQ and files.</p>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="bg-amber-600 text-white hover:bg-amber-700"
-                            onClick={handleSignNda}
-                          >
-                            <ShieldAlert className="h-3 w-3 mr-1" />Sign NDA
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-amber-400 text-amber-800 hover:bg-amber-100"
-                            onClick={() => loadStatus()}
-                          >
-                            <RefreshCw className="h-3 w-3 mr-1" />Check Status
-                          </Button>
-                        </div>
+                        {status.provider_has_signed ? (
+                          <>
+                            <h3 className="font-semibold text-amber-900 mb-1">You&apos;ve signed &mdash; waiting for the customer to countersign</h3>
+                            <p className="text-sm text-amber-800 mb-3">
+                              Your signature is recorded. The customer has been notified to countersign the NDA. Once both parties have signed, this page unlocks the full RFQ and files automatically and you can submit a quote.
+                            </p>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-amber-400 text-amber-800 hover:bg-amber-100"
+                              onClick={() => loadStatus()}
+                            >
+                              <RefreshCw className="h-3 w-3 mr-1" />Check Status
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <h3 className="font-semibold text-amber-900 mb-1">Sign the NDA to view this project</h3>
+                            <p className="text-sm text-amber-800 mb-3">
+                              This RFQ requires a mutual Non-Disclosure Agreement. Sign it to unlock the full project description and files. The customer will be notified to countersign; once both parties sign, you get full access and can submit a quote.
+                            </p>
+                            <p className="text-xs text-amber-700 mb-3">After both signatures, this page refreshes automatically to show the full RFQ and files.</p>
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="bg-amber-600 text-white hover:bg-amber-700"
+                                onClick={handleSignNda}
+                              >
+                                <ShieldAlert className="h-3 w-3 mr-1" />Sign NDA
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-amber-400 text-amber-800 hover:bg-amber-100"
+                                onClick={() => loadStatus()}
+                              >
+                                <RefreshCw className="h-3 w-3 mr-1" />Check Status
+                              </Button>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   </CardContent>

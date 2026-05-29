@@ -1237,8 +1237,11 @@ async def get_unlock_status(
         )
         quote_accepted = quote_result.scalar_one_or_none() is not None
 
-        # Check provider NDA signing status (only relevant after quote acceptance)
+        # NDA signing status. provider_nda_signed == BOTH parties signed (full access);
+        # provider_has_signed == this provider has signed but may still be waiting on
+        # the customer to countersign.
         provider_nda_signed = False
+        provider_has_signed = False
         if rfq.nda_required:
             from app.models.nda import RFQNDA
             nda_result = await db.execute(
@@ -1248,24 +1251,21 @@ async def get_unlock_status(
                 )
             )
             provider_nda = nda_result.scalar_one_or_none()
-            # Access requires BOTH parties to have signed (mutual NDA fully signed).
-            if provider_nda and provider_nda.fully_signed_at is not None:
-                provider_nda_signed = True
-            # If still not signed, poll Signwell directly (self-healing fallback)
-            if not provider_nda_signed and provider_nda:
+            if provider_nda:
+                # Pull the latest per-signer status straight from Signwell so the
+                # status reflects reality even if the webhook never fired.
                 try:
-                    from app.services.nda_service import _heal_nda_if_complete
-                    healed = await _heal_nda_if_complete(provider_nda, db)
-                    if healed:
-                        provider_nda_signed = True
-                except Exception as _heal_exc:
+                    from app.services.nda_service import _sync_nda_signatures
+                    provider_nda = await _sync_nda_signatures(provider_nda, db)
+                except Exception as _sync_exc:
                     import logging
-                    logging.getLogger(__name__).warning(
-                        "NDA self-heal failed in unlock_status: %s", _heal_exc
-                    )
+                    logging.getLogger(__name__).warning("NDA sync failed in unlock_status: %s", _sync_exc)
+                provider_has_signed = provider_nda.provider_signed_at is not None
+                provider_nda_signed = provider_nda.fully_signed_at is not None
         else:
             # NDA not required - treat as signed
             provider_nda_signed = True
+            provider_has_signed = True
 
         # For NDA RFQs the full description is only revealed once the mutual NDA is
         # fully signed. Until then the provider sees only the redacted preview.
@@ -1274,11 +1274,12 @@ async def get_unlock_status(
             "unlocked": True,
             "project_description": rfq.project_description if _can_view_full else None,
             "provider_nda_signed": provider_nda_signed,
+            "provider_has_signed": provider_has_signed,
             "quote_accepted": quote_accepted,
             **base_info
         }
     else:
-        return {"unlocked": False, "provider_nda_signed": False, "quote_accepted": False, **base_info}
+        return {"unlocked": False, "provider_nda_signed": False, "provider_has_signed": False, "quote_accepted": False, **base_info}
 
 @router.get("/provider/rfqs/{rfq_id}/files")
 async def get_rfq_files(
