@@ -531,8 +531,8 @@ const admin = {
     apiClient.post<{ success: boolean; payment_id: string; purpose: string; message: string }>(`/admin/payments/${paymentId}/force-fulfill-subscription`),
   
   
-  overrideRFQStatus: (id: string, status: string) => 
-    apiClient.post<RFQ>(`/admin/rfqs/${id}/override-status`, { status }),
+  overrideRFQStatus: (id: string, status: string, reason: string = 'Admin override') =>
+    apiClient.post<RFQ>(`/admin/rfqs/${id}/override-status`, { new_status: status, reason }),
   
   // Payments
   listPayments: (params?: { page?: number; page_size?: number; status?: string }) => 
