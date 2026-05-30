@@ -210,6 +210,12 @@ async def submit_rfq(
             .values(
                 rfq_status=RfqStatus.OPEN_FOR_DISPATCH,
                 submitted_at=func.coalesce(RFQ.submitted_at, datetime.now(timezone.utc)),
+                # Core UPDATE bypasses the ORM @validates('rfq_status') hook, so set is_closed
+                # explicitly: entering dispatch means the RFQ is OPEN. Without this a stale
+                # is_closed=True persists while rfq_status reads open_for_dispatch/unlock, so the
+                # RFQ shows OPEN in admin yet behaves CLOSED in quote/provider gates.
+                is_closed=False,
+                closed_at=None,
             )
         )
         await db.commit()
