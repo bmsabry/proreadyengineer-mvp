@@ -118,6 +118,8 @@ class QuoteResponse(ResponseSchema):
     # RFQ status fields - always populated in provider quotes/me endpoint for correct filtering
     rfq_status: Optional[str] = None
     rfq_is_closed: Optional[bool] = None
+    # True once the provider marked the accepted RFQ "customer already contacted".
+    provider_contacted: Optional[bool] = None
 
 
 class QuoteForCustomerResponse(QuoteResponse):

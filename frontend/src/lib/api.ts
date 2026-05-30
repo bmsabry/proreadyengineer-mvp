@@ -398,6 +398,9 @@ const quotes = {
   getForProvider: () =>
     apiClient.get<Quote[]>('/provider/quotes/me'),
 
+  markContacted: (quoteId: string) =>
+    apiClient.post<{ quote_id: string; provider_contacted: boolean }>(`/provider/quotes/${quoteId}/mark-contacted`),
+
   extractQuoteDocument: async (rfqId: string, file: File): Promise<QuoteDocExtractResponse> => {
     const formData = new FormData();
     formData.append('file', file);

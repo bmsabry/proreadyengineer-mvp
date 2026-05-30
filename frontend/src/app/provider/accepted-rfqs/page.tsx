@@ -11,32 +11,12 @@ import {
   MailCheck, XCircle, User,
 } from 'lucide-react';
 
-const LS_KEY = 'provider_contacted_rfqs';
-
-function loadContactedIds(): string[] {
-  if (typeof window === 'undefined') return [];
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch { return []; }
-}
-
-function saveContactedIds(ids: string[]) {
-  if (typeof window === 'undefined') return;
-  try { localStorage.setItem(LS_KEY, JSON.stringify(ids)); } catch {}
-}
-
 export default function AcceptedRFQsPage() {
   const { user, isLoading: authLoading } = useRequireAuth(['provider']);
   const router = useRouter();
   const [items, setItems]               = useState<Quote[]>([]);
-  const [contactedIds, setContactedIds] = useState<string[]>([]);
+  const [contactingId, setContactingId] = useState<string | null>(null);
   const [isLoading, setIsLoading]       = useState(true);
-
-  // Load contacted IDs from localStorage
-  useEffect(() => {
-    setContactedIds(loadContactedIds());
-  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -56,10 +36,20 @@ export default function AcceptedRFQsPage() {
     })();
   }, [user]);
 
-  const handleContacted = (rfqId: string) => {
-    const updated = [...contactedIds, rfqId];
-    setContactedIds(updated);
-    saveContactedIds(updated);
+  const handleContacted = async (quoteId: string) => {
+    if (contactingId) return;                 // guard double-clicks
+    setContactingId(quoteId);
+    // Optimistically hide the card; persist on the server so it never comes back.
+    setItems(prev => prev.map(q => q.id === quoteId ? { ...q, provider_contacted: true } : q));
+    try {
+      await api.quotes.markContacted(quoteId);
+    } catch (e) {
+      console.error(e);
+      // Revert on failure so the user can retry.
+      setItems(prev => prev.map(q => q.id === quoteId ? { ...q, provider_contacted: false } : q));
+    } finally {
+      setContactingId(null);
+    }
   };
 
   if (authLoading || isLoading) {
@@ -70,8 +60,8 @@ export default function AcceptedRFQsPage() {
     );
   }
 
-  const activeItems  = items.filter(q => !contactedIds.includes(q.rfq_id));
-  const closedItems  = items.filter(q => contactedIds.includes(q.rfq_id));
+  const activeItems  = items.filter(q => !q.provider_contacted);
+  const closedItems  = items.filter(q => q.provider_contacted);
 
   return (
     <div>
@@ -171,10 +161,11 @@ export default function AcceptedRFQsPage() {
                   View Project Details <ArrowRight className="h-3.5 w-3.5" />
                 </button>
                 <button
-                  onClick={() => handleContacted(q.rfq_id)}
-                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-all"
+                  onClick={() => handleContacted(q.id)}
+                  disabled={contactingId === q.id}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white rounded-xl text-xs font-semibold transition-all"
                 >
-                  <MailCheck className="h-3.5 w-3.5" /> Customer Already Contacted
+                  <MailCheck className="h-3.5 w-3.5" /> {contactingId === q.id ? 'Saving…' : 'Customer Already Contacted'}
                 </button>
               </div>
             </div>

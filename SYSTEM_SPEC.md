@@ -125,7 +125,12 @@ UUIDs unless noted. Providers use integer ids.
   `signrequest_template_id`, `signed_pdf_s3_key`, `audit_trail_s3_key`,
   **`customer_signed_at`**, **`provider_signed_at`**, **`fully_signed_at`**, timestamps.
 - **Quote** (`quotes`) — provider's bid: pricing, turnaround, assumptions, scope,
-  `quote_status` (`QuoteStatus`), optional quote document (S3).
+  `quote_status` (`QuoteStatus`), optional quote document (S3), and
+  **`provider_contacted_at`** (timestamp, migration `e5b8c3d21f09`, 2026-05-30): set when the
+  provider marks an accepted RFQ "customer already contacted" on `/provider/accepted-rfqs`.
+  Persists the dismissal server-side (was localStorage-only and reset every session); the
+  `/provider/quotes/me` serializer exposes it as `provider_contacted` and
+  `POST /provider/quotes/{id}/mark-contacted` sets it (idempotent, ownership-checked).
 - **PaymentAttempt** — one row per checkout attempt; `purpose` (`PaymentPurpose`),
   `status` (`PaymentStatus`), deterministic `idempotency_key`.
 - **WebhookEvent** — inbound webhook dedup/audit (`provider`, `external_event_id`,

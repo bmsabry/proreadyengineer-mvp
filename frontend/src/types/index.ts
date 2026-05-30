@@ -347,6 +347,7 @@ export interface Quote {
   files?: QuoteFile[];
   rfq_status?: string;       // RFQ lifecycle status - populated by /provider/quotes/me
   rfq_is_closed?: boolean;   // true when RFQ is no longer accepting quotes
+  provider_contacted?: boolean;  // true once provider marked accepted RFQ "customer contacted" (persisted server-side)
 }
 
 export interface QuoteFile {

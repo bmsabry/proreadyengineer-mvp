@@ -505,6 +505,7 @@ async def get_provider_quotes(
     responses = []
     for q in quotes:
         resp = QuoteResponse.from_orm(q)
+        resp.provider_contacted = getattr(q, "provider_contacted_at", None) is not None
         rfq = rfq_map.get(q.rfq_id)
         if rfq:
             # Always include rfq_status and rfq_is_closed so frontend can filter correctly
@@ -516,3 +517,40 @@ async def get_provider_quotes(
                 resp.customer_email = rfq.customer_email
         responses.append(resp)
     return responses
+
+
+@router.post("/provider/quotes/{quote_id}/mark-contacted")
+async def mark_quote_contacted(
+    quote_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["provider"])),
+):
+    """Persist the provider's "customer already contacted" dismissal for an accepted RFQ.
+
+    Idempotent. Verifies the quote belongs to the calling provider's firm.
+    """
+    from sqlalchemy import select
+    from datetime import datetime, timezone
+    from app.models.quote import Quote
+    from app.models.provider import ProviderMembership
+    try:
+        quote_uuid = uuid.UUID(str(quote_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid quote id")
+
+    membership = (await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
+    )).scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No provider membership")
+
+    quote = (await db.execute(
+        select(Quote).where(Quote.id == quote_uuid, Quote.provider_id == membership.provider_id)
+    )).scalar_one_or_none()
+    if not quote:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
+
+    if quote.provider_contacted_at is None:
+        quote.provider_contacted_at = datetime.now(timezone.utc)
+        await db.commit()
+    return {"quote_id": str(quote_uuid), "provider_contacted": True}

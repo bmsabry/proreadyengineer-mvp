@@ -72,6 +72,12 @@ class Quote(Base):
     document_s3_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     document_filename: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
+    # Set when the provider marks an accepted RFQ as "customer already contacted".
+    # Persists the dismissal so the accepted-RFQ card stays hidden across sessions/devices.
+    provider_contacted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Relationships
     rfq: Mapped["RFQ"] = relationship("RFQ", back_populates="quotes")
     provider: Mapped["Provider"] = relationship("Provider", back_populates="quotes")
