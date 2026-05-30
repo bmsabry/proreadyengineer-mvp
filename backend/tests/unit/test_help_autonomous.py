@@ -14,7 +14,8 @@ class _FakeUser:
 
 def test_action_allowlists_are_exactly_as_expected():
     assert HA.SAFE_ACTIONS == {"mark_contacted", "undo_mark_contacted"}
-    assert HA.AUTONOMOUS_ACTIONS == {"accept_quote", "cancel_rfq", "withdraw_quote"}
+    assert HA.AUTONOMOUS_ACTIONS == {"accept_quote", "cancel_rfq", "withdraw_quote",
+                                    "create_rfq_from_docs", "submit_quote_from_docs"}
     # Payments and NDA signing must NEVER be executable.
     for forbidden in ["pay", "pay_unlock", "pay_nda_fee", "subscribe", "sign_nda", "countersign_nda", "esign"]:
         assert forbidden not in HA.ALL_ACTIONS

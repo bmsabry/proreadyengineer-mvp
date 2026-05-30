@@ -3,9 +3,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { helpApi } from '@/lib/api';
-import type { HelpChatTurn, HelpStatus } from '@/lib/api';
+import type { HelpChatTurn, HelpStatus, HelpUpload } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { MessageCircle, X, Send, Lock, Sparkles } from 'lucide-react';
+import { MessageCircle, X, Send, Lock, Sparkles, Paperclip } from 'lucide-react';
 
 // Routes where we do NOT show the chat bubble (to keep login/legal pages clean).
 const HIDDEN_PREFIXES = [
@@ -38,6 +38,9 @@ export default function HelpChatWidget() {
   const [autonomous, setAutonomous] = useState(false);
   const [showConsent, setShowConsent] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
+  const [attachments, setAttachments] = useState<HelpUpload[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   const hidden = HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
@@ -104,9 +107,14 @@ export default function HelpChatWidget() {
     try {
       const history: HelpChatTurn[] = nextMsgs.slice(-10);
       const page = typeof window !== 'undefined' ? window.location.pathname : undefined;
-      const resp = await helpApi.chat(text, history, page);
+      const sentAttachments = attachments;
+      const resp = await helpApi.chat(text, history, page, sentAttachments);
       const action = resp.action && typeof resp.action.type === 'string' ? resp.action : undefined;
-      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//')), action, actionStatus: action ? 'pending' : undefined, autoResult: resp.action_result && resp.action_result.executed ? (resp.action_result.message || 'Done.') : undefined }]);
+      const ar = resp.action_result;
+      const baseLinks = (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//'));
+      const arLink = ar && ar.executed && ar.link && typeof ar.link.href === 'string' && ar.link.href.startsWith('/') ? [ar.link] : [];
+      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: [...baseLinks, ...arLink], action, actionStatus: action ? 'pending' : undefined, autoResult: ar && ar.executed ? (ar.message || 'Done.') : undefined }]);
+      if (ar && ar.executed) setAttachments([]);
       if (status && typeof resp.remaining_today === 'number') {
         setStatus({ ...status, remaining_today: resp.remaining_today });
       }
@@ -127,16 +135,37 @@ export default function HelpChatWidget() {
     }
   };
 
+  const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files && e.target.files[0];
+    if (e.target) e.target.value = '';  // allow re-selecting the same file
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { setError('File too large (max 10MB).'); return; }
+    setUploading(true);
+    setError(null);
+    try {
+      const up = await helpApi.upload(file);
+      setAttachments((prev) => [...prev, up].slice(0, 5));
+    } catch {
+      setError("Couldn't upload that file. Use PDF, DOCX, or TXT under 10MB.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAttachment = (key: string) => setAttachments((prev) => prev.filter((a) => a.key !== key));
+
   const confirmAction = async (idx: number) => {
     const m = messages[idx];
     if (!m || !m.action || m.actionStatus === 'working' || m.actionStatus === 'done') return;
     setMessages((prev) => prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'working' } : x)));
     try {
-      const res = await helpApi.action(m.action.type, m.action.quote_id);
+      const res = await helpApi.action(m.action.type, { quote_id: m.action.quote_id, rfq_id: m.action.quote_id, attachments });
       setMessages((prev) => {
         const upd = prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'done' as const } : x));
-        return [...upd, { role: 'assistant' as const, content: res.message || 'Done.' }];
+        const lk = res.link && typeof res.link.href === 'string' && res.link.href.startsWith('/') ? [res.link] : undefined;
+        return [...upd, { role: 'assistant' as const, content: res.message || 'Done.', links: lk }];
       });
+      setAttachments([]);
     } catch {
       setMessages((prev) => prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'pending' } : x)));
       setError("Couldn't complete that action. Please try again or use the page directly.");
@@ -356,7 +385,34 @@ export default function HelpChatWidget() {
           {/* Input / footer */}
           {status?.has_access ? (
             <div className="border-t border-slate-200 p-2 bg-white">
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-1.5">
+                  {attachments.map((a) => (
+                    <span key={a.key} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[11px] text-slate-700 max-w-[180px]">
+                      <Paperclip className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{a.filename}</span>
+                      <button onClick={() => removeAttachment(a.key)} className="text-slate-400 hover:text-red-600" aria-label="Remove">×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="flex items-center gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.docx,.txt"
+                  className="hidden"
+                  onChange={onPickFile}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading || sending || attachments.length >= 5}
+                  className="p-2 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  aria-label="Attach a document"
+                  title="Attach a document (PDF, DOCX, TXT)"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </button>
                 <input
                   type="text"
                   value={input}
@@ -367,14 +423,14 @@ export default function HelpChatWidget() {
                       onSend();
                     }
                   }}
-                  placeholder="Ask a question..."
+                  placeholder={attachments.length ? "Ask me to create an RFQ / quote from these…" : "Ask a question…"}
                   className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/30"
                   disabled={sending}
                   maxLength={2000}
                 />
                 <button
                   onClick={onSend}
-                  disabled={sending || !input.trim()}
+                  disabled={sending || uploading || !input.trim()}
                   className="p-2 rounded-lg bg-[#0F2B54] text-white hover:bg-[#143a6f] disabled:opacity-50"
                   aria-label="Send"
                 >
@@ -382,7 +438,7 @@ export default function HelpChatWidget() {
                 </button>
               </div>
               <div className="text-[10px] text-slate-400 mt-1 px-1">
-                Grounded on the platform manual. Not legal or engineering advice.
+                Grounded on the platform manual. Attach a doc and ask me to create an RFQ or quote.
               </div>
             </div>
           ) : (

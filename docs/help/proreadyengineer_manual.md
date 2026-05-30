@@ -203,6 +203,7 @@ The chat widget (lower-right) is the AI Help Assistant. It answers questions abo
 - **Scope:** strictly the ProMechDirectory platform. It politely declines off-platform questions (general knowledge, code, legal/financial/medical/engineering advice).
 - **What it won't do:** take consequential actions on your behalf (it will point you to the exact page and button), discuss other users' data, or give professional advice.
 - **Document/image analysis:** for questions that require reading a document or image, the assistant routes the request to a more capable model behind the scenes.
+- **Do the work from your files:** click the paperclip to upload a document (PDF/DOCX/TXT) and ask the assistant to create an RFQ from it (customers) or draft and submit a quote from it (providers). It attaches your file to the right place. It creates RFQs as a draft for you to submit, and never pays a fee or signs an NDA for you.
 - **Usage limits:** there is a per-user daily message limit and a monthly usage budget; if you hit a limit, it resets (daily, or monthly on the 1st), and you can always read this manual at `/help`.
 
 ## 12. Account and security

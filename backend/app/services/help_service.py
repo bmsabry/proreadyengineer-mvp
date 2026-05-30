@@ -138,6 +138,12 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
            "  " + _ACTION_PREFIX + " <type>|<id>|<short human summary>\n"
            "- Only act when the user clearly asks for it, and only on ids from their account "
            "section above. Tell them what you did in plain language.\n"
+           "- DOCUMENT WORKFLOWS: if the user staged uploaded documents (listed under UPLOADED "
+           "DOCUMENTS above) and asks you to create an RFQ from them, or (as a provider) to quote "
+           "from them, propose 'create_rfq_from_docs|<any>|...' or "
+           "'submit_quote_from_docs|<rfq_id>|...'. Do NOT put file keys in the line — the server "
+           "uses the staged uploads automatically. For create_rfq_from_docs you may also write a "
+           "concise project_description; the RFQ is created as a DRAFT for the user to submit.\n"
            "- You STILL must NOT pay any fee or sign/countersign an NDA — those are never "
            "automated. Guide the user through them and link the page; the user clicks.\n\n"
            if autonomous else
@@ -149,9 +155,13 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
            "  " + _ACTION_PREFIX + " mark_contacted|<quote_id>|Mark <who> as contacted\n"
            "  (or 'undo_mark_contacted|<quote_id>|...'). Briefly tell the user you'll mark it once "
            "they confirm — they will see a Confirm button. NEVER claim it's done yourself.\n"
-           "- You CANNOT and must NOT perform any other action — never pay, sign an NDA, submit or "
-           "accept a quote, cancel, delete, change settings, or send messages. For those, explain "
-           "the steps and give a navigation link to the right page; the user does it themselves.\n\n")
+           "- DOCUMENT WORKFLOWS: if the user staged uploaded documents and asks you to create an "
+           "RFQ from them (customer) or quote from them (provider), you may PROPOSE "
+           "'create_rfq_from_docs|<any>|...' or 'submit_quote_from_docs|<rfq_id>|...' (no file keys "
+           "in the line — the server uses the staged uploads). The user confirms before it runs.\n"
+           "- You CANNOT and must NOT pay, sign an NDA, accept a quote, cancel, delete, change "
+           "settings, or send messages. For those, explain the steps and give a navigation link; "
+           "the user does it themselves.\n\n")
         + 
         "DELEGATION (very important):\n"
         "- You are a fast, cost-effective model. You CANNOT look at images and you CANNOT "
@@ -374,7 +384,8 @@ def _extract_links(reply: str):
 # is the only thing that triggers the hardened /help/action executor.
 _ACTION_PREFIX = "PROPOSE_ACTION:"
 _PROPOSABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted",
-                       "accept_quote", "cancel_rfq", "withdraw_quote"}
+                       "accept_quote", "cancel_rfq", "withdraw_quote",
+                       "create_rfq_from_docs", "submit_quote_from_docs"}
 # Actions that need an rfq_id rather than a quote_id.
 _RFQ_ID_ACTIONS = {"cancel_rfq"}
 
@@ -548,7 +559,7 @@ async def _get_grounding(db: AsyncSession, query: str) -> Tuple[str, Optional[fl
     return context, max_sim
 
 
-async def _maybe_autoexecute(db, user, action):
+async def _maybe_autoexecute(db, user, action, attachments=None):
     """If autonomous mode is ON, execute the proposed action immediately and return a
     result dict; otherwise return None so the caller leaves it as an inert confirm proposal.
 
@@ -566,12 +577,10 @@ async def _maybe_autoexecute(db, user, action):
         atype = action.get("type")
         if atype not in ALL_ACTIONS:
             return None
-        params = {"quote_id": action.get("quote_id"), "rfq_id": action.get("quote_id")}
-        # cancel_rfq uses an rfq id; the model places it in the same id slot.
-        if atype in ("cancel_rfq",):
-            params = {"rfq_id": action.get("quote_id")}
+        _id = action.get("quote_id")
+        params = {"quote_id": _id, "rfq_id": _id, "attachments": attachments or []}
         res = await execute_action(db, user, atype, params, autonomous)
-        return {"executed": True, "type": atype, "message": res.get("message")}
+        return {"executed": True, "type": atype, "message": res.get("message"), "link": res.get("link")}
     except Exception as exc:
         logger.info("[help_service] autonomous execute failed (%s); leaving as proposal", exc)
         return None
@@ -583,6 +592,7 @@ async def answer_question(
     history: List[Dict[str, Any]],
     user_message: str,
     page: Optional[str] = None,
+    attachments: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     user_message = (user_message or "").strip()[:_MAX_USER_MESSAGE_CHARS]
     if not user_message:
@@ -637,12 +647,23 @@ async def answer_question(
             logger.info("[help_service] account context failed: %s", exc)
             account_ctx = ""
 
+    # Attachments staged via /help/upload: expose excerpts + keys so the model can use
+    # them in a doc-driven workflow action. The file KEYS are authoritative here (server
+    # validates them); the model only references them.
+    atts = attachments or []
+    if atts:
+        lines = ["UPLOADED DOCUMENTS the user staged for you (use ONLY these for doc actions):"]
+        for a in atts[:5]:
+            ex = (a.get("excerpt") or "").strip().replace("\n", " ")[:600]
+            lines.append(f"- key={a.get('key')} filename={a.get('filename')} :: {ex}")
+        account_ctx = (account_ctx + "\n\n" + "\n".join(lines)).strip() if account_ctx else "\n".join(lines)
+
     # RAG: ground on the most relevant manual chunks (falls back to full manual).
     grounding, max_sim = await _get_grounding(db, user_message)
 
     # Scope-gate: clearly off-topic question -> refuse cheaply, no LLM call.
-    # Account-related questions ("what should I do next", "my quotes") bypass the gate.
-    if max_sim is not None and max_sim < _SCOPE_MIN_SIM and not _looks_account_related(user_message):
+    # Account-related questions or any staged upload bypass the gate.
+    if max_sim is not None and max_sim < _SCOPE_MIN_SIM and not _looks_account_related(user_message) and not atts:
         logger.info("[help_service] scope-gate refused (sim=%.3f) msg=%r", max_sim, user_message[:80])
         return {
             "reply": (
@@ -704,7 +725,7 @@ async def answer_question(
                     "delegated": True, "latency_ms": res3.get("latency_ms"), "cost_usd": round(cost4 + cost3, 6)}
         clean3, action3 = _extract_action((res3.get("reply") or "").strip())
         clean3, links3 = _extract_links(clean3)
-        auto3 = await _maybe_autoexecute(db, user, action3)
+        auto3 = await _maybe_autoexecute(db, user, action3, attachments)
         return {
             "reply": clean3,
             "links": links3,
@@ -722,7 +743,7 @@ async def answer_question(
     # --- Normal LLM4 answer ---
     clean, action = _extract_action(reply)
     clean, links = _extract_links(clean)
-    auto = await _maybe_autoexecute(db, user, action)
+    auto = await _maybe_autoexecute(db, user, action, attachments)
     return {
         "reply": clean,
         "links": links,

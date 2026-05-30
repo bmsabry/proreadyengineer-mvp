@@ -826,13 +826,22 @@ export interface HelpChatAction {
   summary: string;
 }
 
+export interface HelpUpload {
+  key: string;
+  filename: string;
+  mime?: string;
+  size_bytes?: number;
+  chars?: number;
+  excerpt?: string;
+}
+
 export interface HelpChatResponse {
   reply: string;
   error?: string | null;
   remaining_today?: number | null;
   links?: HelpChatLink[] | null;
   action?: HelpChatAction | null;
-  action_result?: { executed?: boolean; type?: string; message?: string } | null;
+  action_result?: { executed?: boolean; type?: string; message?: string; link?: HelpChatLink | null } | null;
 }
 
 // Route every help endpoint through apiClient so the request interceptor
@@ -850,8 +859,8 @@ export const helpApi = {
     const r = await apiClient.get<{ markdown: string }>('/help/manual');
     return r.data;
   },
-  action: async (type: string, quote_id?: string, rfq_id?: string): Promise<{ ok: boolean; message: string }> => {
-    const r = await apiClient.post<{ ok: boolean; message: string }>('/help/action', { type, quote_id, rfq_id });
+  action: async (type: string, opts?: { quote_id?: string; rfq_id?: string; attachments?: HelpUpload[]; project_description?: string }): Promise<{ ok: boolean; message: string; link?: { href: string; label: string } | null }> => {
+    const r = await apiClient.post<{ ok: boolean; message: string; link?: { href: string; label: string } | null }>('/help/action', { type, ...(opts || {}) });
     return r.data;
   },
   agentStatus: async (): Promise<{ autonomous_enabled: boolean; consented_at?: string | null }> => {
@@ -866,9 +875,15 @@ export const helpApi = {
     const r = await apiClient.post<{ autonomous_enabled: boolean }>('/help/agent/disable', {});
     return r.data;
   },
-  chat: async (message: string, history: HelpChatTurn[], page?: string): Promise<HelpChatResponse> => {
+  upload: async (file: File): Promise<HelpUpload> => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await apiClient.post<HelpUpload>('/help/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return r.data;
+  },
+  chat: async (message: string, history: HelpChatTurn[], page?: string, attachments?: HelpUpload[]): Promise<HelpChatResponse> => {
     try {
-      const r = await apiClient.post<HelpChatResponse>('/help/chat', { message, history, page });
+      const r = await apiClient.post<HelpChatResponse>('/help/chat', { message, history, page, attachments: attachments || [] });
       return r.data;
     } catch (e) {
       const axErr = e as { response?: { status?: number; data?: { detail?: unknown } }; message?: string };

@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,10 +27,19 @@ class ChatTurn(BaseModel):
     content: str
 
 
+class ChatAttachment(BaseModel):
+    key: str = Field(..., max_length=512)
+    filename: Optional[str] = Field(None, max_length=255)
+    mime: Optional[str] = Field(None, max_length=100)
+    size_bytes: Optional[int] = None
+    excerpt: Optional[str] = Field(None, max_length=4000)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     history: List[ChatTurn] = Field(default_factory=list)
     page: Optional[str] = Field(None, max_length=200)  # current page path for context-awareness
+    attachments: List[ChatAttachment] = Field(default_factory=list)  # staged /help/upload docs
 
 
 class ChatResponse(BaseModel):
@@ -46,11 +55,14 @@ class ActionRequest(BaseModel):
     type: str = Field(..., max_length=64)
     quote_id: Optional[str] = Field(None, max_length=64)
     rfq_id: Optional[str] = Field(None, max_length=64)
+    attachments: List["ChatAttachment"] = Field(default_factory=list)
+    project_description: Optional[str] = Field(None, max_length=10000)
 
 
 class ActionResponse(BaseModel):
     ok: bool
     message: str
+    link: Optional[Dict[str, str]] = None  # optional in-app link (e.g. review the created RFQ)
 
 
 # The ONLY actions the assistant may execute. All are reversible, non-financial,
@@ -155,6 +167,7 @@ async def help_chat(
         history=history_dicts,
         user_message=data.message,
         page=(data.page or None),
+        attachments=[a.model_dump() for a in (data.attachments or [])],
     )
 
     try:
@@ -190,6 +203,94 @@ async def help_chat(
         action=result.get("action") or None,
         action_result=result.get("action_result") or None,
     )
+
+
+_ASSIST_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+_ASSIST_UPLOAD_EXTS = ("pdf", "docx", "txt")
+
+
+def assistant_upload_prefix(user_id) -> str:
+    return f"assistant-uploads/{user_id}/"
+
+
+@limiter.limit("30/minute")
+@router.post("/help/upload")
+async def help_upload(
+    request: Request,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Stage a document the user wants the assistant to work with.
+
+    Stores it in S3 under assistant-uploads/<user_id>/ (so ownership is provable by
+    key prefix), extracts text, and returns {key, filename, mime, excerpt, chars}. The
+    file is just staged here; it is only attached to an RFQ/quote when the user asks the
+    assistant to run that workflow and (if not autonomous) confirms.
+    """
+    if current_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
+    has_access, _ = await user_has_chatbot_access(db, current_user)
+    if not has_access:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Uploads require an active subscription.")
+
+    filename = (file.filename or "upload").strip()
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    if ext not in _ASSIST_UPLOAD_EXTS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only PDF, DOCX, and TXT files are supported.")
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file.")
+    if len(file_bytes) > _ASSIST_UPLOAD_MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File too large. Maximum 10MB.")
+
+    # Extract text (best-effort; extraction failure must not block staging).
+    import io as _io
+    doc_text = ""
+    try:
+        if ext == "pdf":
+            from pypdf import PdfReader
+            reader = PdfReader(_io.BytesIO(file_bytes))
+            doc_text = "\n".join((page.extract_text() or "") for page in reader.pages)
+        elif ext == "docx":
+            from docx import Document as _Docx
+            d = _Docx(_io.BytesIO(file_bytes))
+            parts = [p.text for p in d.paragraphs if p.text]
+            for t in d.tables:
+                for row in t.rows:
+                    for cell in row.cells:
+                        if cell.text:
+                            parts.append(cell.text)
+            doc_text = "\n".join(parts)
+        else:
+            doc_text = file_bytes.decode("utf-8", errors="ignore")
+    except Exception as exc:
+        logger.info("[help_upload] text extraction failed: %s", exc)
+        doc_text = ""
+
+    import uuid as _uuid
+    import mimetypes as _mt
+    mime = _mt.guess_type(filename)[0] or "application/octet-stream"
+    key = assistant_upload_prefix(current_user.id) + f"{_uuid.uuid4()}/{filename}"
+    try:
+        from app.services.config_service import get_runtime_config
+        from app.services.file_service import upload_bytes_to_s3_from_config
+        cfg = await get_runtime_config(db)
+        upload_bytes_to_s3_from_config(key, file_bytes, cfg, content_type=mime)
+    except Exception as exc:
+        logger.warning("[help_upload] S3 upload failed: %s", exc)
+        # Without S3 we cannot attach the file to a workflow; surface a clean error.
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not store the file right now. Please try again.")
+
+    excerpt = (doc_text or "").strip()[:1500]
+    return {
+        "key": key,
+        "filename": filename,
+        "mime": mime,
+        "size_bytes": len(file_bytes),
+        "chars": len(doc_text or ""),
+        "excerpt": excerpt,
+    }
 
 
 class AgentEnableRequest(BaseModel):
@@ -292,9 +393,14 @@ async def help_action(
     from app.services.help_actions import execute_action
     # Autonomous flag is read FRESH from the DB row so a hard-stop takes effect immediately.
     autonomous = bool(getattr(current_user, "agent_autonomous_enabled", False))
-    params = {"quote_id": data.quote_id, "rfq_id": data.rfq_id}
+    params = {
+        "quote_id": data.quote_id,
+        "rfq_id": data.rfq_id,
+        "attachments": [a.model_dump() for a in (data.attachments or [])],
+        "project_description": data.project_description,
+    }
     result = await execute_action(db, current_user, (data.type or "").strip(), params, autonomous)
-    return ActionResponse(ok=bool(result.get("ok")), message=result.get("message") or "Done.")
+    return ActionResponse(ok=bool(result.get("ok")), message=result.get("message") or "Done.", link=result.get("link"))
 
 
 @router.get("/admin/help/logs")

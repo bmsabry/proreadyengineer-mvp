@@ -262,6 +262,21 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    with the flag on; the assistant instead gives full step-by-step guidance (manual §15b/§15c) and
    the user clicks. See §19 invariant 17.
 
+   **Phase 4c DOCUMENT-DRIVEN WORKFLOWS (2026-05-30):** the chat widget has an upload button
+   (paperclip). `POST /help/upload` stages a PDF/DOCX/TXT (<=10MB) to S3 under
+   `assistant-uploads/{user_id}/` (ownership provable by key prefix), extracts text, and returns
+   `{key, filename, mime, excerpt}`. Staged attachments ride with the next chat message. Two new
+   autonomous-tier actions run the workflow: `create_rfq_from_docs` (customer — creates a DRAFT
+   RFQ via `create_rfq` from the doc text + a model summary, attaches the files as `RFQFile`,
+   and links the user to review/SUBMIT it themselves) and `submit_quote_from_docs` (provider —
+   LLM-extracts quote fields, `submit_quote`, attaches the doc). **Security:** file keys come
+   ONLY from staged uploads and are re-validated by `help_actions._validate_attachments` to the
+   caller's own `assistant-uploads/{user_id}/` prefix — the LLM never supplies a key, so a
+   malicious uploaded document is inert data and cannot attach a foreign file or escalate. These
+   are gated exactly like other autonomous actions (confirm-then-execute, or auto with consent +
+   hard-stop). Submitting the RFQ (which triggers the $10 NDA fee / dispatch) and all payments/NDA
+   signing remain human-clicked. See §19 invariant 17.
+
 (A support-ticket classifier in `support_service.py` reuses LLM3 keys.)
 
 `EMBEDDING_*`, `DOC_LLM_*` and `CHAT_LLM_*` are **runtime-config keys only** (no Pydantic

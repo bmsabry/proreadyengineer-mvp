@@ -29,7 +29,8 @@ from app.models.user import User
 logger = logging.getLogger(__name__)
 
 SAFE_ACTIONS = {"mark_contacted", "undo_mark_contacted"}
-AUTONOMOUS_ACTIONS = {"accept_quote", "cancel_rfq", "withdraw_quote"}
+AUTONOMOUS_ACTIONS = {"accept_quote", "cancel_rfq", "withdraw_quote",
+                      "create_rfq_from_docs", "submit_quote_from_docs"}
 ALL_ACTIONS = SAFE_ACTIONS | AUTONOMOUS_ACTIONS
 
 # Explicitly forbidden forever — payments and legal e-signature are never agent-executed.
@@ -54,6 +55,78 @@ async def _audit(db: AsyncSession, user: User, entity_type: str, entity_id: str,
     except Exception as exc:
         logger.warning("[help_actions] audit failed: %s", exc)
         await db.rollback()
+
+
+def _validate_attachments(user, attachments):
+    """Keep only attachments whose S3 key is under THIS user's assistant-uploads prefix.
+
+    This is the core defense: file keys come from the staged-upload response, never from
+    the LLM. Even if the model echoes a key, anything not under assistant-uploads/<user_id>/
+    is dropped — so a user can never attach another user's file, and a malicious document
+    cannot smuggle in a foreign key.
+    """
+    if not attachments or not isinstance(attachments, list):
+        return []
+    prefix = f"assistant-uploads/{user.id}/"
+    out = []
+    for a in attachments:
+        if not isinstance(a, dict):
+            continue
+        key = str(a.get("key") or "")
+        if key.startswith(prefix) and "://" not in key and ".." not in key:
+            out.append({
+                "key": key,
+                "filename": str(a.get("filename") or "document")[:200],
+                "mime": str(a.get("mime") or "application/octet-stream")[:100],
+                "size_bytes": a.get("size_bytes") or 0,
+                "excerpt": str(a.get("excerpt") or "")[:4000],
+            })
+    return out[:5]
+
+
+async def _extract_quote_fields(db, doc_text: str) -> Dict[str, Any]:
+    """Best-effort LLM extraction of quote fields from a quote document. Returns a dict with
+    price_min/price_max (Decimal|None), turnaround/scope/assumptions (str|None). Never raises.
+    """
+    result: Dict[str, Any] = {}
+    if not (doc_text or "").strip():
+        return result
+    try:
+        import json
+        from decimal import Decimal, InvalidOperation
+        from openai import AsyncOpenAI
+        from app.services.config_service import get_runtime_config
+        cfg = await get_runtime_config(db)
+        api_key = cfg.get("DOC_LLM_API_KEY") or cfg.get("CHAT_LLM_API_KEY") or cfg.get("OPENAI_API_KEY")
+        api_base = cfg.get("DOC_LLM_API_BASE") or cfg.get("CHAT_LLM_API_BASE") or cfg.get("OPENAI_API_BASE") or "https://api.openai.com/v1"
+        model = cfg.get("DOC_LLM_MODEL") or cfg.get("CHAT_LLM_MODEL") or cfg.get("OPENAI_LLM_MODEL") or "gpt-4o-mini"
+        if not api_key:
+            return result
+        client = AsyncOpenAI(api_key=api_key, base_url=api_base)
+        sys = ("Extract quote fields from this engineering quote document. Return ONLY JSON with keys: "
+               "price_min (number or null), price_max (number or null), turnaround (string or null), "
+               "scope (string or null), assumptions (string or null). Use null when unsure; never invent a price.")
+        resp = await client.chat.completions.create(
+            model=model, temperature=0.1,
+            messages=[{"role": "system", "content": sys}, {"role": "user", "content": doc_text[:6000]}],
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").split("\n", 1)[-1]
+        data = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
+        def _dec(v):
+            try:
+                return Decimal(str(v)) if v is not None and str(v).strip() != "" else None
+            except (InvalidOperation, ValueError):
+                return None
+        result["price_min"] = _dec(data.get("price_min"))
+        result["price_max"] = _dec(data.get("price_max")) or result.get("price_min")
+        for k in ("turnaround", "scope", "assumptions"):
+            v = data.get(k)
+            result[k] = (str(v)[:1900] if v else None)
+    except Exception as exc:
+        logger.info("[help_actions] quote extraction failed: %s", exc)
+    return result
 
 
 async def execute_action(
@@ -157,5 +230,90 @@ async def execute_action(
         await db.commit()
         await _audit(db, user, "quote", quote_id, "withdraw_quote", autonomous_enabled)
         return {"ok": True, "message": "Quote withdrawn."}
+
+    # ---- AUTONOMOUS: create an RFQ (draft) from staged documents (customer) ----
+    if action_type == "create_rfq_from_docs":
+        attachments = _validate_attachments(user, params.get("attachments"))
+        if not attachments:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid uploaded documents to use.")
+        from app.schemas.rfq import RFQCreateRequest
+        from app.services.rfq_service import create_rfq
+        from app.models.rfq import RFQFile
+        # Project description: the model-synthesized summary if provided, else stitched
+        # from the documents' extracted text. Either way it's the user's OWN data.
+        desc = (params.get("project_description") or "").strip()
+        if len(desc) < 10:
+            desc = ("\n\n".join(a.get("excerpt", "") for a in attachments)).strip()[:9000]
+        if len(desc) < 10:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The document(s) had too little readable text to build an RFQ. Please add a short description.")
+        req = RFQCreateRequest(
+            customer_email=user.email,
+            business_name=(params.get("business_name") or user.business_name or None),
+            contact_name=(params.get("contact_name") or user.full_name or None),
+            project_description=desc,
+            urgency=None,
+            tollgate_phases=[],
+        )
+        rfq = await create_rfq(db, req, user)
+        # Attach the staged files to the RFQ.
+        import uuid as _u
+        from datetime import datetime as _dt
+        for a in attachments:
+            db.add(RFQFile(
+                id=_u.uuid4(), rfq_id=rfq.id, s3_key=a["key"],
+                original_filename=a.get("filename") or "document",
+                mime_type=a.get("mime") or "application/octet-stream",
+                file_size_bytes=int(a.get("size_bytes") or 0),
+                uploaded_by_user_id=user.id, created_at=_dt.utcnow(),
+            ))
+        await db.commit()
+        await _audit(db, user, "rfq", str(rfq.id), "create_rfq_from_docs", autonomous_enabled)
+        return {"ok": True, "rfq_id": str(rfq.id),
+                "message": "I created a draft RFQ with your document(s) attached. Review the details and submit it when ready — submitting starts matching (and, if you require an NDA, the $10 fee, which you complete yourself).",
+                "link": {"href": f"/customer/rfq/{rfq.id}", "label": "Review & submit the draft RFQ"}}
+
+    # ---- AUTONOMOUS: submit a quote from staged documents (provider) ----
+    if action_type == "submit_quote_from_docs":
+        rfq_id = params.get("rfq_id")
+        if not rfq_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing rfq_id.")
+        attachments = _validate_attachments(user, params.get("attachments"))
+        if not attachments:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid uploaded quote document to use.")
+        try:
+            rfq_uuid = _uuid.UUID(str(rfq_id))
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid rfq id")
+        from sqlalchemy import select
+        from app.models.provider import ProviderMembership
+        membership = (await db.execute(
+            select(ProviderMembership).where(ProviderMembership.user_id == user.id)
+        )).scalar_one_or_none()
+        if not membership:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No provider firm linked to your account.")
+        doc_text = "\n\n".join(a.get("excerpt", "") for a in attachments).strip()
+        fields = await _extract_quote_fields(db, doc_text)
+        from app.schemas.quote import QuoteCreateRequest
+        from app.services.rfq_service import submit_quote
+        primary = attachments[0]
+        req = QuoteCreateRequest(
+            rough_price_min=fields.get("price_min"),
+            rough_price_max=fields.get("price_max"),
+            currency="USD",
+            turnaround_estimate_text=fields.get("turnaround"),
+            assumptions_text=fields.get("assumptions"),
+            scope_notes=fields.get("scope") or (doc_text[:1900] or None),
+            document_s3_key=primary["key"],
+            document_filename=primary.get("filename"),
+        )
+        try:
+            quote = await submit_quote(db=db, data=req, rfq_id=rfq_uuid, provider_id=membership.provider_id, user=user)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        await _audit(db, user, "quote", str(quote.id), "submit_quote_from_docs", autonomous_enabled)
+        note = "" if fields.get("price_min") is not None else " I left the price blank because I couldn't read it confidently — set it before it's final if needed."
+        return {"ok": True, "quote_id": str(quote.id),
+                "message": "I submitted your quote from the document, with the file attached." + note,
+                "link": {"href": f"/provider/rfq/{rfq_id}", "label": "Review the submitted quote"}}
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported action.")
