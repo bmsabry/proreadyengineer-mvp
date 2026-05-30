@@ -103,7 +103,11 @@ UUIDs unless noted. Providers use integer ids.
 - **Provider** (`providers`, **int id**) — firm profile, `embedding` (pgvector),
   ranking tier, `full_profile_edit_paid`, claim/membership relations.
 - **RFQ** (`rfqs`) — `id`, `customer_user_id`, `nda_required` (bool), `rfq_status`
-  (`RfqStatus`), `quote_count`, `selected_provider_id`, project description + metadata.
+  (`RfqStatus`), **`is_closed`** (bool), `quote_count`, `selected_provider_id`, project
+  description + metadata. WARNING: `is_closed` is a SEPARATE stored boolean, NOT derived
+  from `rfq_status` — the two can drift (see section 8 and the invariant in section 19). The
+  quote-submit gate checks BOTH (`can_submit_quote` rejects if `is_closed` is true OR live
+  submitted-quote count >= `RFQ_MAX_QUOTES`).
 - **RFQFile** (`rfq_files`) — uploaded project files (S3 keys).
 - **RFQMatch** (`rfq_matches`) — AI match results: `rfq_id`, `provider_id`, rank/score.
 - **RFQDispatchBatch** / **RFQDispatch** — teaser dispatch batching + per-provider sends.
@@ -308,6 +312,17 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   `customer_selected_provider`.
 - `RFQ_MAX_QUOTES = 5`: only the first 5 quotes are accepted/shown; the RFQ then reaches
   `quote_limit_reached`.
+- **`is_closed` vs `rfq_status` (read before touching quote/unlock gating):** an RFQ has a
+  stored `is_closed` boolean set to True in several `rfq_service.py` paths (no matches left
+  to dispatch -> `closed_no_selection`; a quote is accepted -> `customer_selected_provider`;
+  all matches exhausted -> `closed_no_selection`). It is read by the quote-submit gate
+  (`can_submit_quote`, `submit_provider_quote`) and shown in the provider UI. Because it is
+  NOT computed from `rfq_status`, the two can drift: an RFQ can read
+  `rfq_status = open_for_unlock` (looks active) while `is_closed = True` (quotes rejected as
+  "This RFQ is closed"). Unlocking must NEVER set `is_closed` — unlocks are unlimited paid
+  revenue. Only submitted quotes reaching `RFQ_MAX_QUOTES`, provider selection, or
+  cancellation should close an RFQ. The durable fix is to DERIVE `is_closed` from
+  `rfq_status` rather than storing it (see section 19 invariant 14 and section 20).
 
 ---
 
@@ -485,6 +500,12 @@ as a bug, even if tests pass.
 12. **Production refuses to boot with the default `SECRET_KEY`** — keep that guard.
 13. **One dispatch mechanism in prod:** Render cron + the in-process backup loop. Do not
     add a third trigger or assume a Celery worker exists.
+14. **`is_closed` must stay consistent with `rfq_status`.** If an RFQ is not in a closed
+    status (`quote_limit_reached` / `customer_selected_provider` / `closed_no_selection` /
+    `cancelled`) then `is_closed` must be False. Unlocking must never set `is_closed`. The
+    only things that close an RFQ are submitted quotes reaching `RFQ_MAX_QUOTES`, provider
+    selection, or cancellation. Prefer deriving `is_closed` from `rfq_status` over storing
+    it, to eliminate this drift class.
 
 ---
 
@@ -494,6 +515,14 @@ Things that look wrong/confusing but are intentional, or are real bugs not yet f
 Documented so they stop costing time. **None of these should be "fixed" by making the
 live behaviour match the stale value** — the live behaviour is correct.
 
+- **`is_closed` is a stored column, not derived from `rfq_status` (drift bug, 2026-05-30 —
+  code fix still OPEN):** a live RFQ was found with `rfq_status = open_for_unlock` but
+  `is_closed = True`, so a provider who had unlocked and signed the NDA got "This RFQ is
+  closed" when submitting a quote. The affected RFQ's flag was corrected directly in the DB
+  on 2026-05-30, BUT the code path that wrongly set `is_closed` has NOT been pinned down or
+  fixed — treat as OPEN. (An earlier claimed fix to `complete_rfq_unlock` never actually
+  landed, and on review that function does not contain the suspected logic, so the real
+  setter still needs to be found.) See section 8 and invariant 14.
 - **Search limit:** live is **10/100** (`search_service.py`); `config.py`
   `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` is unused.
 - **`OPENAI_LLM_MODEL` default differs:** `config.py` says `gpt-4o-mini`; runtime-config
