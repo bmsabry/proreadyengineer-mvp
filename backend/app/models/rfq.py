@@ -14,10 +14,21 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.models.base import Base
 from app.models.enums import DispatchStatus, RfqStatus, UnlockStatus
+
+# An RFQ is "closed" purely as a function of its status. is_closed is kept in lockstep
+# with rfq_status by the RFQ._sync_is_closed validator (below), so the two can never
+# drift. The column is retained (not dropped) because some admin endpoints read/write it
+# via raw SQL; the validator makes every ORM status change recompute it.
+_CLOSED_RFQ_STATUS_VALUES = frozenset({
+    RfqStatus.QUOTE_LIMIT_REACHED.value,
+    RfqStatus.CUSTOMER_SELECTED_PROVIDER.value,
+    RfqStatus.CLOSED_NO_SELECTION.value,
+    RfqStatus.CANCELLED.value,
+})
 
 if TYPE_CHECKING:
     from app.models.user import User
@@ -71,7 +82,18 @@ class RFQ(Base):
     closed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    
+
+    @validates("rfq_status")
+    def _sync_is_closed(self, key, value):
+        """Keep is_closed in lockstep with rfq_status so they can never drift.
+
+        Any ORM assignment of rfq_status recomputes is_closed. To close an RFQ, set
+        rfq_status to a closed status; do not set is_closed directly.
+        """
+        v = value.value if hasattr(value, "value") else value
+        self.is_closed = v in _CLOSED_RFQ_STATUS_VALUES
+        return value
+
     # Relationships
     customer_user: Mapped[Optional["User"]] = relationship(
         "User", back_populates="rfqs", foreign_keys="RFQ.customer_user_id"

@@ -104,11 +104,11 @@ UUIDs unless noted. Providers use integer ids.
   ranking tier, `full_profile_edit_paid`, claim/membership relations.
 - **RFQ** (`rfqs`) — `id`, `customer_user_id`, `nda_required` (bool), `rfq_status`
   (`RfqStatus`), **`is_closed`** (bool), `quote_count`, `selected_provider_id`, project
-  description + metadata. `is_closed` is a **derived** value (a `hybrid_property` on the RFQ
-  model = `rfq_status in CLOSED_RFQ_STATUSES`), NOT a stored column, so it can never drift
-  from `rfq_status`. The stored column was dropped 2026-05-30 (migration
-  `b7c9d1e2f3a4`). The quote-submit gate checks `is_closed` OR live submitted-quote count >=
-  `RFQ_MAX_QUOTES`.
+  description + metadata. `is_closed` is kept **in lockstep with `rfq_status`** by a model
+  validator (`RFQ._sync_is_closed`), so the two can never drift: any ORM assignment of
+  `rfq_status` recomputes `is_closed = rfq_status in _CLOSED_RFQ_STATUS_VALUES`. The column
+  is retained (some admin endpoints read/write it via raw SQL). The quote-submit gate checks
+  `is_closed` OR live submitted-quote count >= `RFQ_MAX_QUOTES`.
 - **RFQFile** (`rfq_files`) — uploaded project files (S3 keys).
 - **RFQMatch** (`rfq_matches`) — AI match results: `rfq_id`, `provider_id`, rank/score.
 - **RFQDispatchBatch** / **RFQDispatch** — teaser dispatch batching + per-provider sends.
@@ -313,16 +313,18 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   `customer_selected_provider`.
 - `RFQ_MAX_QUOTES = 5`: only the first 5 quotes are accepted/shown; the RFQ then reaches
   `quote_limit_reached`.
-- **`is_closed` is DERIVED from `rfq_status`** (a read-only `hybrid_property` on the RFQ
-  model = `rfq_status in CLOSED_RFQ_STATUSES`, where the closed set is
-  {`quote_limit_reached`, `customer_selected_provider`, `closed_no_selection`, `cancelled`}).
-  It cannot drift from the status. **To close an RFQ, set `rfq_status` to a closed status —
-  never assign `is_closed` (it has no setter).** Unlocking must NEVER close an RFQ (unlocks
-  are unlimited paid revenue); only submitted quotes reaching `RFQ_MAX_QUOTES`, provider
-  selection, or cancellation close it. (History: `is_closed` used to be a stored column set
-  independently, which let it drift — e.g. `rfq_status=open_for_unlock` + `is_closed=True`
-  wrongly rejecting quotes as "This RFQ is closed". Fixed 2026-05-30 by making it derived and
-  dropping the column; migration `b7c9d1e2f3a4`.)
+- **`is_closed` is auto-synced from `rfq_status` (never set it directly).** The RFQ model
+  has a `@validates("rfq_status")` hook (`_sync_is_closed`) that recomputes
+  `is_closed = rfq_status in {quote_limit_reached, customer_selected_provider,
+  closed_no_selection, cancelled}` on every status assignment, so the two can't drift. **To
+  close an RFQ, set `rfq_status` to a closed status — do NOT assign `is_closed`.** Unlocking
+  must NEVER close an RFQ (unlocks are unlimited paid revenue); only submitted quotes
+  reaching `RFQ_MAX_QUOTES`, provider selection, or cancellation close it. (History:
+  `is_closed` used to be set independently in ~6 places, which let it drift — e.g.
+  `rfq_status=open_for_unlock` + `is_closed=True` wrongly rejecting quotes as "This RFQ is
+  closed". Fixed 2026-05-30: the redundant `is_closed = True` writes were removed and the
+  validator now derives it. The DB column is retained because some admin endpoints
+  read/write it via raw SQL.)
 
 ---
 
@@ -500,10 +502,12 @@ as a bug, even if tests pass.
 12. **Production refuses to boot with the default `SECRET_KEY`** — keep that guard.
 13. **One dispatch mechanism in prod:** Render cron + the in-process backup loop. Do not
     add a third trigger or assume a Celery worker exists.
-14. **`is_closed` is derived from `rfq_status`, never stored.** It is a read-only
-    `hybrid_property` (= `rfq_status in CLOSED_RFQ_STATUSES`). Close an RFQ by setting
-    `rfq_status` to a closed status; never assign `is_closed` (no setter — assigning raises).
-    Unlocking must never close an RFQ. Do not reintroduce a stored `is_closed` column.
+14. **`is_closed` is auto-synced from `rfq_status`; never assign it directly.** The model
+    validator `RFQ._sync_is_closed` recomputes `is_closed` on every `rfq_status` assignment
+    (closed set: `quote_limit_reached`, `customer_selected_provider`, `closed_no_selection`,
+    `cancelled`). Close an RFQ by setting `rfq_status` to a closed status. Unlocking must
+    never close an RFQ. Don't reintroduce independent `rfq.is_closed = True` writes — they
+    are redundant at best and a drift source at worst.
 
 ---
 

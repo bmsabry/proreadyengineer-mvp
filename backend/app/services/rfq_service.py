@@ -332,9 +332,8 @@ async def dispatch_next_batch(
 
     if rfq.quote_count >= settings.RFQ_MAX_QUOTES:
         # Close RFQ when quote limit is reached in case it slipped through
-        if not rfq.is_closed:
-            rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED
-            rfq.is_closed = True
+        if rfq.rfq_status != RfqStatus.QUOTE_LIMIT_REACHED:
+            rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED  # validator syncs is_closed
             rfq.closed_at = datetime.utcnow()
             await db.commit()
         return []
@@ -403,8 +402,7 @@ async def dispatch_next_batch(
     matches = result.scalars().all()
 
     if not matches:
-        rfq.rfq_status = RfqStatus.CLOSED_NO_SELECTION
-        rfq.is_closed = True
+        rfq.rfq_status = RfqStatus.CLOSED_NO_SELECTION  # validator syncs is_closed
         rfq.closed_at = datetime.utcnow()
         await db.commit()
         return []
@@ -626,9 +624,8 @@ async def dispatch_next_batch(
     remaining_count = remaining_result.scalar() or 0
     if remaining_count == 0:
         await db.refresh(rfq)
-        if not rfq.is_closed:
-            rfq.rfq_status = RfqStatus.CLOSED_NO_SELECTION
-            rfq.is_closed = True
+        if rfq.rfq_status != RfqStatus.CLOSED_NO_SELECTION:
+            rfq.rfq_status = RfqStatus.CLOSED_NO_SELECTION  # validator syncs is_closed
             rfq.closed_at = datetime.utcnow()
             await db.commit()
             logger.info(
@@ -1064,8 +1061,7 @@ async def accept_quote(
     quote.quote_status = QuoteStatus.ACCEPTED
 
     # Close RFQ and mark selected provider
-    rfq.is_closed = True
-    rfq.rfq_status = RfqStatus.CUSTOMER_SELECTED_PROVIDER
+    rfq.rfq_status = RfqStatus.CUSTOMER_SELECTED_PROVIDER  # validator syncs is_closed
     rfq.selected_provider_id = quote.provider_id
     rfq.closed_at = datetime.utcnow()
 

@@ -235,8 +235,7 @@ async def submit_provider_quote(
         rfq.quote_count = _live_res.scalar() or 0
         max_quotes = getattr(settings, "RFQ_MAX_QUOTES", 5)
         if rfq.quote_count >= max_quotes:
-            rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED
-            rfq.is_closed = True
+            rfq.rfq_status = RfqStatus.QUOTE_LIMIT_REACHED  # validator syncs is_closed
         await db.commit()
         await db.refresh(rfq)
 

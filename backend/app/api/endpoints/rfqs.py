@@ -659,7 +659,7 @@ async def cancel_rfq_endpoint(
 
     # Cancel the RFQ
     rfq.rfq_status = RfqStatus.CANCELLED
-    rfq.is_closed = True
+    # is_closed is synced from rfq_status by the model validator; set status to close
     rfq.closed_at = datetime.utcnow()
     await db.commit()
 

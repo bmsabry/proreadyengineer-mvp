@@ -234,7 +234,7 @@ async def admin_override_rfq_status(
     }
     _new_status_str = data.new_status if isinstance(data.new_status, str) else str(data.new_status)
     if _new_status_str in _TERMINAL_STATUSES:
-        rfq.is_closed = True
+        # is_closed is synced from rfq_status by the model validator
         rfq.closed_at = rfq.closed_at or datetime.utcnow()
         logger.info(
             "admin_override_rfq_status: rfq=%s set is_closed=True for terminal status %s",
