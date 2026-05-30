@@ -162,14 +162,14 @@ once the customer's $10 NDA fee is recorded.
 
 ---
 
-## 6. Search & AI matching (the "three LLMs")
+## 6. Search & AI matching (the LLM stack)
 
 Search powers both the public provider search and RFQ→provider matching. Config is read
 **runtime-config-first** (the `system_config` DB table via `config_service.get_runtime_config`),
 falling back to env / `settings`. Default provider is **DeepInfra**
 (`OPENAI_API_BASE=https://api.deepinfra.com/v1/openai`).
 
-Three distinct AI uses (the project calls them "the three LLMs"):
+Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot):
 
 1. **Embeddings** — `BAAI/bge-large-en-v1.5` (default). Provider profiles are embedded and
    stored on `Provider.embedding`; candidate retrieval is a pgvector cosine prefilter
@@ -178,13 +178,25 @@ Three distinct AI uses (the project calls them "the three LLMs"):
 2. **Search/ranking chat LLM** — default `moonshotai/Kimi-K2.5` (via `OPENAI_*`). Used for
    query→structured-intent extraction and the two ranking passes
    (`llm_pass1_filter`, `llm_pass2_rank`). (`search_service.py`)
-3. **Doc/help chat LLM** — `DOC_LLM_*` keys (fallback to `OPENAI_*`), default
-   `gpt-4o-mini`. Powers the help chatbot and document collapse. (`help_service.py`)
+3. **Doc / analysis LLM (LLM3)** — `DOC_LLM_*` keys (fallback to `OPENAI_*`), default
+   `gpt-4o-mini`. The capable, more-expensive specialist: document collapse,
+   support-ticket classification, and image/document analysis delegated by the
+   chatbot. (`support_service.py`, `help_service.py`)
+4. **Chatbot LLM (LLM4)** — `CHAT_LLM_*` keys (fallback to `DOC_LLM_*` → `OPENAI_*`),
+   default `gpt-4o-mini`. Cheap/fast model that is the **default brain of the help
+   chatbot**. It answers ordinary platform questions itself in a single call. When a
+   turn requires analysing an image or reading a specific document's contents, LLM4
+   replies with a one-line `DELEGATE: <focus>` directive and `help_service` re-runs the
+   turn on LLM3 (the specialist). Sentinel-based, so one model call on normal turns and
+   a second only when delegating; provider-agnostic (no function-calling dependency).
+   Note: the chatbot is grounded on the static help manual and does **not** yet fetch a
+   user's specific RFQ/Quote by id — pasted/attached document text in the conversation is
+   what LLM3 analyses today. (`help_service.py`)
 
-(A support-ticket classifier in `support_service.py` reuses the runtime LLM keys.)
+(A support-ticket classifier in `support_service.py` reuses LLM3 keys.)
 
-`EMBEDDING_*` and `DOC_LLM_*` are **runtime-config keys only** (no Pydantic settings
-field), so in practice they must be set in Admin → Settings, not env. See §20.
+`EMBEDDING_*`, `DOC_LLM_*` and `CHAT_LLM_*` are **runtime-config keys only** (no Pydantic
+settings field), so in practice they must be set in Admin → Settings, not env. See §20.
 
 ---
 

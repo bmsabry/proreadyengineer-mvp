@@ -1049,6 +1049,9 @@ class SystemConfigRequest(_BaseModel):
     doc_llm_api_key: Optional[str] = None
     doc_llm_api_base: Optional[str] = None
     doc_llm_model: Optional[str] = None
+    chat_llm_api_key: Optional[str] = None
+    chat_llm_api_base: Optional[str] = None
+    chat_llm_model: Optional[str] = None
     render_api_key: Optional[str] = None
     render_monthly_budget: Optional[str] = None
     openai_api_key: Optional[str] = None
@@ -1145,6 +1148,12 @@ async def get_system_config(
         "doc_llm_api_base_set": _is_set("DOC_LLM_API_BASE"),
         "doc_llm_model": config.get("DOC_LLM_MODEL", ""),
         "doc_llm_model_set": _is_set("DOC_LLM_MODEL"),
+        "chat_llm_api_key": _mask(config.get("CHAT_LLM_API_KEY", "")),
+        "chat_llm_api_key_set": _is_set("CHAT_LLM_API_KEY"),
+        "chat_llm_api_base": config.get("CHAT_LLM_API_BASE", ""),
+        "chat_llm_api_base_set": _is_set("CHAT_LLM_API_BASE"),
+        "chat_llm_model": config.get("CHAT_LLM_MODEL", ""),
+        "chat_llm_model_set": _is_set("CHAT_LLM_MODEL"),
         "render_api_key": _mask(config.get("RENDER_API_KEY", "")),
         "render_api_key_set": _is_set("RENDER_API_KEY"),
         "render_monthly_budget": config.get("RENDER_MONTHLY_BUDGET", ""),
@@ -1212,6 +1221,9 @@ async def save_system_config(
         if data.doc_llm_api_key:        config_map["DOC_LLM_API_KEY"]        = data.doc_llm_api_key
         if data.doc_llm_api_base:       config_map["DOC_LLM_API_BASE"]       = data.doc_llm_api_base
         if data.doc_llm_model:          config_map["DOC_LLM_MODEL"]          = data.doc_llm_model
+        if data.chat_llm_api_key:       config_map["CHAT_LLM_API_KEY"]       = data.chat_llm_api_key
+        if data.chat_llm_api_base:      config_map["CHAT_LLM_API_BASE"]      = data.chat_llm_api_base
+        if data.chat_llm_model:         config_map["CHAT_LLM_MODEL"]         = data.chat_llm_model
         if data.render_api_key:         config_map["RENDER_API_KEY"]         = data.render_api_key
         if data.render_monthly_budget:  config_map["RENDER_MONTHLY_BUDGET"]  = data.render_monthly_budget
         if data.stripe_secret_key:      config_map["STRIPE_SECRET_KEY"]      = data.stripe_secret_key
@@ -2905,6 +2917,57 @@ async def admin_debug_test_doc_llm(
     except Exception as e:
         return {"success": False, "error": str(e), "model": None, "response": None}
 
+
+@router.post("/admin/debug/test-chat-llm")
+async def admin_debug_test_chat_llm(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_role(["admin"])),
+):
+    """Test Chatbot LLM (LLM4) connectivity. Falls back to LLM3 then LLM1 config."""
+    from openai import AsyncOpenAI
+    try:
+        cfg = await _get_runtime_config(db)
+        api_key = cfg.get('CHAT_LLM_API_KEY') or cfg.get('DOC_LLM_API_KEY') or cfg.get('OPENAI_API_KEY')
+        api_base = cfg.get('CHAT_LLM_API_BASE') or cfg.get('DOC_LLM_API_BASE') or cfg.get('OPENAI_API_BASE')
+        model = (cfg.get('CHAT_LLM_MODEL') or cfg.get('DOC_LLM_MODEL')
+                 or cfg.get('OPENAI_LLM_MODEL') or 'gpt-4o-mini')
+        if not api_key:
+            return {"success": False, "error": "No API key configured for Chatbot LLM (LLM4). Set CHAT_LLM_API_KEY in admin settings.",
+                    "model": model, "response": None}
+        prompt = body.get('prompt', 'Reply with a one-sentence friendly greeting for a help chatbot.')
+        client = AsyncOpenAI(api_key=api_key, base_url=api_base or None)
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+        )
+        reply = None
+        if response.choices:
+            msg = response.choices[0].message
+            content_val = getattr(msg, 'content', None)
+            if content_val and content_val.strip():
+                reply = content_val.strip()
+            else:
+                reasoning = getattr(msg, 'reasoning_content', None)
+                reply = (f"[Reasoning model output]:\n{reasoning.strip()}" if reasoning and reasoning.strip()
+                         else f"(model returned empty content - raw: {repr(content_val)})")
+        else:
+            reply = "(no choices in response)"
+        return {
+            "success": True,
+            "model": model,
+            "api_base": api_base or "(default OpenAI)",
+            "prompt": prompt,
+            "response": reply,
+            "usage": {
+                "prompt_tokens": response.usage.prompt_tokens if response.usage else None,
+                "completion_tokens": response.usage.completion_tokens if response.usage else None,
+            }
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "model": None, "response": None}
+
 # ---------------------------------------------------------------------------
 # Admin Extract: RFQ Dispatches
 # ---------------------------------------------------------------------------
@@ -4034,7 +4097,21 @@ async def admin_spend_llms(
     else:
         llm3_result = {'label': 'LLM 3 — Document Collapse', 'available': False, 'error': 'No DOC_LLM_API_KEY configured', 'model': llm3_model}
 
-    return {'llm2': llm2_result, 'llm3': llm3_result}
+    # LLM4 - Chatbot Assistant (CHAT_LLM_*, falls back to DOC_LLM then OPENAI)
+    llm4_key = cfg.get('CHAT_LLM_API_KEY', '') or llm3_key or llm2_key
+    llm4_base = cfg.get('CHAT_LLM_API_BASE', '') or llm3_base or llm2_base
+    llm4_model = cfg.get('CHAT_LLM_MODEL', '') or llm3_model or llm2_model
+    if cfg.get('CHAT_LLM_API_KEY', '') and cfg.get('CHAT_LLM_API_KEY', '') not in (llm2_key, llm3_key):
+        llm4_result = await _check_llm(llm4_key, llm4_base, llm4_model, 'LLM 4 - Chatbot Assistant')
+    elif llm4_key:
+        llm4_result = {'label': 'LLM 4 - Chatbot Assistant', 'available': bool(llm4_key),
+                       'model': llm4_model, 'status': 'Connected (shared key)',
+                       'note': 'Falls back to LLM3/LLM1 - no dedicated CHAT_LLM key set'}
+    else:
+        llm4_result = {'label': 'LLM 4 - Chatbot Assistant', 'available': False,
+                       'error': 'No CHAT_LLM_API_KEY (and no fallback) configured', 'model': llm4_model}
+
+    return {'llm2': llm2_result, 'llm3': llm3_result, 'llm4': llm4_result}
 
 
 @router.get('/admin/spend/aws')

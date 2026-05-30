@@ -119,6 +119,11 @@ async def get_runtime_config(db: AsyncSession) -> Dict[str, Any]:
         'DOC_LLM_API_KEY'       : _get('DOC_LLM_API_KEY'),
         'DOC_LLM_API_BASE'      : _get('DOC_LLM_API_BASE'),
         'DOC_LLM_MODEL'         : _get('DOC_LLM_MODEL'),
+        # LLM4 — Chatbot Assistant LLM. Cheap/fast model that powers the help
+        # chatbot; delegates image/document-analysis to LLM3 (DOC_LLM).
+        'CHAT_LLM_API_KEY'      : _get('CHAT_LLM_API_KEY'),
+        'CHAT_LLM_API_BASE'     : _get('CHAT_LLM_API_BASE'),
+        'CHAT_LLM_MODEL'        : _get('CHAT_LLM_MODEL'),
         'STRIPE_SECRET_KEY'     : _get('STRIPE_SECRET_KEY'),
         'STRIPE_PUBLISHABLE_KEY': _get('STRIPE_PUBLISHABLE_KEY'),
         'STRIPE_WEBHOOK_SECRET'  : _get('STRIPE_WEBHOOK_SECRET'),

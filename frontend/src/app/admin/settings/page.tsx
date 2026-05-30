@@ -31,6 +31,11 @@ interface ServerConfig {
   doc_llm_api_base_set: boolean
   doc_llm_model: string
   doc_llm_model_set: boolean
+  chat_llm_api_key_set: boolean
+  chat_llm_api_base: string
+  chat_llm_api_base_set: boolean
+  chat_llm_model: string
+  chat_llm_model_set: boolean
   render_api_key_set: boolean
   render_monthly_budget_set: boolean
   stripe_secret_key_set: boolean
@@ -78,6 +83,9 @@ interface FormFields {
   doc_llm_api_key: string
   doc_llm_api_base: string
   doc_llm_model: string
+  chat_llm_api_key: string
+  chat_llm_api_base: string
+  chat_llm_model: string
   stripe_secret_key: string
   stripe_publishable_key: string
   stripe_webhook_secret: string
@@ -118,6 +126,7 @@ const SECRET_FIELDS: (keyof FormFields)[] = [
   'aws_access_key_id', 'aws_secret_access_key',
   'resend_api_key', 'smtp_password', 'signwell_api_key',
   'doc_llm_api_key',
+  'chat_llm_api_key',
   'embedding_api_key',
 ]
 
@@ -131,6 +140,9 @@ const EMPTY_FORM: FormFields = {
   doc_llm_api_key: '',
   doc_llm_api_base: '',
   doc_llm_model: '',
+  chat_llm_api_key: '',
+  chat_llm_api_base: '',
+  chat_llm_model: '',
   stripe_secret_key: '',
   stripe_publishable_key: '',
   stripe_webhook_secret: '',
@@ -171,6 +183,8 @@ function populateFormFromConfig(cfg: ServerConfig): Partial<FormFields> {
     embedding_api_base: cfg.embedding_api_base || '',
     doc_llm_api_base: cfg.doc_llm_api_base || '',
     doc_llm_model: cfg.doc_llm_model || '',
+    chat_llm_api_base: cfg.chat_llm_api_base || '',
+    chat_llm_model: cfg.chat_llm_model || '',
     stripe_publishable_key: cfg.stripe_publishable_key || '',
     paypal_mode: cfg.paypal_mode || '',
     aws_region: cfg.aws_region || '',
@@ -336,6 +350,9 @@ export default function AdminSettingsPage() {
       doc_llm_api_key: 'doc_llm_api_key_set',
       doc_llm_api_base: 'doc_llm_api_base_set',
       doc_llm_model: 'doc_llm_model_set',
+      chat_llm_api_key: 'chat_llm_api_key_set',
+      chat_llm_api_base: 'chat_llm_api_base_set',
+      chat_llm_model: 'chat_llm_model_set',
       stripe_secret_key: 'stripe_secret_key_set',
       stripe_webhook_secret: 'stripe_webhook_secret_set',
       stripe_publishable_key: 'stripe_publishable_key_set',
@@ -635,6 +652,50 @@ export default function AdminSettingsPage() {
                 isSet={isFieldSet('doc_llm_model')}
                 placeholder='gpt-4o-mini'
                 hint='Model used to summarise RFQ documents before ranking.'
+              />
+            </CardContent>
+          </Card>
+
+          {/* Sub-section 4: Chatbot Assistant LLM (LLM 4) */}
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Brain className='w-5 h-5' />
+                Chatbot Assistant — LLM 4
+              </CardTitle>
+              <CardDescription>
+                Cost-effective model that powers the website help chatbot. It answers general
+                questions directly and automatically delegates image or document-analysis
+                requests to LLM 3. Leave blank to fall back to LLM 3, then LLM 1.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <FieldRow
+                label='API Key'
+                fieldName='chat_llm_api_key'
+                value={form.chat_llm_api_key}
+                onChange={handleChange}
+                isSet={isFieldSet('chat_llm_api_key')}
+                isSecret
+                hint='API key for the chatbot LLM (can differ from the other LLM keys).'
+              />
+              <FieldRow
+                label='API Base URL'
+                fieldName='chat_llm_api_base'
+                value={form.chat_llm_api_base}
+                onChange={handleChange}
+                isSet={isFieldSet('chat_llm_api_base')}
+                placeholder='https://api.openai.com/v1'
+                hint='Leave blank to use the default OpenAI endpoint.'
+              />
+              <FieldRow
+                label='LLM Model'
+                fieldName='chat_llm_model'
+                value={form.chat_llm_model}
+                onChange={handleChange}
+                isSet={isFieldSet('chat_llm_model')}
+                placeholder='gpt-4o-mini'
+                hint='Cheap/fast chat model. Document & image analysis is delegated to LLM 3.'
               />
             </CardContent>
           </Card>
