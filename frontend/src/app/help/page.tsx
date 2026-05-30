@@ -102,7 +102,7 @@ export default function HelpPage() {
           </Link>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <Sparkles className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">ProReadyEngineer Help</span>
+            <span className="hidden sm:inline">ProMechDirectory Help</span>
           </div>
         </div>
       </header>

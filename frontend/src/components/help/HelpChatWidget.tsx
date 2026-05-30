@@ -155,7 +155,7 @@ export default function HelpChatWidget() {
               <>
                 {messages.length === 0 && (
                   <div className="text-xs text-slate-600 bg-white border border-slate-200 rounded-lg p-3 mb-3">
-                    <div className="font-semibold text-slate-800 mb-1">Ask me about ProReadyEngineer.</div>
+                    <div className="font-semibold text-slate-800 mb-1">Ask me about ProMechDirectory.</div>
                     <ul className="list-disc pl-5 space-y-0.5 text-slate-600">
                       <li>How do I submit an RFQ?</li>
                       <li>How do unlock fees work?</li>
@@ -258,7 +258,7 @@ function PaywallView({ status, onSubscribe }: { status: HelpStatus; onSubscribe:
         <div className="font-semibold text-slate-900 text-sm">Subscribers only</div>
       </div>
       <p className="text-sm text-slate-600 mb-3">
-        The AI Help Assistant answers any question about how ProReadyEngineer works - RFQs, quotes,
+        The AI Help Assistant answers any question about how ProMechDirectory works - RFQs, quotes,
         unlocks, NDAs, billing, and more. It's included with any paid subscription.
       </p>
       <div className="text-xs text-slate-600 bg-slate-50 rounded-lg p-3 mb-3 border border-slate-100">

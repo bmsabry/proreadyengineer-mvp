@@ -47,7 +47,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
   };
 
   const navItems = [
-    { href: '/',                          label: 'Main Page',      icon: Home,          tooltip: 'Return to the ProReadyEngineer landing page' },
+    { href: '/',                          label: 'Main Page',      icon: Home,          tooltip: 'Return to the ProMechDirectory landing page' },
     { href: '/customer/dashboard',        label: 'Dashboard',      icon: LayoutDashboard, tooltip: 'Account overview, tasks, and subscription status' },
     { href: '/customer/quotes',           label: 'Quotes',         icon: FileText,      tooltip: 'Compare quotes received from engineering firms' },
     { href: '/customer/active-rfqs',      label: 'Active RFQs',    icon: Activity,      tooltip: 'RFQs currently dispatched and open for quotes' },

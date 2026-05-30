@@ -10,7 +10,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 
 const navItems = [
-  { href: '/',                        label: 'Main Page',     icon: Home,            tooltip: 'Return to the ProReadyEngineer landing page' },
+  { href: '/',                        label: 'Main Page',     icon: Home,            tooltip: 'Return to the ProMechDirectory landing page' },
   { href: '/provider/dashboard',      label: 'Dashboard',     icon: LayoutDashboard, tooltip: 'Account overview, analytics, tasks, and activity' },
   { href: '/provider/active-rfqs',    label: 'Active RFQs',   icon: FileText,        tooltip: 'Unlocked RFQs open for your quote submission' },
   { href: '/provider/accepted-rfqs',  label: 'Accepted RFQs', icon: CheckCircle,     tooltip: 'RFQs where the customer selected your firm' },

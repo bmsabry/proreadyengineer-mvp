@@ -257,7 +257,7 @@ export default function ProviderUpgradePage() {
             Provider Growth Plans
           </div>
           <h1 className="text-3xl font-extrabold text-slate-900 mb-3">
-            Upgrade Your ProReadyEngineer Account
+            Upgrade Your ProMechDirectory Account
           </h1>
           <p className="text-slate-500 text-base max-w-xl mx-auto">
             Grow your engineering business by connecting with customers who need exactly what you offer.
