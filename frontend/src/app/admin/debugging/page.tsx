@@ -598,6 +598,9 @@ export default function DebuggingPage() {
   const [docLlmPrompt, setDocLlmPrompt] = useState('Summarise the following engineering document in two sentences.');
   const [docLlmLoading, setDocLlmLoading] = useState(false);
   const [docLlmResult, setDocLlmResult] = useState<any | null>(null);
+  const [chatLlmPrompt, setChatLlmPrompt] = useState('Reply with a one-sentence friendly greeting for a help chatbot.');
+  const [chatLlmLoading, setChatLlmLoading] = useState(false);
+  const [chatLlmResult, setChatLlmResult] = useState<any | null>(null);
 
 
 
@@ -676,6 +679,19 @@ export default function DebuggingPage() {
       setDocLlmResult({ success: false, error: err?.message || 'Unknown error' });
     } finally {
       setDocLlmLoading(false);
+    }
+  };
+
+  const testChatLlm = async () => {
+    setChatLlmLoading(true);
+    setChatLlmResult(null);
+    try {
+      const r = await api.admin.testChatLlm(chatLlmPrompt.trim() || 'Reply with a one-sentence friendly greeting for a help chatbot.');
+      setChatLlmResult(r.data);
+    } catch (err: any) {
+      setChatLlmResult({ success: false, error: err?.message || 'Unknown error' });
+    } finally {
+      setChatLlmLoading(false);
     }
   };
 
@@ -1643,6 +1659,58 @@ export default function DebuggingPage() {
                 <div className="space-y-2">
                   <p className="font-semibold text-red-700">❌ Document Collapse LLM test failed</p>
                   <p>{docLlmResult.error}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ---- Test Chatbot LLM (LLM 4) ---- */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>💬</span> Test Chatbot LLM (LLM 4)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Send a test prompt to the configured Chatbot LLM (LLM 4) that powers the website help assistant. Falls back to LLM 3 then LLM 1 if no dedicated key is set.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              className="flex-1 border rounded px-3 py-2 text-sm"
+              placeholder="Enter a test prompt..."
+              value={chatLlmPrompt}
+              onChange={(e) => setChatLlmPrompt(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') testChatLlm(); }}
+            />
+            <Button onClick={testChatLlm} disabled={chatLlmLoading} size="sm">
+              {chatLlmLoading ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Sending...</> : '🚀 Send'}
+            </Button>
+          </div>
+          {chatLlmResult && (
+            <div className={`rounded-md border p-3 text-sm ${
+              chatLlmResult.success
+                ? 'border-green-200 bg-green-50 text-green-800'
+                : 'border-red-200 bg-red-50 text-red-800'
+            }`}>
+              {chatLlmResult.success ? (
+                <div className="space-y-2">
+                  <p className="font-semibold text-green-700">✅ Chatbot LLM responded successfully</p>
+                  <p><span className="font-medium">Model:</span> <code className="bg-green-100 px-1 rounded text-xs">{chatLlmResult.model}</code></p>
+                  <div className="bg-white border border-green-200 rounded p-2 text-gray-800 whitespace-pre-wrap">{chatLlmResult.response}</div>
+                  {chatLlmResult.usage && (
+                    <p className="text-xs text-gray-500">
+                      Tokens used: {chatLlmResult.usage.prompt_tokens} prompt + {chatLlmResult.usage.completion_tokens} completion
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="font-semibold text-red-700">❌ Chatbot LLM test failed</p>
+                  <p>{chatLlmResult.error}</p>
                 </div>
               )}
             </div>

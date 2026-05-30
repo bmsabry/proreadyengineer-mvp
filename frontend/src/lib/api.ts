@@ -606,6 +606,8 @@ const admin = {
     apiClient.post<any>('/admin/debug/test-llm', { prompt }),
   testDocLlm: (prompt: string) =>
     apiClient.post<any>('/admin/debug/test-doc-llm', { prompt }),
+  testChatLlm: (prompt: string) =>
+    apiClient.post<any>('/admin/debug/test-chat-llm', { prompt }),
 
   getProviders: (params?: { search?: string; page?: number; limit?: number }) =>
     apiClient.get<{ providers: any[]; total: number }>('/admin/providers', { params }),
