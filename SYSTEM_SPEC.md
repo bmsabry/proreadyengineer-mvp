@@ -437,7 +437,10 @@ refresh-retry) — see §20.
   visibility must be derived from CURRENT data, not just an event flag: e.g. the provider
   "Accepted RFQ — contact the customer" note excludes quotes whose `rfq_status` is
   `cancelled`; the customer "NDA awaiting your signature" note is driven by the live
-  `nda_awaiting_customer_signature` field from `/customer/my-rfqs`. When adding a note,
+  `nda_awaiting_customer_signature` field from `/customer/my-rfqs` (which EXCLUDES closed
+  RFQs server-side — `awaiting_customer_sig` subtracts any RFQ with `is_closed`, so a
+  cancelled/selected RFQ never asks the customer to countersign; the dashboard also guards
+  with `!is_closed && rfq_status !== 'cancelled'`). When adding a note,
   derive its condition from live status/flags so it auto-clears when the underlying state
   changes (e.g. an RFQ is cancelled, an NDA is countersigned).
 - **"Action required" pattern:** amber card (`bg-amber-50 border-amber-200`) with an

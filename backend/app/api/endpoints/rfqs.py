@@ -100,7 +100,12 @@ async def get_my_rfqs(
             RFQNDA.customer_signed_at.is_(None),
         )
     )).all() if all_rfq_ids else []
-    awaiting_customer_sig = {str(x[0]) for x in awaiting_rows}
+    # Only surface the "countersign the NDA" task for RFQs that are still OPEN.
+    # If the RFQ has been cancelled or otherwise closed, there is nothing left for
+    # the customer to do, so the note must not appear (is_closed is derived from
+    # rfq_status, so this auto-clears when an RFQ is cancelled/selected/etc.).
+    _closed_rfq_ids = {str(r.id) for r in rows if r.is_closed}
+    awaiting_customer_sig = {str(x[0]) for x in awaiting_rows} - _closed_rfq_ids
 
     result = []
     for r in rows:
