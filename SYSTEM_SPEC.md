@@ -99,7 +99,12 @@ reads `RFQ_UNLOCK_PRICE=5000` → $50.)
 UUIDs unless noted. Providers use integer ids.
 
 - **User** (`users`) — `id`, `email`, `roles` (text[]: customer/provider/advertiser/admin),
-  `first_name`, `last_name`, `business_name`, `state`, auth fields, `created_at`.
+  `first_name`, `last_name`, `full_name`, `business_name`, `state`, **`phone`** (optional;
+  added 2026-05-30, migration `d4a7e2b91c08`), `entity_type`, auth fields, `created_at`.
+  **Customer registration requires name + company (`business_name`) + state + email** (phone
+  optional); enforced both client-side (register form) and server-side (the `/auth/register`
+  endpoint returns 422 for a non-provider sign-up missing any of name/company/state). Provider
+  sign-ups use the separate firm-lookup flow and aren't subject to this check.
 - **Provider** (`providers`, **int id**) — firm profile, `embedding` (pgvector),
   ranking tier, `full_profile_edit_paid`, claim/membership relations.
 - **RFQ** (`rfqs`) — `id`, `customer_user_id`, `nda_required` (bool), `rfq_status`
@@ -362,8 +367,8 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   active (the unlock path checks for it and writes an unlocked `RFQUnlock` with no payment).
   As of 2026-05-30 it ALSO grants **direct customer-contact visibility**: on an RFQ the
   subscriber has unlocked, `/provider/rfqs/{id}/unlock/status` returns `customer_contact`
-  (name, company, email, state — the only contact fields in the data model; no phone/street
-  address exists). Gating mirrors the NDA rules: non-NDA RFQ shows contact on unlock; an
+  (name, company, email, **phone**, state — phone added 2026-05-30; still no street address
+  field). Gating mirrors the NDA rules: non-NDA RFQ shows contact on unlock; an
   NDA-required RFQ returns `contact_locked_reason='nda_required'` and reveals contact only
   after the mutual NDA is fully signed (never overrides the NDA the customer paid for).
   Non-subscribers get `customer_contact=null`. The provider RFQ page renders this as an

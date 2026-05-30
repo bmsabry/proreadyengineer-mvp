@@ -15,7 +15,7 @@ from app.api.endpoints.rfqs import get_unlock_status
 async def _setup(db, *, nda_required, annual, customer_signed=False):
     cust = User(email=f"cust_{uuid.uuid4().hex[:6]}@t.com", password_hash=hash_password("pw"),
                 first_name="Jane", last_name="Buyer", business_name="Acme Buyer LLC",
-                state="Texas", roles=["customer"])
+                state="Texas", phone="+1 555-123-9999", roles=["customer"])
     prov_user = User(email=f"prov_{uuid.uuid4().hex[:6]}@t.com", password_hash=hash_password("pw"),
                      first_name="John", last_name="Smith", roles=["provider"])
     db.add_all([cust, prov_user]); await db.commit(); await db.refresh(cust); await db.refresh(prov_user)
@@ -54,6 +54,7 @@ async def test_annual_non_nda_sees_contact(db_session):
     assert cc["company"] == "Acme Buyer LLC"
     assert cc["name"] == "Jane Buyer"
     assert cc["state"] == "Texas"
+    assert cc["phone"] == "+1 555-123-9999"
 
 
 @pytest.mark.asyncio

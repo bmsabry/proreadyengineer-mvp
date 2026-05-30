@@ -222,6 +222,10 @@ function RegisterPageContent() {
     if (fd.password !== fd.confirmPassword) { setError('Passwords do not match'); return; }
     if (fd.password.length < 8) { setError('Password must be at least 8 characters'); return; }
     if (!fd.full_name.trim()) { setError('Name is required'); return; }
+    if (fd.role === 'customer') {
+      if (!fd.company_name.trim()) { setError('Company name is required'); return; }
+      if (!fd.state.trim()) { setError('State is required'); return; }
+    }
     setLoading(true);
     try {
       const fullNameTrimmed = fd.full_name.trim();
@@ -242,6 +246,7 @@ function RegisterPageContent() {
         if (lastName) body.last_name = lastName;
       }
       if (fd.company_name.trim()) body.company_name = fd.company_name.trim();
+      if (fd.state.trim()) body.state = fd.state.trim();
       if (fd.phone.trim()) body.phone = fd.phone.trim();
       if (selectedProvider && selectedProvider.id) {
         body.provider_id = selectedProvider.id;
@@ -553,7 +558,7 @@ function RegisterPageContent() {
             <div className="space-y-1.5">
               <label className={lc}>
                 Company Name
-                {fd.role === 'provider' && !selectedProvider && <span className="text-red-500 ml-1">*</span>}
+                {((fd.role === 'provider' && !selectedProvider) || fd.role === 'customer') && <span className="text-red-500 ml-1">*</span>}
                 {selectedProvider && <span className="ml-2 text-xs text-green-600 font-normal">(from directory)</span>}
               </label>
               <input
@@ -564,13 +569,16 @@ function RegisterPageContent() {
                 onChange={hc}
                 placeholder="Your company name"
                 className={selectedProvider ? icLocked : ic}
-                required={fd.role === 'provider'}
+                required={fd.role === 'provider' || fd.role === 'customer'}
               />
             </div>
 
             {/* State */}
             <div className="space-y-1.5">
-              <label className={lc}>State</label>
+              <label className={lc}>
+                State
+                {fd.role === 'customer' && <span className="text-red-500 ml-1">*</span>}
+              </label>
               <input
                 type="text"
                 name="state"
@@ -579,6 +587,7 @@ function RegisterPageContent() {
                 onChange={hc}
                 className={selectedProvider ? icLocked : ic}
                 readOnly={!!selectedProvider}
+                required={fd.role === 'customer'}
               />
             </div>
 

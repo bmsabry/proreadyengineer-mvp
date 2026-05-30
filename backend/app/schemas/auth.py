@@ -23,6 +23,7 @@ class UserRegisterRequest(BaseSchema):
     company_name: Optional[str] = None  # alias for business_name
     entity_type: Optional[str] = None  # 'Individual' or 'Company'
     state: Optional[str] = None  # state/province for NDA governing law
+    phone: Optional[str] = Field(None, max_length=40)  # optional contact phone
     provider_id: Optional[int] = None  # if set at register time, link user to this provider (validated against email match)
 
 

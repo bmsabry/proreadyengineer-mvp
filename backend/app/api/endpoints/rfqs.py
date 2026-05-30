@@ -1302,6 +1302,7 @@ async def get_unlock_status(
                     "name": _cname or rfq.contact_name,
                     "company": (rfq.business_name or (_cust.business_name if _cust else None)),
                     "email": rfq.customer_email or (_cust.email if _cust else None),
+                    "phone": (_cust.phone if _cust else None),
                     "state": (_cust.state if _cust else None),
                 }
 

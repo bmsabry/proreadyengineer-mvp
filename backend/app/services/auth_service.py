@@ -191,6 +191,7 @@ async def register_user(
         business_name=data.business_name or getattr(data, 'company_name', None),
         entity_type=data.entity_type,
         state=data.state or None,
+        phone=(getattr(data, 'phone', None) or None),
         roles=list(data.roles) if data.roles else ['customer'],
         email_verified=email_verified,
         email_verify_token_hash=email_verify_token_hash,

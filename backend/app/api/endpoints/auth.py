@@ -48,6 +48,23 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ):
     """Register a new user account."""
+    # Customer accounts must provide name, company, state, and email (phone optional).
+    # Provider registrations go through a separate firm-claim/lookup flow, so this
+    # stricter requirement is scoped to customer (or unspecified-role) sign-ups.
+    _roles = [r.lower() for r in (data.roles or ['customer'])]
+    if 'provider' not in _roles:
+        _name = (data.full_name or '').strip() or (((data.first_name or '').strip() + ' ' + (data.last_name or '').strip()).strip())
+        _company = (data.business_name or getattr(data, 'company_name', None) or '').strip()
+        _state = (data.state or '').strip()
+        _missing = []
+        if not _name: _missing.append('name')
+        if not _company: _missing.append('company name')
+        if not _state: _missing.append('state')
+        if _missing:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Missing required field(s): {', '.join(_missing)}.",
+            )
     try:
         user = await register_user(db, data)
     except ValueError as e:

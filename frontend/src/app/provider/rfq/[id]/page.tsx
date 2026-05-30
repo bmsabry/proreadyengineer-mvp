@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   Loader2, AlertCircle, CheckCircle, Download, FileText, Clock,
   Lock, LockOpen, Building2, ShieldAlert, ArrowLeft, CalendarDays, Layers,
-  CreditCard, Send, Upload, X, Sparkles, Trophy, Ban, RefreshCw, Mail, Star,
+  CreditCard, Send, Upload, X, Sparkles, Trophy, Ban, RefreshCw, Mail, Star, Phone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -36,7 +36,7 @@ interface UnlockStatus {
   rfq_status?: string;
   submitted_at?: string;
   is_annual_subscriber?: boolean;
-  customer_contact?: { name?: string | null; company?: string | null; email?: string | null; state?: string | null } | null;
+  customer_contact?: { name?: string | null; company?: string | null; email?: string | null; phone?: string | null; state?: string | null } | null;
   contact_locked_reason?: string | null;
 }
 
@@ -894,6 +894,9 @@ function ProviderRFQPageInner() {
                       )}
                       {status.customer_contact.email && (
                         <div><p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Email</p><a href={`mailto:${status.customer_contact.email}`} className="text-emerald-700 inline-flex items-center gap-1 hover:underline"><Mail className="h-3.5 w-3.5" />{status.customer_contact.email}</a></div>
+                      )}
+                      {status.customer_contact.phone && (
+                        <div><p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Phone</p><a href={`tel:${status.customer_contact.phone}`} className="text-emerald-700 inline-flex items-center gap-1 hover:underline"><Phone className="h-3.5 w-3.5" />{status.customer_contact.phone}</a></div>
                       )}
                       {status.customer_contact.state && (
                         <div><p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Location</p><p className="text-gray-900">{status.customer_contact.state}</p></div>

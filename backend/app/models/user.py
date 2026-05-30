@@ -107,6 +107,10 @@ class User(Base):
 
     # State/province for NDA governing law clause
     state: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Optional contact phone (collected at registration; shown to annual-subscriber
+    # providers as part of the customer-contact perk).
+    phone: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
