@@ -135,7 +135,7 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
   const totalQuotes = rfqs.reduce((s, r) => s + (r.quote_count || 0), 0);
   const avgQuotes = total > 0 ? (totalQuotes / total).toFixed(1) : '0';
   const ndaSigned = rfqs.filter(r => r.nda_required && r.rfq_status === 'customer_selected_provider').length;
-  const ndaAwaiting = rfqs.filter(r => r.nda_awaiting_customer_signature).length;
+  const ndaAwaiting = rfqs.filter(r => r.nda_awaiting_customer_signature && !r.is_closed && r.rfq_status !== 'cancelled').length;
 
   const quotedWithDate = rfqs.filter(r => r.quote_count > 0 && r.submitted_at);
   const avgDays = quotedWithDate.length > 0
