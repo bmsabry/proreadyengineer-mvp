@@ -842,6 +842,7 @@ export interface HelpChatResponse {
   links?: HelpChatLink[] | null;
   action?: HelpChatAction | null;
   action_result?: { executed?: boolean; type?: string; message?: string; link?: HelpChatLink | null } | null;
+  log_id?: string | null;
 }
 
 // Route every help endpoint through apiClient so the request interceptor
@@ -873,6 +874,10 @@ export const helpApi = {
   },
   agentDisable: async (): Promise<{ autonomous_enabled: boolean }> => {
     const r = await apiClient.post<{ autonomous_enabled: boolean }>('/help/agent/disable', {});
+    return r.data;
+  },
+  feedback: async (log_id: string, rating: number): Promise<{ ok: boolean; feedback: number | null }> => {
+    const r = await apiClient.post<{ ok: boolean; feedback: number | null }>('/help/feedback', { log_id, rating });
     return r.data;
   },
   upload: async (file: File): Promise<HelpUpload> => {

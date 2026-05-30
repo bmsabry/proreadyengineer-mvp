@@ -39,3 +39,5 @@ class HelpChatLog(Base):
     # Estimated USD cost of this turn (LLM4 + any LLM3 delegation), for per-user
     # monthly budget metering. Nullable for legacy rows.
     cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # User feedback on this assistant turn: 1 = thumbs up, -1 = thumbs down, NULL = none.
+    feedback: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)

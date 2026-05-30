@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { helpApi } from '@/lib/api';
 import type { HelpChatTurn, HelpStatus, HelpUpload } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
-import { MessageCircle, X, Send, Lock, Sparkles, Paperclip } from 'lucide-react';
+import { MessageCircle, X, Send, Lock, Sparkles, Paperclip, ThumbsUp, ThumbsDown } from 'lucide-react';
 
 // Routes where we do NOT show the chat bubble (to keep login/legal pages clean).
 const HIDDEN_PREFIXES = [
@@ -22,7 +22,7 @@ const HIDDEN_PREFIXES = [
 
 type ChatLink = { href: string; label: string };
 type ChatAction = { type: string; quote_id?: string; summary: string };
-type Msg = { role: 'user' | 'assistant'; content: string; links?: ChatLink[]; action?: ChatAction; actionStatus?: 'pending' | 'working' | 'done' | 'cancelled'; autoResult?: string };
+type Msg = { role: 'user' | 'assistant'; content: string; links?: ChatLink[]; action?: ChatAction; actionStatus?: 'pending' | 'working' | 'done' | 'cancelled'; autoResult?: string; logId?: string; feedback?: number };
 
 export default function HelpChatWidget() {
   const pathname = usePathname() || '';
@@ -113,7 +113,7 @@ export default function HelpChatWidget() {
       const ar = resp.action_result;
       const baseLinks = (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//'));
       const arLink = ar && ar.executed && ar.link && typeof ar.link.href === 'string' && ar.link.href.startsWith('/') ? [ar.link] : [];
-      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: [...baseLinks, ...arLink], action, actionStatus: action ? 'pending' : undefined, autoResult: ar && ar.executed ? (ar.message || 'Done.') : undefined }]);
+      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: [...baseLinks, ...arLink], action, actionStatus: action ? 'pending' : undefined, autoResult: ar && ar.executed ? (ar.message || 'Done.') : undefined, logId: resp.log_id || undefined }]);
       if (ar && ar.executed) setAttachments([]);
       if (status && typeof resp.remaining_today === 'number') {
         setStatus({ ...status, remaining_today: resp.remaining_today });
@@ -133,6 +133,14 @@ export default function HelpChatWidget() {
     } finally {
       setSending(false);
     }
+  };
+
+  const sendFeedback = async (idx: number, rating: number) => {
+    const m = messages[idx];
+    if (!m || !m.logId) return;
+    const next = m.feedback === rating ? 0 : rating;  // toggle off if same
+    setMessages((prev) => prev.map((x, i) => (i === idx ? { ...x, feedback: next } : x)));
+    try { await helpApi.feedback(m.logId, next); } catch { /* non-blocking */ }
   };
 
   const onPickFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -297,6 +305,24 @@ export default function HelpChatWidget() {
                       {m.role === 'assistant' && m.autoResult && (
                         <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
                           ✓ {m.autoResult}
+                        </div>
+                      )}
+                      {m.role === 'assistant' && m.logId && (
+                        <div className="mt-1 flex items-center gap-2">
+                          <button
+                            onClick={() => sendFeedback(i, 1)}
+                            className={`p-1 rounded ${m.feedback === 1 ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}
+                            aria-label="Helpful"
+                          >
+                            <ThumbsUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => sendFeedback(i, -1)}
+                            className={`p-1 rounded ${m.feedback === -1 ? 'text-red-600' : 'text-slate-300 hover:text-slate-500'}`}
+                            aria-label="Not helpful"
+                          >
+                            <ThumbsDown className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       )}
                     </div>

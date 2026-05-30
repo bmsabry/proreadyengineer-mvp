@@ -49,6 +49,7 @@ class ChatResponse(BaseModel):
     links: Optional[List[Dict[str, str]]] = None  # in-app navigation buttons
     action: Optional[Dict[str, Any]] = None       # a confirm-then-execute proposal (inert)
     action_result: Optional[Dict[str, Any]] = None  # result of an auto-executed action (autonomous mode)
+    log_id: Optional[str] = None                    # id of this turn's log row, for feedback
 
 
 class ActionRequest(BaseModel):
@@ -170,6 +171,7 @@ async def help_chat(
         attachments=[a.model_dump() for a in (data.attachments or [])],
     )
 
+    _log_id = None
     try:
         log = HelpChatLog(
             user_id=current_user.id if current_user else None,
@@ -187,9 +189,11 @@ async def help_chat(
         )
         db.add(log)
         await db.commit()
+        _log_id = str(log.id)
     except Exception as exc:
         logger.warning("[help_chat] Could not persist log: %s", exc)
         await db.rollback()
+        _log_id = None
 
     remaining = None
     if current_user is not None and "admin" not in set(current_user.roles or []):
@@ -202,6 +206,7 @@ async def help_chat(
         links=result.get("links") or None,
         action=result.get("action") or None,
         action_result=result.get("action_result") or None,
+        log_id=_log_id,
     )
 
 
@@ -403,6 +408,38 @@ async def help_action(
     return ActionResponse(ok=bool(result.get("ok")), message=result.get("message") or "Done.", link=result.get("link"))
 
 
+class FeedbackRequest(BaseModel):
+    log_id: str = Field(..., max_length=64)
+    rating: int = Field(..., ge=-1, le=1)  # 1 up, -1 down (0 clears)
+
+
+@limiter.limit("60/minute")
+@router.post("/help/feedback")
+async def help_feedback(
+    request: Request,
+    data: FeedbackRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Record a thumbs up/down on one assistant turn. Ownership-checked: a user may
+    only rate their OWN chat log rows. Idempotent (re-rating overwrites)."""
+    if current_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
+    import uuid as _uuid
+    try:
+        lid = _uuid.UUID(str(data.log_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid log id")
+    row = (await db.execute(
+        select(HelpChatLog).where(HelpChatLog.id == lid, HelpChatLog.user_id == current_user.id)
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Log not found")
+    row.feedback = data.rating if data.rating in (1, -1) else None
+    await db.commit()
+    return {"ok": True, "log_id": str(lid), "feedback": row.feedback}
+
+
 @router.get("/admin/help/logs")
 async def admin_help_logs(
     limit: int = 100,
@@ -433,6 +470,8 @@ async def admin_help_logs(
                 "total_tokens": r.total_tokens,
                 "error": r.error,
                 "latency_ms": r.latency_ms,
+                "feedback": getattr(r, "feedback", None),
+                "cost_usd": getattr(r, "cost_usd", None),
             }
             for r in rows
         ],

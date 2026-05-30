@@ -277,6 +277,23 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    hard-stop). Submitting the RFQ (which triggers the $10 NDA fee / dispatch) and all payments/NDA
    signing remain human-clicked. See §19 invariant 17.
 
+   **Phase 5 quality flywheel (2026-05-30):**
+   - **Feedback loop:** each assistant turn returns its `log_id`; the widget shows 👍/👎 which
+     POST `/help/feedback` (ownership-checked — a user may only rate their OWN
+     `help_chat_logs` row; idempotent). The rating is stored in `help_chat_logs.feedback`
+     (1/-1/NULL, migration `b8e1f6c43d21`) and surfaced (with `cost_usd`) in `/admin/help/logs`
+     for weekly review of 👎 and refusals.
+   - **Golden evals in CI:** `backend/tests/eval/` (driven by `golden_help.yaml`) asserts the
+     deterministic guardrails — link allowlist accept/reject, the proposable-action set, the
+     forbidden (payments/NDA) set, the PROPOSE_ACTION parser, and that the manual still says
+     ProMechDirectory / $50 / $500-yr / 5-free-NDA / account-required (and NOT the stale
+     ProReadyEngineer / $20 / 10-free). CI runs `pytest tests/eval` after the unit suite.
+   - **Deliberately deferred (documented, not built):** a cross-user semantic answer cache is
+     NOT implemented because Phase 2 injects each user's OWN account data/actions into answers,
+     so a question-keyed shared cache could leak one user's data to another. Token-streaming is
+     deferred because links/action/cost are computed from the FULL reply after one synchronous
+     call; SSE would require reworking that post-processing for marginal benefit on short answers.
+
 (A support-ticket classifier in `support_service.py` reuses LLM3 keys.)
 
 `EMBEDDING_*`, `DOC_LLM_*` and `CHAT_LLM_*` are **runtime-config keys only** (no Pydantic

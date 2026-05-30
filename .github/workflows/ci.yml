@@ -28,10 +28,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install aiosqlite freezegun   # test-only deps
+          pip install aiosqlite freezegun pyyaml   # test-only deps
 
       - name: Run backend unit tests
         # Green suite = the regression + smoke tests that target the CURRENT API.
         # Drifted legacy suites are quarantined (skipped) and tracked for rewrite
         # in CODE_AUDIT_2026-05-28.md. A red run here means a real regression.
         run: python -m pytest tests/unit -q
+
+      - name: Run AI assistant golden evals
+        # Deterministic guardrail checks for the help assistant (link/action allowlists,
+        # scope/safety parsing, manual brand+price+quota facts). No LLM/network calls.
+        run: python -m pytest tests/eval -q

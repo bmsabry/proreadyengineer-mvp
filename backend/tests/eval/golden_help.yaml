@@ -1,0 +1,54 @@
+# Golden assertions for the AI Help Assistant's deterministic guardrails.
+# These do NOT call the LLM; they verify the parsing/validation/scope/safety logic
+# that wraps the model — the parts that must never silently regress.
+
+# Internal links that MUST be accepted by the navigation parser.
+valid_links:
+  - /customer/rfq/new
+  - /customer/quotes
+  - /billing
+  - /provider/upgrade
+  - /provider/accepted-rfqs
+  - /help
+
+# Paths that MUST be rejected (external, admin, protocol-relative, traversal, relative).
+invalid_links:
+  - https://evil.com
+  - http://x.y
+  - //evil.com
+  - /admin/users
+  - /admin/settings
+  - relative/path
+  - ""
+
+# Action types the model may PROPOSE.
+proposable_actions:
+  - mark_contacted
+  - undo_mark_contacted
+  - accept_quote
+  - cancel_rfq
+  - withdraw_quote
+  - create_rfq_from_docs
+  - submit_quote_from_docs
+
+# Action types that must NEVER be executable, even with autonomous mode + consent.
+forbidden_actions:
+  - pay
+  - pay_unlock
+  - pay_nda_fee
+  - subscribe
+  - sign_nda
+  - countersign_nda
+  - esign
+
+# Manual must reflect current live facts (substring presence).
+manual_must_contain:
+  - "ProMechDirectory"
+  - "$50"        # provider unlock
+  - "$500 per year"
+  - "5 free NDA"
+  - "account is required to search"
+manual_must_not_contain:
+  - "ProReadyEngineer"   # internal codename must never appear in user-facing manual
+  - "$20 per month"      # stale customer price
+  - "10 free searches"   # stale quota
