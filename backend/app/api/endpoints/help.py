@@ -37,6 +37,7 @@ class ChatResponse(BaseModel):
     reply: str
     error: Optional[str] = None
     remaining_today: Optional[int] = None
+    links: Optional[List[Dict[str, str]]] = None  # in-app navigation buttons
 
 
 class StatusResponse(BaseModel):
@@ -166,6 +167,7 @@ async def help_chat(
         reply=result.get("reply") or "Sorry - I couldn't produce an answer just now. Please try again.",
         error=result.get("error"),
         remaining_today=remaining,
+        links=result.get("links") or None,
     )
 
 

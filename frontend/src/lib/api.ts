@@ -812,10 +812,16 @@ export interface HelpChatTurn {
   content: string;
 }
 
+export interface HelpChatLink {
+  href: string;
+  label: string;
+}
+
 export interface HelpChatResponse {
   reply: string;
   error?: string | null;
   remaining_today?: number | null;
+  links?: HelpChatLink[] | null;
 }
 
 // Route every help endpoint through apiClient so the request interceptor

@@ -224,6 +224,14 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    widget also passes the current page path (`ChatRequest.page`) for context-awareness.
    Account-related questions bypass the scope-gate so they're never wrongly refused.
 
+   **Phase 3 navigation + drafting (2026-05-30):** the system prompt lets the model end a reply
+   with a `SUGGESTED_LINKS: /path|Label ;; ...` line; `help_service._extract_links` strips it
+   from the visible text and returns validated **internal-only** links (allowlisted prefixes,
+   no external/`/admin`/`//`, max 3) as `ChatResponse.links`. The chat widget renders them as
+   buttons that `router.push` in-app (and close the widget). The prompt also instructs the model
+   to draft RFQ descriptions / messages for the user to review and submit. No write actions yet
+   (that's Phase 4) — navigation and drafting only.
+
 (A support-ticket classifier in `support_service.py` reuses LLM3 keys.)
 
 `EMBEDDING_*`, `DOC_LLM_*` and `CHAT_LLM_*` are **runtime-config keys only** (no Pydantic

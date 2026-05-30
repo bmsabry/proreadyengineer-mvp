@@ -117,6 +117,18 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
         "Contact page. Do not invent prices, SLAs, policies, or features.\n"
         "- Keep answers short and practical. Prefer bullet points for steps.\n"
         "- Be warm and professional.\n\n"
+        "NAVIGATION & DRAFTING:\n"
+        "- When it helps the user act, point them to the exact page and, at the VERY END of "
+        "your reply, add one line listing up to 3 in-app links to render as buttons:\n"
+        "  " + _LINK_PREFIX + " /path|Short label ;; /path2|Short label2\n"
+        "  Use ONLY these real paths: /customer/dashboard, /customer/rfq/new, /customer/quotes, "
+        "/customer/all-rfqs, /customer/profile, /billing, /search, /provider/dashboard, "
+        "/provider/rfqs, /provider/accepted-rfqs, /provider/upgrade, /provider/profile, "
+        "/provider/advertise, /help, /contact. Pick links that match the user's role and need. "
+        "Never invent a path; omit the line if none fit.\n"
+        "- If the user asks you to draft something (an RFQ description, a message to a customer/"
+        "provider), write a clear, concise draft they can copy and edit, then point them with a "
+        "link to where they submit it. You prepare drafts; the user reviews and submits.\n\n"
         "DELEGATION (very important):\n"
         "- You are a fast, cost-effective model. You CANNOT look at images and you CANNOT "
         "read or analyse the contents of a specific document (such as a Quote or an RFQ the "
@@ -284,6 +296,52 @@ _ACCOUNT_HINTS = (
 def _looks_account_related(msg: str) -> bool:
     m = (msg or "").lower()
     return any(h in m for h in _ACCOUNT_HINTS)
+
+
+# Navigation: the model may end a reply with a line like
+#   SUGGESTED_LINKS: /customer/rfq/new|Submit a new RFQ ;; /customer/quotes|Review quotes
+# We parse it into validated INTERNAL links the widget renders as buttons.
+_LINK_PREFIX = "SUGGESTED_LINKS:"
+_ALLOWED_LINK_PREFIXES = (
+    "/customer", "/provider", "/billing", "/search", "/help", "/contact",
+    "/advertise", "/featured-firms", "/software-providers", "/providers",
+    "/profile", "/login", "/register",
+)
+
+
+def _is_safe_internal_path(href: str) -> bool:
+    href = (href or "").strip()
+    if not href.startswith("/") or href.startswith("//"):
+        return False
+    if "://" in href or "\\" in href or " " in href:
+        return False
+    seg = "/" + href.lstrip("/").split("/", 1)[0]
+    return any(href == p or href.startswith(p + "/") or seg == p for p in _ALLOWED_LINK_PREFIXES)
+
+
+def _extract_links(reply: str):
+    """Return (clean_reply, links[]). links = [{href,label}] validated internal-only, max 3."""
+    if not reply or _LINK_PREFIX not in reply:
+        return reply, []
+    lines = reply.splitlines()
+    kept, links = [], []
+    for ln in lines:
+        if ln.strip().upper().startswith(_LINK_PREFIX):
+            payload = ln.split(":", 1)[1] if ":" in ln else ""
+            for entry in payload.split(";;"):
+                entry = entry.strip()
+                if not entry:
+                    continue
+                if "|" in entry:
+                    href, label = entry.split("|", 1)
+                else:
+                    href, label = entry, entry
+                href, label = href.strip(), label.strip()[:60]
+                if _is_safe_internal_path(href) and len(links) < 3:
+                    links.append({"href": href, "label": label or href})
+        else:
+            kept.append(ln)
+    return "\n".join(kept).strip(), links
 
 
 def _sanitize_history(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -557,8 +615,10 @@ async def answer_question(
         if res3.get("error"):
             return {"reply": "", "error": res3["error"], "model": res3.get("model"),
                     "delegated": True, "latency_ms": res3.get("latency_ms"), "cost_usd": round(cost4 + cost3, 6)}
+        clean3, links3 = _extract_links((res3.get("reply") or "").strip())
         return {
-            "reply": (res3.get("reply") or "").strip(),
+            "reply": clean3,
+            "links": links3,
             "model": res3.get("model"),
             "delegated": True,
             "prompt_tokens": res3.get("prompt_tokens"),
@@ -569,8 +629,10 @@ async def answer_question(
         }
 
     # --- Normal LLM4 answer ---
+    clean, links = _extract_links(reply)
     return {
-        "reply": reply,
+        "reply": clean,
+        "links": links,
         "model": res.get("model"),
         "delegated": False,
         "prompt_tokens": res.get("prompt_tokens"),
