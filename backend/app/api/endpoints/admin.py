@@ -1054,6 +1054,8 @@ class SystemConfigRequest(_BaseModel):
     chat_llm_model: Optional[str] = None
     render_api_key: Optional[str] = None
     render_monthly_budget: Optional[str] = None
+    llm_pricing: Optional[str] = None
+    operating_cost_items: Optional[str] = None
     openai_api_key: Optional[str] = None
     openai_api_base: Optional[str] = None
     openai_llm_model: Optional[str] = None
@@ -1158,6 +1160,10 @@ async def get_system_config(
         "render_api_key_set": _is_set("RENDER_API_KEY"),
         "render_monthly_budget": config.get("RENDER_MONTHLY_BUDGET", ""),
         "render_monthly_budget_set": _is_set("RENDER_MONTHLY_BUDGET"),
+        "llm_pricing": config.get("LLM_PRICING", ""),
+        "llm_pricing_set": _is_set("LLM_PRICING"),
+        "operating_cost_items": config.get("OPERATING_COST_ITEMS", ""),
+        "operating_cost_items_set": _is_set("OPERATING_COST_ITEMS"),
         "stripe_secret_key": _mask(config.get("STRIPE_SECRET_KEY", "")),
         "stripe_secret_key_set": _is_set("STRIPE_SECRET_KEY"),
         "stripe_publishable_key": config.get("STRIPE_PUBLISHABLE_KEY", ""),
@@ -1226,6 +1232,8 @@ async def save_system_config(
         if data.chat_llm_model:         config_map["CHAT_LLM_MODEL"]         = data.chat_llm_model
         if data.render_api_key:         config_map["RENDER_API_KEY"]         = data.render_api_key
         if data.render_monthly_budget:  config_map["RENDER_MONTHLY_BUDGET"]  = data.render_monthly_budget
+        if data.llm_pricing is not None:        config_map["LLM_PRICING"]           = data.llm_pricing
+        if data.operating_cost_items is not None: config_map["OPERATING_COST_ITEMS"] = data.operating_cost_items
         if data.stripe_secret_key:      config_map["STRIPE_SECRET_KEY"]      = data.stripe_secret_key
         if data.stripe_publishable_key: config_map["STRIPE_PUBLISHABLE_KEY"] = data.stripe_publishable_key
         if data.stripe_webhook_secret:  config_map["STRIPE_WEBHOOK_SECRET"]  = data.stripe_webhook_secret
@@ -4230,6 +4238,146 @@ async def admin_spend_render(
 
     except Exception as exc:
         return {'available': False, 'error': str(exc)}
+
+
+@router.get('/admin/operating-cost')
+async def admin_operating_cost(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(['admin'])),
+) -> Dict[str, Any]:
+    """Transparent operating-cost breakdown: LLM spend (by model, from real tokens where
+    available), Stripe processing fees, Render hosting, and config-driven other monthly
+    line items. Each figure is labelled 'actual' (measured) or 'estimate'.
+
+    Prices come from the live cost catalog (admin-editable LLM_PRICING) with static fallback.
+    """
+    from datetime import datetime, timezone
+    from app.services.config_service import get_runtime_config
+    from app.services.cost_catalog import cost_for_tokens, price_for_model
+    from app.models.help_chat import HelpChatLog
+    from app.models.search import SearchRequest as _SearchReq
+
+    cfg = await get_runtime_config(db)
+    now = datetime.now(timezone.utc)
+    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+
+    llm_rows = []  # per-model cost rows
+
+    # --- 1) Chatbot LLM (LLM3/LLM4): REAL tokens + cost from help_chat_logs ---
+    try:
+        rows = (await db.execute(
+            select(
+                HelpChatLog.model,
+                func.coalesce(func.sum(HelpChatLog.prompt_tokens), 0),
+                func.coalesce(func.sum(HelpChatLog.completion_tokens), 0),
+                func.coalesce(func.sum(HelpChatLog.cost_usd), 0.0),
+                func.count(),
+            ).where(HelpChatLog.created_at >= month_start, HelpChatLog.model.isnot(None))
+             .group_by(HelpChatLog.model)
+        )).all()
+        for model, pt, ct, cost, n in rows:
+            # Recompute from catalog when a row's stored cost is null/zero but tokens exist.
+            calc = float(cost or 0.0)
+            if calc <= 0 and (int(pt or 0) + int(ct or 0)) > 0:
+                calc = cost_for_tokens(model, pt, ct, cfg)
+            llm_rows.append({
+                "label": "Chatbot assistant", "model": model,
+                "prompt_tokens": int(pt or 0), "completion_tokens": int(ct or 0),
+                "calls": int(n or 0), "cost_usd": round(calc, 4), "basis": "actual",
+            })
+    except Exception as exc:
+        logger.warning("[operating-cost] chatbot agg failed: %s", exc)
+
+    # --- 2) Search/ranking + embedding LLM (LLM1/LLM2): ESTIMATE from call counts ---
+    # These paths don't yet log per-call tokens, so we estimate using a conservative
+    # average token footprint per search request. Clearly labelled as an estimate.
+    try:
+        AVG_SEARCH_IN, AVG_SEARCH_OUT = 1200, 300   # intent extraction + 2 ranking passes, rough
+        n_search = (await db.execute(
+            select(func.count()).select_from(_SearchReq).where(_SearchReq.created_at >= month_start)
+        )).scalar() or 0
+        if n_search:
+            model = cfg.get("OPENAI_LLM_MODEL") or "moonshotai/Kimi-K2.5"
+            est = cost_for_tokens(model, AVG_SEARCH_IN * n_search, AVG_SEARCH_OUT * n_search, cfg)
+            llm_rows.append({
+                "label": "Search & ranking", "model": model,
+                "prompt_tokens": AVG_SEARCH_IN * n_search, "completion_tokens": AVG_SEARCH_OUT * n_search,
+                "calls": int(n_search), "cost_usd": round(est, 4), "basis": "estimate",
+            })
+    except Exception as exc:
+        logger.warning("[operating-cost] search agg failed: %s", exc)
+
+    llm_total = round(sum(r["cost_usd"] for r in llm_rows), 4)
+
+    other_rows = []  # non-LLM monthly costs
+
+    # --- 3) Stripe processing fees (ESTIMATE): 2.9% + $0.30 per completed payment this month ---
+    try:
+        pay_rows = (await db.execute(
+            select(func.coalesce(func.sum(PaymentAttempt.amount), 0), func.count())
+            .where(PaymentAttempt.payment_status == "completed",
+                   PaymentAttempt.created_at >= month_start)
+        )).first()
+        gross = float(pay_rows[0] or 0.0)
+        n_pay = int(pay_rows[1] or 0)
+        stripe_fee = round(gross * 0.029 + 0.30 * n_pay, 2)
+        other_rows.append({
+            "label": "Stripe processing fees", "detail": f"{n_pay} payments, ${gross:,.2f} gross",
+            "cost_usd": stripe_fee, "basis": "estimate",
+        })
+    except Exception as exc:
+        logger.warning("[operating-cost] stripe agg failed: %s", exc)
+
+    # --- 4) Render hosting (manual budget from config, if set) ---
+    rb = cfg.get("RENDER_MONTHLY_BUDGET")
+    if rb:
+        try:
+            other_rows.append({"label": "Render hosting", "detail": "from RENDER_MONTHLY_BUDGET",
+                               "cost_usd": round(float(rb), 2), "basis": "manual"})
+        except (ValueError, TypeError):
+            pass
+
+    # --- 5) Other fixed/usage monthly costs from config (admin-editable JSON) ---
+    # OPERATING_COST_ITEMS = [{"label": "...", "cost_usd": 12.5}, ...]
+    raw_items = cfg.get("OPERATING_COST_ITEMS")
+    if raw_items:
+        try:
+            items = json.loads(raw_items) if isinstance(raw_items, str) else raw_items
+            for it in (items or []):
+                if isinstance(it, dict) and "cost_usd" in it:
+                    other_rows.append({
+                        "label": str(it.get("label", "Other"))[:80],
+                        "detail": str(it.get("detail", ""))[:120],
+                        "cost_usd": round(float(it["cost_usd"]), 2), "basis": "manual",
+                    })
+        except Exception as exc:
+            logger.info("[operating-cost] bad OPERATING_COST_ITEMS: %s", exc)
+
+    # Reminder list of services that bill but may not be auto-tracked here.
+    untracked = [
+        s for s, present in [
+            ("AWS S3 (storage/egress)", bool(cfg.get("AWS_ACCESS_KEY_ID"))),
+            ("Resend (email)", bool(cfg.get("RESEND_API_KEY"))),
+            ("SignWell (e-signature)", bool(cfg.get("SIGNWELL_API_KEY"))),
+            ("DeepInfra / Gemini API base", bool(cfg.get("OPENAI_API_KEY"))),
+        ] if present
+    ]
+
+    other_total = round(sum(r["cost_usd"] for r in other_rows), 2)
+    grand_total = round(llm_total + other_total, 2)
+
+    return {
+        "month": now.strftime("%Y-%m"),
+        "llm": {"rows": llm_rows, "total_usd": llm_total},
+        "other": {"rows": other_rows, "total_usd": other_total},
+        "grand_total_usd": grand_total,
+        "untracked_services": untracked,
+        "notes": (
+            "LLM chatbot costs are actual (measured from token usage). Search/ranking and "
+            "Stripe fees are estimates. Prices are read from the live catalog (edit LLM_PRICING "
+            "in Settings) with static fallback. Add fixed monthly costs via OPERATING_COST_ITEMS."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------

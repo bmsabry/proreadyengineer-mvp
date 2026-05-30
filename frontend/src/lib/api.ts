@@ -688,6 +688,9 @@ const admin = {
   spendRender: () =>
     apiClient.get<any>('/admin/spend/render'),
 
+  operatingCost: () =>
+    apiClient.get<any>('/admin/operating-cost'),
+
 };
 
 // Internal / Cron

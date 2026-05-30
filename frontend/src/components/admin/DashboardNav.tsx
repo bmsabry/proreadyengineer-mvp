@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import {
   LayoutDashboard, FileText, Building2, Factory, DollarSign,
   Megaphone, Users, Settings, LogOut, Home, Activity, Download,
-  Webhook, Mail, LifeBuoy,
+  Webhook, Mail, LifeBuoy, Wallet,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,6 +25,7 @@ const navItems = [
   { href: '/admin/claims',          label: 'Claims',           icon: Building2 },
   { href: '/admin/providers',       label: 'Providers',        icon: Factory },
   { href: '/admin/payments',        label: 'Payments',         icon: DollarSign },
+  { href: '/admin/operating-cost',  label: 'Operating Cost',   icon: Wallet },
   { href: '/admin/webhooks',        label: 'Webhooks',         icon: Webhook },
   { href: '/admin/campaigns',       label: 'Email Campaigns',  icon: Mail },
   { href: '/admin/support',         label: 'Support Tickets',  icon: LifeBuoy,  badgeKey: 'tickets' },

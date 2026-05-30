@@ -219,6 +219,17 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    - **Cost accuracy:** uses real API `usage` tokens with a char-based (~4 chars/token) fallback
      in `_call_llm` so a turn is never undercounted to $0 if usage is omitted.
 
+   **Operating Cost panel (admin, 2026-05-30):** `/admin/operating-cost` (endpoint
+   `GET /admin/operating-cost`) shows where money goes: LLM cost per model from REAL token
+   usage in `help_chat_logs` (chatbot = actual), search/ranking + Stripe fees as labelled
+   ESTIMATES, Render hosting from `RENDER_MONTHLY_BUDGET`, and arbitrary fixed monthly line
+   items from the admin-editable `OPERATING_COST_ITEMS` JSON. Prices come from
+   `app/services/cost_catalog.py` — read LIVE from the admin-editable `LLM_PRICING` runtime
+   config (takes effect instantly) with a hardcoded STATIC fallback (so it still works mid-deploy
+   or with no network); update `LLM_PRICING` in Settings when a vendor changes prices rather than
+   web-scraping. Untracked-but-billing services (AWS/Resend/SignWell/DeepInfra) are listed as a
+   reminder to add via `OPERATING_COST_ITEMS`.
+
    **Phase 2 personalization (2026-05-30, `help_context.py`):** before answering, the backend
    builds a COMPACT, user-scoped account snapshot — subscription, RFQ/quote counts, free-NDA
    credits, and prioritized ACTION ITEMS (customer: NDAs awaiting countersignature, RFQs with
@@ -561,7 +572,7 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   flow), `rfqs`, list pages, `nda/[id]/sign`, `profile`, `profile/full-edit`, `upgrade`,
   `claim`, `add-firm`, `advertise`.
 - Shared: `/nda/[id]/sign` (customer NDA pay/sign), `/rfqs/[id]/unlock`.
-- Admin (`/admin/*`): `dashboard`, `rfqs`(+`[id]`), `claims`, `providers`, `payments`,
+- Admin (`/admin/*`): `dashboard`, `rfqs`(+`[id]`), `claims`, `providers`, `payments`, `operating-cost`,
   `webhooks`, `campaigns`, `support`(+`[id]`), `ads`, `users`, `data-extraction`,
   `debugging`, `settings`.
 
