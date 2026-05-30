@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
@@ -485,7 +485,9 @@ function ProviderAnalyticsPanel({
     .filter(t => t.status !== 'quoted' && (t as any).rfq_status === 'open_for_unlock')
     .slice(0, 3);
   const acceptedTasks = quotes.filter(q =>
-    q.quote_status === 'accepted' && !contactedRfqIds.includes(q.rfq_id)
+    q.quote_status === 'accepted' &&
+    (q as any).rfq_status !== 'cancelled' &&
+    !contactedRfqIds.includes(q.rfq_id)
   );
   const taskCount = ndaTasks.length + rfqTasks.length + (acceptedTasks.length > 0 ? 1 : 0);
   const hasTasks = taskCount > 0;
@@ -795,37 +797,52 @@ function ProviderDashboardInner() {
     } catch {}
   }, []);
 
+  const loadDashboard = useCallback(async () => {
+    if (!user) return;
+    try {
+      const [tr, qr, sr, usr] = await Promise.all([
+        api.providerRFQ.getTeasers(),
+        api.quotes.getForProvider(),
+        api.billing.getProviderSubscriptionStatus().catch(() => null),
+        api.billing.getUserSubscriptions().catch(() => null),
+      ]);
+      const td = (tr as any).data ?? tr;
+      const tlist = td?.teasers ?? td ?? [];
+      setHasMembership(td?.has_membership ?? (Array.isArray(tlist) && tlist.length > 0));
+      setTeasers(Array.isArray(tlist) ? tlist : []);
+      const qd = (qr as any).data ?? qr ?? [];
+      setQuotes(Array.isArray(qd) ? qd : []);
+      const sd = (sr as any)?.data ?? sr;
+      if (sd && typeof sd === 'object' && 'has_active' in sd) {
+        setProviderSubStatus(sd);
+      }
+      const usd = (usr as any)?.data ?? usr;
+      if (usd && Array.isArray(usd.subscriptions)) {
+        setUserSubs(usd.subscriptions);
+      }
+    } catch (e) {
+      console.error('Dashboard fetch error:', e);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  // Live updates: load on mount, poll every 20s, and refresh on tab focus /
+  // visibilitychange so guidance notes reflect current state without a reload.
   useEffect(() => {
     if (!user) return;
-    (async () => {
-      try {
-        const [tr, qr, sr, usr] = await Promise.all([
-          api.providerRFQ.getTeasers(),
-          api.quotes.getForProvider(),
-          api.billing.getProviderSubscriptionStatus().catch(() => null),
-          api.billing.getUserSubscriptions().catch(() => null),
-        ]);
-        const td = (tr as any).data ?? tr;
-        const tlist = td?.teasers ?? td ?? [];
-        setHasMembership(td?.has_membership ?? (Array.isArray(tlist) && tlist.length > 0));
-        setTeasers(Array.isArray(tlist) ? tlist : []);
-        const qd = (qr as any).data ?? qr ?? [];
-        setQuotes(Array.isArray(qd) ? qd : []);
-        const sd = (sr as any)?.data ?? sr;
-        if (sd && typeof sd === 'object' && 'has_active' in sd) {
-          setProviderSubStatus(sd);
-        }
-        const usd = (usr as any)?.data ?? usr;
-        if (usd && Array.isArray(usd.subscriptions)) {
-          setUserSubs(usd.subscriptions);
-        }
-      } catch (e) {
-        console.error('Dashboard fetch error:', e);
-      } finally {
-        setIsLoading(false);
-      }
-    })();
-  }, [user]);
+    loadDashboard();
+    const id = setInterval(loadDashboard, 20000);
+    const onFocus = () => loadDashboard();
+    const onVisible = () => { if (document.visibilityState === 'visible') loadDashboard(); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user, loadDashboard]);
 
   // ── Handle Stripe redirect with ?payment=success&session_id=xxx ─────────────
   useEffect(() => {
