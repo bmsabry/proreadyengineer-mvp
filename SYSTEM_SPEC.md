@@ -194,9 +194,24 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    replies with a one-line `DELEGATE: <focus>` directive and `help_service` re-runs the
    turn on LLM3 (the specialist). Sentinel-based, so one model call on normal turns and
    a second only when delegating; provider-agnostic (no function-calling dependency).
-   Note: the chatbot is grounded on the static help manual and does **not** yet fetch a
-   user's specific RFQ/Quote by id — pasted/attached document text in the conversation is
-   what LLM3 analyses today. (`help_service.py`)
+   Note: the chatbot does **not** yet fetch a user's specific RFQ/Quote by id — pasted/attached
+   document text in the conversation is what LLM3 analyses today. (`help_service.py`)
+
+   **Phase 1 cost/scope controls (2026-05-30, `help_service.py`):**
+   - **RAG:** instead of stuffing the whole manual every turn, the manual is chunked by
+     `##`/`###` headers, each chunk embedded once (in-memory cache keyed by manual hash,
+     reusing `search_service.generate_embedding`), and only the top-`_RAG_TOP_K=4` chunks
+     for the query are put in the prompt. **Fail-safe:** if embeddings are unavailable it
+     falls back to the full manual, so the chatbot never breaks because of RAG.
+   - **Scope-gate:** the query embedding's best chunk similarity is checked against
+     `_SCOPE_MIN_SIM=0.20`; a clearly off-topic question is refused with a canned message
+     BEFORE any paid LLM call. Conservative threshold to avoid false refusals.
+   - **Budget cap:** every turn's estimated cost (`_estimate_cost`, default
+     $0.0003/$0.0010 per 1K in/out, overridable via runtime-config `CHAT_LLM_PRICING` JSON)
+     is stored in `help_chat_logs.cost_usd` (migration `f6c9d4e32a10`). A pre-flight sums the
+     user's month-to-date cost; at `CHATBOT_MONTHLY_BUDGET_USD=15.0` it **hard-blocks** with a
+     "contact us to raise your limit" message (zero cost). Admins are exempt. This is in
+     addition to the existing 50-messages/day cap.
 
 (A support-ticket classifier in `support_service.py` reuses LLM3 keys.)
 

@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     # Paid customer search subscribers get this many free NDA-required RFQs per calendar
     # month; beyond it they pay the $10 NDA handling fee.
     NDA_FREE_CREDITS_PER_MONTH: int = 5
+    # AI Help Assistant: hard monthly spend cap per user (USD). At the cap the
+    # assistant stops answering and offers a "request a higher limit" path.
+    CHATBOT_MONTHLY_BUDGET_USD: float = 15.0
     PROVIDER_ANNUAL_SUBSCRIPTION_PRICE: int = 100000  # $1000.00/year
     AD_SUBSCRIPTION_PRICE: int = 5000  # $50.00
 

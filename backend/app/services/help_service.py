@@ -284,6 +284,138 @@ def _sanitize_history(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Phase 1: RAG retrieval, scope-gate, and per-user budget metering.
+# ---------------------------------------------------------------------------
+import hashlib as _hashlib
+import math as _math
+
+_RAG_TOP_K = 4
+# Conservative: only refuse when the best matching manual chunk is clearly unrelated,
+# to avoid wrongly refusing a paying user. Tunable.
+_SCOPE_MIN_SIM = 0.20
+
+# Default token prices (USD per 1K tokens). Cheap models (DeepSeek V4 Flash,
+# gpt-4o-mini class) are well under these; admins can override per model via the
+# runtime-config key CHAT_LLM_PRICING (JSON: {"model": {"in": x, "out": y}, ...}).
+_DEFAULT_PRICE_PER_1K = {"in": 0.0003, "out": 0.0010}
+
+# In-memory chunk + embedding cache, keyed by a hash of the manual text.
+_CHUNK_CACHE: Dict[str, List[str]] = {}
+_CHUNK_EMB_CACHE: Dict[str, List[List[float]]] = {}
+
+
+def _chunk_manual(manual: str) -> List[str]:
+    """Split the manual into self-contained chunks at ## / ### headers."""
+    import re
+    if not manual or manual.startswith("NO_MANUAL_AVAILABLE"):
+        return [manual or ""]
+    parts = re.split(r"(?m)^(?=#{2,3}\s)", manual)
+    chunks = [p.strip() for p in parts if p.strip()]
+    # Keep the leading preamble (before the first header) as its own chunk.
+    return chunks or [manual]
+
+
+def _cosine(a: List[float], b: List[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = _math.sqrt(sum(x * x for x in a))
+    nb = _math.sqrt(sum(y * y for y in b))
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (na * nb)
+
+
+def _price_for_model(model: Optional[str], rt_cfg: Dict[str, Any]) -> Dict[str, float]:
+    """Resolve (in, out) per-1K price for a model from runtime config or defaults."""
+    pricing_raw = (rt_cfg or {}).get("CHAT_LLM_PRICING") or (rt_cfg or {}).get("chat_llm_pricing")
+    if pricing_raw:
+        try:
+            import json as _json
+            table = _json.loads(pricing_raw) if isinstance(pricing_raw, str) else pricing_raw
+            if isinstance(table, dict) and model in table:
+                e = table[model]
+                return {"in": float(e.get("in", _DEFAULT_PRICE_PER_1K["in"])),
+                        "out": float(e.get("out", _DEFAULT_PRICE_PER_1K["out"]))}
+        except Exception:
+            pass
+    return dict(_DEFAULT_PRICE_PER_1K)
+
+
+def _estimate_cost(model: Optional[str], prompt_tokens, completion_tokens, rt_cfg: Dict[str, Any]) -> float:
+    p = _price_for_model(model, rt_cfg)
+    pt = int(prompt_tokens or 0)
+    ct = int(completion_tokens or 0)
+    return round((pt / 1000.0) * p["in"] + (ct / 1000.0) * p["out"], 6)
+
+
+async def _user_month_cost(db: AsyncSession, user_id) -> float:
+    """Sum this user's assistant cost for the current calendar month (USD)."""
+    if user_id is None:
+        return 0.0
+    from datetime import datetime, timezone
+    from sqlalchemy import select, func
+    from app.models.help_chat import HelpChatLog
+    now = datetime.now(timezone.utc)
+    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    try:
+        total = (await db.execute(
+            select(func.coalesce(func.sum(HelpChatLog.cost_usd), 0.0)).where(
+                HelpChatLog.user_id == user_id,
+                HelpChatLog.created_at >= month_start,
+            )
+        )).scalar()
+        return float(total or 0.0)
+    except Exception as exc:
+        logger.warning("[help_service] month-cost lookup failed: %s", exc)
+        return 0.0
+
+
+async def _embed_text(text: str, db: AsyncSession) -> Optional[List[float]]:
+    """Embed one string via the shared search embedding stack. None on failure."""
+    try:
+        from app.services.config_service import get_runtime_config
+        from app.services.search_service import generate_embedding
+        rt = await get_runtime_config(db)
+        return await generate_embedding(text, runtime_config=rt)
+    except Exception as exc:
+        logger.info("[help_service] embedding unavailable, RAG disabled this turn: %s", exc)
+        return None
+
+
+async def _get_grounding(db: AsyncSession, query: str) -> Tuple[str, Optional[float]]:
+    """Return (context_text, max_similarity).
+
+    Retrieves the top-K most relevant manual chunks for the query. Falls back to
+    the FULL manual (and max_similarity=None) whenever embeddings are unavailable,
+    so the assistant never breaks because of the RAG layer.
+    """
+    manual = _load_manual()
+    key = _hashlib.sha1(manual.encode("utf-8")).hexdigest()
+    chunks = _CHUNK_CACHE.get(key)
+    if chunks is None:
+        chunks = _chunk_manual(manual)
+        _CHUNK_CACHE[key] = chunks
+    embs = _CHUNK_EMB_CACHE.get(key)
+    if embs is None:
+        import asyncio
+        results = await asyncio.gather(*[_embed_text(c, db) for c in chunks])
+        if any(r is None for r in results):
+            return manual, None  # embeddings unavailable -> full-manual fallback
+        embs = results  # type: ignore
+        _CHUNK_EMB_CACHE[key] = embs  # type: ignore
+    q_emb = await _embed_text(query, db)
+    if q_emb is None:
+        return manual, None
+    sims = [(_cosine(q_emb, e), i) for i, e in enumerate(embs)]
+    sims.sort(reverse=True)
+    max_sim = sims[0][0] if sims else None
+    top_idx = sorted(i for _, i in sims[:_RAG_TOP_K])
+    context = "\n\n".join(chunks[i] for i in top_idx)
+    return context, max_sim
+
+
 async def answer_question(
     db: AsyncSession,
     user: Optional[User],
@@ -293,6 +425,30 @@ async def answer_question(
     user_message = (user_message or "").strip()[:_MAX_USER_MESSAGE_CHARS]
     if not user_message:
         return {"reply": "", "error": "empty_message"}
+
+    # --- Per-user monthly budget pre-flight (admins exempt) ---
+    from app.core.config import settings as _settings
+    rt_cfg: Dict[str, Any] = {}
+    try:
+        from app.services.config_service import get_runtime_config
+        rt_cfg = await get_runtime_config(db)
+    except Exception:
+        rt_cfg = {}
+    budget = float(getattr(_settings, "CHATBOT_MONTHLY_BUDGET_USD", 15.0))
+    is_admin = bool(user and "admin" in (user.roles or []))
+    if user is not None and not is_admin:
+        spent = await _user_month_cost(db, user.id)
+        if spent >= budget:
+            logger.info("[help_service] budget cap hit user=%s spent=%.4f", user.id, spent)
+            return {
+                "reply": (
+                    f"You've reached this month's AI Assistant usage limit (about ${budget:.0f}). "
+                    "It resets on the 1st of next month. If you need a higher limit, contact us "
+                    "via the Contact page and we'll be happy to raise it."
+                ),
+                "error": "budget_exceeded",
+                "cost_usd": 0.0,
+            }
 
     # --- LLM4 (default, cost-effective chatbot brain) ---
     chat_cfg = await _get_chat_llm_config(db)
@@ -304,11 +460,27 @@ async def answer_question(
                 "Please check the Contact page for support."
             ),
             "error": "llm_not_configured",
+            "cost_usd": 0.0,
         }
 
-    manual = _load_manual()
     roles = list(user.roles or []) if user else []
-    system_prompt = _build_system_prompt(manual, user, roles)
+    # RAG: ground on the most relevant manual chunks (falls back to full manual).
+    grounding, max_sim = await _get_grounding(db, user_message)
+
+    # Scope-gate: clearly off-topic question -> refuse cheaply, no LLM call.
+    if max_sim is not None and max_sim < _SCOPE_MIN_SIM:
+        logger.info("[help_service] scope-gate refused (sim=%.3f) msg=%r", max_sim, user_message[:80])
+        return {
+            "reply": (
+                "I can only help with the ProMechDirectory platform — things like RFQs, quotes, "
+                "unlocking, NDAs, subscriptions, search, and your account. Could you rephrase your "
+                "question about the platform?"
+            ),
+            "error": "out_of_scope",
+            "cost_usd": 0.0,
+        }
+
+    system_prompt = _build_system_prompt(grounding, user, roles)
 
     safe_history = _sanitize_history(history)
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -319,9 +491,10 @@ async def answer_question(
     res = await _call_llm(chat_cfg, messages, max_tokens=600, temperature=0.3)
     if res.get("error"):
         return {"reply": "", "error": res["error"],
-                "model": res.get("model"), "latency_ms": res.get("latency_ms")}
+                "model": res.get("model"), "latency_ms": res.get("latency_ms"), "cost_usd": 0.0}
 
     reply = (res.get("reply") or "").strip()
+    cost4 = _estimate_cost(res.get("model"), res.get("prompt_tokens"), res.get("completion_tokens"), rt_cfg)
 
     # --- Delegation: LLM4 asked the LLM3 specialist to handle this turn ---
     if reply.upper().startswith(_DELEGATE_PREFIX):
@@ -340,8 +513,9 @@ async def answer_question(
                 "error": "llm3_not_configured",
                 "delegated": True,
                 "latency_ms": res.get("latency_ms"),
+                "cost_usd": cost4,
             }
-        spec_prompt = _build_specialist_prompt(manual, user, roles)
+        spec_prompt = _build_specialist_prompt(grounding, user, roles)
         spec_messages: List[Dict[str, str]] = [{"role": "system", "content": spec_prompt}]
         spec_messages.extend(safe_history)
         if not safe_history or safe_history[-1]["role"] != "user" or safe_history[-1]["content"] != user_message:
@@ -349,9 +523,10 @@ async def answer_question(
         if focus:
             spec_messages.append({"role": "system", "content": f"Specialist focus: {focus}"})
         res3 = await _call_llm(doc_cfg, spec_messages, max_tokens=900, temperature=0.2)
+        cost3 = _estimate_cost(res3.get("model"), res3.get("prompt_tokens"), res3.get("completion_tokens"), rt_cfg)
         if res3.get("error"):
             return {"reply": "", "error": res3["error"], "model": res3.get("model"),
-                    "delegated": True, "latency_ms": res3.get("latency_ms")}
+                    "delegated": True, "latency_ms": res3.get("latency_ms"), "cost_usd": round(cost4 + cost3, 6)}
         return {
             "reply": (res3.get("reply") or "").strip(),
             "model": res3.get("model"),
@@ -360,6 +535,7 @@ async def answer_question(
             "completion_tokens": res3.get("completion_tokens"),
             "total_tokens": res3.get("total_tokens"),
             "latency_ms": res3.get("latency_ms"),
+            "cost_usd": round(cost4 + cost3, 6),
         }
 
     # --- Normal LLM4 answer ---
@@ -371,4 +547,5 @@ async def answer_question(
         "completion_tokens": res.get("completion_tokens"),
         "total_tokens": res.get("total_tokens"),
         "latency_ms": res.get("latency_ms"),
+        "cost_usd": cost4,
     }

@@ -148,6 +148,7 @@ async def help_chat(
             model=(result.get("model") or "")[:128] or None,
             error=(result.get("error") or None),
             latency_ms=result.get("latency_ms"),
+            cost_usd=result.get("cost_usd"),
         )
         db.add(log)
         await db.commit()

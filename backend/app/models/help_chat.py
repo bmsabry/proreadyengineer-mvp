@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,3 +36,6 @@ class HelpChatLog(Base):
     model: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     latency_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Estimated USD cost of this turn (LLM4 + any LLM3 delegation), for per-user
+    # monthly budget metering. Nullable for legacy rows.
+    cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
