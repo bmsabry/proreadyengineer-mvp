@@ -330,9 +330,9 @@ function CustomerDashboardInner() {
   }, [fetchSubStatus]);
 
   // ── Load RFQs ────────────────────────────────────────────────────────────────
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     if (!user) return;
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     setLoadError(null);
     try {
       const base = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000') + '/api/v1';
@@ -357,7 +357,23 @@ function CustomerDashboardInner() {
     }
   }, [user]);
 
-  useEffect(() => { load(); }, [load]);
+  // Live updates: load on mount, poll every 20s, and refresh when the user
+  // returns to the tab so the Activity Summary notes (NDA awaiting signature,
+  // active/accepted/cancelled) reflect current state without a manual reload.
+  useEffect(() => {
+    if (!user) return;
+    load();
+    const id = setInterval(() => load(true), 20000);
+    const onFocus = () => load(true);
+    const onVisible = () => { if (document.visibilityState === 'visible') load(true); };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user, load]);
 
   const handleCancelled = (rfqId: string) => {
     setRfqs(prev => prev.map(r =>

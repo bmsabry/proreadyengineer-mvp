@@ -431,6 +431,15 @@ refresh-retry) — see §20.
 - The **Activity Summary** panel (customer `AnalyticsPanel` on the dashboard, and the
   provider analytics panel) is THE place where stats and **action-required notifications**
   appear. New notifications for a persona go here, not as separate top-of-page banners.
+- **Action-required notes must be LIVE.** Both dashboards refresh their data on mount, on a
+  20s interval, and on window focus / tab `visibilitychange` (silent background refresh — no
+  skeleton flicker), so guidance reflects current state without a manual reload. Each note's
+  visibility must be derived from CURRENT data, not just an event flag: e.g. the provider
+  "Accepted RFQ — contact the customer" note excludes quotes whose `rfq_status` is
+  `cancelled`; the customer "NDA awaiting your signature" note is driven by the live
+  `nda_awaiting_customer_signature` field from `/customer/my-rfqs`. When adding a note,
+  derive its condition from live status/flags so it auto-clears when the underlying state
+  changes (e.g. an RFQ is cancelled, an NDA is countersigned).
 - **"Action required" pattern:** amber card (`bg-amber-50 border-amber-200`) with an
   `AlertCircle` icon, a bold "Action required: …" heading, and explanatory subtext.
 - Status pills via the shared `STATUS_COLORS` map; NDA state via `NdaBadge`.
