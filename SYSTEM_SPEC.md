@@ -442,7 +442,11 @@ refresh-retry) — see §20.
   visibility must be derived from CURRENT data, not just an event flag: e.g. the provider
   "Accepted RFQ — contact the customer" note excludes quotes whose `rfq_status` is
   `cancelled`; the customer "NDA awaiting your signature" note is driven by the live
-  `nda_awaiting_customer_signature` field from `/customer/my-rfqs` (which EXCLUDES closed
+  `nda_awaiting_customer_signature` field from `/customer/my-rfqs`; the customer
+  "you have N new quotes to review" prompt surfaces RFQs whose `quote_count` exceeds the
+  count the customer has already viewed (tracked in `localStorage['customer_reviewed_quote_counts']`
+  as rfqId->count, so it clears when they open the RFQ and re-appears if more quotes arrive),
+  excluding closed/cancelled/selected RFQs. The NDA note (which EXCLUDES closed
   RFQs server-side — `awaiting_customer_sig` subtracts any RFQ with `is_closed`, so a
   cancelled/selected RFQ never asks the customer to countersign; the dashboard also guards
   with `!is_closed && rfq_status !== 'cancelled'`). When adding a note,

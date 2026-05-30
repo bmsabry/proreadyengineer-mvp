@@ -137,6 +137,33 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
   const ndaSigned = rfqs.filter(r => r.nda_required && r.rfq_status === 'customer_selected_provider').length;
   const ndaAwaiting = rfqs.filter(r => r.nda_awaiting_customer_signature && !r.is_closed && r.rfq_status !== 'cancelled').length;
 
+  // RFQs that have received quotes the customer hasn't reviewed yet. "Reviewed" is tracked
+  // in localStorage as rfqId -> quote_count seen, so the prompt clears once they open the RFQ
+  // and re-surfaces if MORE quotes arrive later. Excludes closed/cancelled/selected RFQs.
+  const [reviewedQuotes, setReviewedQuotes] = useState<Record<string, number>>({});
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = localStorage.getItem('customer_reviewed_quote_counts');
+      if (stored) setReviewedQuotes(JSON.parse(stored));
+    } catch { /* ignore */ }
+  }, []);
+  const markQuotesReviewed = (rfqId: string, count: number) => {
+    setReviewedQuotes(prev => {
+      const next = { ...prev, [rfqId]: count };
+      try { localStorage.setItem('customer_reviewed_quote_counts', JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const quotesToReview = rfqs.filter(r =>
+    (r.quote_count || 0) > 0 &&
+    !r.is_closed &&
+    r.rfq_status !== 'cancelled' &&
+    r.rfq_status !== 'customer_selected_provider' &&
+    (r.quote_count || 0) > (reviewedQuotes[r.id] || 0)
+  );
+  const totalQuotesToReview = quotesToReview.reduce((sum, r) => sum + (r.quote_count || 0), 0);
+
   const quotedWithDate = rfqs.filter(r => r.quote_count > 0 && r.submitted_at);
   const avgDays = quotedWithDate.length > 0
     ? Math.round(quotedWithDate.reduce((s, r) => {
@@ -167,6 +194,37 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
             <p className="text-xs text-amber-800 mt-0.5">
               A provider signed to access your RFQ &mdash; check your email to countersign so they can proceed.
             </p>
+          </div>
+        </div>
+      )}
+
+      {quotesToReview.length > 0 && (
+        <div className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+          <div className="flex items-start gap-2">
+            <MessageSquare className="h-4 w-4 text-emerald-600 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-xs font-bold text-emerald-900">
+                You have {totalQuotesToReview} new quote{totalQuotesToReview > 1 ? 's' : ''} to review
+              </p>
+              <p className="text-xs text-emerald-800 mt-0.5">
+                {quotesToReview.length > 1
+                  ? `Across ${quotesToReview.length} of your RFQs. Open one to compare and accept.`
+                  : 'A provider has quoted your RFQ. Open it to review and accept.'}
+              </p>
+              <div className="mt-2 flex flex-col gap-1.5">
+                {quotesToReview.slice(0, 3).map(r => (
+                  <Link
+                    key={r.id}
+                    href={`/customer/rfq/${r.id}`}
+                    onClick={() => markQuotesReviewed(r.id, r.quote_count || 0)}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-900 hover:underline"
+                  >
+                    <ArrowRight className="h-3 w-3" />
+                    View {r.quote_count} quote{(r.quote_count || 0) > 1 ? 's' : ''}{r.business_name ? ` — ${r.business_name}` : ''}
+                  </Link>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
