@@ -833,9 +833,9 @@ export const helpApi = {
     const r = await apiClient.get<{ markdown: string }>('/help/manual');
     return r.data;
   },
-  chat: async (message: string, history: HelpChatTurn[]): Promise<HelpChatResponse> => {
+  chat: async (message: string, history: HelpChatTurn[], page?: string): Promise<HelpChatResponse> => {
     try {
-      const r = await apiClient.post<HelpChatResponse>('/help/chat', { message, history });
+      const r = await apiClient.post<HelpChatResponse>('/help/chat', { message, history, page });
       return r.data;
     } catch (e) {
       const axErr = e as { response?: { status?: number; data?: { detail?: unknown } }; message?: string };

@@ -213,6 +213,17 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
      "contact us to raise your limit" message (zero cost). Admins are exempt. This is in
      addition to the existing 50-messages/day cap.
 
+   **Phase 2 personalization (2026-05-30, `help_context.py`):** before answering, the backend
+   builds a COMPACT, user-scoped account snapshot — subscription, RFQ/quote counts, free-NDA
+   credits, and prioritized ACTION ITEMS (customer: NDAs awaiting countersignature, RFQs with
+   quotes to review; provider: accepted quotes awaiting contact, NDAs to sign on open RFQs) —
+   via `build_account_context`/`render_account_context`, and injects it into the system prompt
+   so the assistant answers "what should I do next?" and questions about the user's OWN
+   RFQs/quotes/subscription. Read-only and scoped to the authenticated user (never another
+   user's data); every query is defensive and degrades to an empty snapshot on error. The chat
+   widget also passes the current page path (`ChatRequest.page`) for context-awareness.
+   Account-related questions bypass the scope-gate so they're never wrongly refused.
+
 (A support-ticket classifier in `support_service.py` reuses LLM3 keys.)
 
 `EMBEDDING_*`, `DOC_LLM_*` and `CHAT_LLM_*` are **runtime-config keys only** (no Pydantic

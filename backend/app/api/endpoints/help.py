@@ -30,6 +30,7 @@ class ChatTurn(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     history: List[ChatTurn] = Field(default_factory=list)
+    page: Optional[str] = Field(None, max_length=200)  # current page path for context-awareness
 
 
 class ChatResponse(BaseModel):
@@ -133,6 +134,7 @@ async def help_chat(
         user=current_user,
         history=history_dicts,
         user_message=data.message,
+        page=(data.page or None),
     )
 
     try:

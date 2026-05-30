@@ -92,7 +92,7 @@ async def user_has_chatbot_access(db: AsyncSession, user: Optional[User]) -> Tup
 _DELEGATE_PREFIX = "DELEGATE:"
 
 
-def _build_system_prompt(manual: str, user: Optional[User], roles: List[str]) -> str:
+def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], account_context: str = "") -> str:
     role_str = "anonymous"
     if user is not None:
         role_str = ",".join(roles) or "authenticated"
@@ -107,7 +107,11 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str]) ->
         "- Never take actions on the user's behalf. You cannot submit, cancel, pay, or "
         "modify anything. If a user asks you to do something, tell them which page and "
         "button to use.\n"
-        "- Never mention another user's data. You have no access to it.\n"
+        "- You have a LIVE snapshot of THIS signed-in user's own account below (their "
+        "subscription, RFQ/quote counts, and action items). Use it to answer questions about "
+        "their own account and, when they ask what to do next, give a short PRIORITIZED list "
+        "from their ACTION ITEMS with the exact page/button to use.\n"
+        "- Never mention or infer another user's data. You only ever have this user's own.\n"
         "- Never give legal, financial, medical, or engineering advice, even if asked.\n"
         "- If the manual doesn't contain the answer, say so and point the user to the "
         "Contact page. Do not invent prices, SLAs, policies, or features.\n"
@@ -127,7 +131,8 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str]) ->
         "yourself. Do NOT delegate ordinary questions.\n\n"
         f"USER CONTEXT: the user is signed in with role(s) = {role_str}. Tailor examples "
         "to their role when helpful.\n\n"
-        "=== MANUAL (authoritative) ===\n"
+        + (("=== THIS USER'S ACCOUNT (live, authoritative for their own data) ===\n" + account_context + "\n=== END ACCOUNT ===\n\n") if account_context else "")
+        + "=== MANUAL (authoritative) ===\n"
         f"{manual}\n"
         "=== END MANUAL ==="
     )
@@ -267,6 +272,18 @@ async def _call_llm(
 
 _MAX_USER_MESSAGE_CHARS = 2000
 _MAX_HISTORY_TURNS = 10
+
+
+_ACCOUNT_HINTS = (
+    "my ", "what should i", "what do i", "next", "pending", "waiting", "to do",
+    "todo", "action", "status of", "subscription", "renew", "quote", "rfq", "nda",
+    "credits", "remaining", "account", "plan", "do i have", "how many",
+)
+
+
+def _looks_account_related(msg: str) -> bool:
+    m = (msg or "").lower()
+    return any(h in m for h in _ACCOUNT_HINTS)
 
 
 def _sanitize_history(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -421,6 +438,7 @@ async def answer_question(
     user: Optional[User],
     history: List[Dict[str, Any]],
     user_message: str,
+    page: Optional[str] = None,
 ) -> Dict[str, Any]:
     user_message = (user_message or "").strip()[:_MAX_USER_MESSAGE_CHARS]
     if not user_message:
@@ -464,11 +482,23 @@ async def answer_question(
         }
 
     roles = list(user.roles or []) if user else []
+    # Personalization: compact, user-scoped account snapshot + action items.
+    account_ctx = ""
+    if user is not None:
+        try:
+            from app.services.help_context import build_account_context, render_account_context
+            _snap = await build_account_context(db, user)
+            account_ctx = render_account_context(_snap, page=page)
+        except Exception as exc:
+            logger.info("[help_service] account context failed: %s", exc)
+            account_ctx = ""
+
     # RAG: ground on the most relevant manual chunks (falls back to full manual).
     grounding, max_sim = await _get_grounding(db, user_message)
 
     # Scope-gate: clearly off-topic question -> refuse cheaply, no LLM call.
-    if max_sim is not None and max_sim < _SCOPE_MIN_SIM:
+    # Account-related questions ("what should I do next", "my quotes") bypass the gate.
+    if max_sim is not None and max_sim < _SCOPE_MIN_SIM and not _looks_account_related(user_message):
         logger.info("[help_service] scope-gate refused (sim=%.3f) msg=%r", max_sim, user_message[:80])
         return {
             "reply": (
@@ -480,7 +510,7 @@ async def answer_question(
             "cost_usd": 0.0,
         }
 
-    system_prompt = _build_system_prompt(grounding, user, roles)
+    system_prompt = _build_system_prompt(grounding, user, roles, account_context=account_ctx)
 
     safe_history = _sanitize_history(history)
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]

@@ -79,7 +79,8 @@ export default function HelpChatWidget() {
     setSending(true);
     try {
       const history: HelpChatTurn[] = nextMsgs.slice(-10);
-      const resp = await helpApi.chat(text, history);
+      const page = typeof window !== 'undefined' ? window.location.pathname : undefined;
+      const resp = await helpApi.chat(text, history, page);
       setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply }]);
       if (status && typeof resp.remaining_today === 'number') {
         setStatus({ ...status, remaining_today: resp.remaining_today });
