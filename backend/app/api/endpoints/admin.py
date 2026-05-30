@@ -241,22 +241,28 @@ async def admin_override_rfq_status(
             rfq_id, _new_status_str,
         )
 
-    # Create audit log
-    audit = AuditLog(
-        id=uuid.uuid4(),
-        actor_user_id=current_user.id,
-        entity_type="rfq",
-        entity_id=rfq_id,
-        action="status_override",
-        before_state={"status": old_status.value if hasattr(old_status, 'value') else old_status, "is_closed": old_is_closed},
-        after_state={"status": data.new_status, "is_closed": rfq.is_closed},
-        metadata={"reason": data.reason},
-        created_at=datetime.utcnow(),
-    )
-    db.add(audit)
+    # Commit the status change FIRST so the override always persists; the audit log is
+    # best-effort and must never roll back the actual status change.
+    _new_status_val = data.new_status.value if hasattr(data.new_status, "value") else str(data.new_status)
     await db.commit()
 
-    return {"message": f"RFQ status changed to {data.new_status}", "rfq_id": rfq_id, "is_closed": rfq.is_closed}
+    try:
+        db.add(AuditLog(
+            id=uuid.uuid4(),
+            actor_user_id=current_user.id,
+            entity_type="rfq",
+            entity_id=rfq_id,
+            action="status_override",
+            before_state={"status": old_status.value if hasattr(old_status, 'value') else str(old_status), "is_closed": old_is_closed},
+            after_state={"status": _new_status_val, "is_closed": rfq.is_closed},
+            extra_data={"reason": data.reason},
+            created_at=datetime.utcnow(),
+        ))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+    return {"message": f"RFQ status changed to {_new_status_val}", "rfq_id": rfq_id, "is_closed": rfq.is_closed}
 
 
 @router.get("/admin/rfqs/{rfq_id}/dispatch-tracking")
@@ -494,7 +500,7 @@ async def admin_terminate_rfq_dispatch(
             action="terminate_dispatch",
             before_state={"rfq_status": old_status, "is_closed": False},
             after_state={"rfq_status": "cancelled", "is_closed": True},
-            metadata={"admin_id": str(current_user.id)},
+            extra_data={"admin_id": str(current_user.id)},
             created_at=datetime.utcnow(),
         )
         db.add(audit)

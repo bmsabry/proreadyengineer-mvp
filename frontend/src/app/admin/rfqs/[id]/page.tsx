@@ -68,7 +68,7 @@ export default function AdminRFQDetailPage() {
     setForceClosing(true);
     setActionMessage(null);
     try {
-      await api.admin.overrideRFQStatus(rfqId, 'cancelled');
+      await api.admin.overrideRFQStatus(rfqId, 'cancelled', 'Admin force-closed the RFQ');
       setActionMessage({ text: 'RFQ force closed successfully.', ok: true });
       await fetchTracking();
     } catch (err: any) {
