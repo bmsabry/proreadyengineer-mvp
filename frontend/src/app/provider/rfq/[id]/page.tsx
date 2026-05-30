@@ -658,8 +658,10 @@ function ProviderRFQPageInner() {
       if (canAccessFiles) {
         loadFiles();
       }
-      // Poll for NDA signing only when: NDA required AND quote accepted AND NDA not yet signed
-      if (status.nda_required && !status.provider_nda_signed) {
+      // Poll for NDA signing only when the RFQ is still OPEN, NDA is required, and not yet
+      // signed. A closed/cancelled RFQ has no signing action, so don't prompt or poll.
+      const _rfqClosed = CLOSED_STATUSES.includes(status.rfq_status || '');
+      if (status.nda_required && !status.provider_nda_signed && !_rfqClosed) {
         setNdaEmailPending(true);
         startNdaPoll();
       }
@@ -862,8 +864,8 @@ function ProviderRFQPageInner() {
                 </Card>
               )}
 
-              {/* NDA required + not yet fully signed: provider must sign to view the RFQ */}
-              {status.nda_required && !status.provider_nda_signed && (
+              {/* NDA required + not yet fully signed + RFQ still open: provider must sign to view */}
+              {status.nda_required && !status.provider_nda_signed && !isClosed && (
                 <Card className="border-amber-200 bg-amber-50">
                   <CardContent className="pt-6">
                     <div className="flex items-start gap-3">

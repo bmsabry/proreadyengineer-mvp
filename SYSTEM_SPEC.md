@@ -526,6 +526,11 @@ as a bug, even if tests pass.
     `cancelled`). Close an RFQ by setting `rfq_status` to a closed status. Unlocking must
     never close an RFQ. Don't reintroduce independent `rfq.is_closed = True` writes — they
     are redundant at best and a drift source at worst.
+15. **NDA action prompts must be gated on an OPEN RFQ.** The provider "Sign the NDA" /
+    "awaiting signature" card, its auto-poll, and the dashboard `ndaTasks` filter — and the
+    customer "NDA awaiting your signature" note — must all require the RFQ to be NOT closed
+    (exclude `is_closed` / cancelled / selected). A half-signed NDA on a cancelled or
+    superseded RFQ must never tell either party there is signing to do.
 
 ---
 

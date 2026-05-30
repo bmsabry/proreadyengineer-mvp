@@ -479,7 +479,9 @@ function ProviderAnalyticsPanel({
   const createdAt = user?.created_at;
 
   const ndaTasks = teasers.filter(t =>
-    t.nda_required && t.nda_status === 'provider_signature_pending'
+    t.nda_required && t.nda_status === 'provider_signature_pending' &&
+    !(t as any).rfq_is_closed &&
+    !CLOSED_STATUSES.includes((t as any).rfq_status || '')
   );
   const rfqTasks = teasers
     .filter(t => t.status !== 'quoted' && (t as any).rfq_status === 'open_for_unlock')
