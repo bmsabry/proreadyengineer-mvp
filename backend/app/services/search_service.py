@@ -290,10 +290,29 @@ def _simple_keywords(query: str) -> List[str]:
     return [w for w in words if w not in STOP and len(w) > 2][:10]
 
 
+def _accumulate_usage(acc, response) -> None:
+    """Add an OpenAI-compatible response's token usage into a running accumulator dict.
+
+    acc is a dict with keys prompt_tokens/completion_tokens (ints). Best-effort and
+    never raises — token metering must not break search.
+    """
+    if acc is None:
+        return
+    try:
+        u = getattr(response, "usage", None)
+        if u is None:
+            return
+        acc["prompt_tokens"] = acc.get("prompt_tokens", 0) + int(getattr(u, "prompt_tokens", 0) or 0)
+        acc["completion_tokens"] = acc.get("completion_tokens", 0) + int(getattr(u, "completion_tokens", 0) or 0)
+    except Exception:
+        pass
+
+
 async def extract_structured_intent(
     query: str,
     document_text: Optional[str] = None,
     runtime_config: Optional[Dict[str, Any]] = None,
+    usage_acc: Optional[Dict[str, int]] = None,
 ) -> Dict[str, Any]:
     """Step 2: LLM structured intent. Falls back to keywords on any failure."""
     if not _has_api_key(runtime_config):
@@ -337,6 +356,7 @@ async def extract_structured_intent(
             temperature=0.1,
             
         )
+        _accumulate_usage(usage_acc, response)
         raw = response.choices[0].message.content.strip()
         raw = re.sub(r'^```(?:json)?\s*', '', raw)
         raw = re.sub(r'\s*```$', '', raw).strip()
@@ -956,6 +976,7 @@ async def llm_pass1_filter(
     query: str,
     intent: Dict[str, Any],
     runtime_config: Optional[Dict[str, Any]] = None,
+    usage_acc: Optional[Dict[str, int]] = None,
 ) -> Optional[List[int]]:
     """Pass 1: ONE LLM call to filter engineering service providers.
 
@@ -1009,6 +1030,7 @@ async def llm_pass1_filter(
             temperature=0.1,
             
         )
+        _accumulate_usage(usage_acc, response)
         raw = _extract_llm_content(response)
         parsed = _parse_json_from_llm(raw)
         if not isinstance(parsed, list):
@@ -1043,6 +1065,7 @@ async def llm_pass2_rank(
     query: str,
     intent: Dict[str, Any],
     runtime_config: Optional[Dict[str, Any]] = None,
+    usage_acc: Optional[Dict[str, int]] = None,
 ) -> Optional[List[tuple]]:
     """Pass 2: ONE LLM call to rank filtered candidates by project similarity.
 
@@ -1110,6 +1133,7 @@ async def llm_pass2_rank(
             temperature=0.1,
             
         )
+        _accumulate_usage(usage_acc, response)
         raw = _extract_llm_content(response)
         parsed = _parse_json_from_llm(raw)
         if not isinstance(parsed, list):
@@ -1623,7 +1647,8 @@ async def search_providers(
     )
     pipeline_info['llm_model'] = llm_model if has_key else '(none - no API key)'
     pipeline_info['llm_called'] = has_key
-    intent = await extract_structured_intent(norm_query, runtime_config=runtime_config)
+    _usage_acc: Dict[str, int] = {'prompt_tokens': 0, 'completion_tokens': 0}
+    intent = await extract_structured_intent(norm_query, runtime_config=runtime_config, usage_acc=_usage_acc)
     fallback_reason: Optional[str] = None
     if has_key:
         got_specialty = bool(intent.get('inferred_specialty', ''))
@@ -1667,6 +1692,8 @@ async def search_providers(
     pipeline_info['fallback_reason'] = fallback_reason
     if not rows:
         logger.info('[SEARCH] No candidates found, returning empty')
+        pipeline_info['llm_prompt_tokens'] = _usage_acc.get('prompt_tokens', 0)
+        pipeline_info['llm_completion_tokens'] = _usage_acc.get('completion_tokens', 0)
         return [], pipeline_info
     provider_list = []
     for row in rows:
@@ -1682,7 +1709,7 @@ async def search_providers(
     if has_key and provider_list:
         # ---- TWO-PASS LLM PIPELINE ----
         # Pass 1: filter non-service providers (ONE LLM call)
-        kept_ids = await llm_pass1_filter(provider_list, norm_query, intent, runtime_config)
+        kept_ids = await llm_pass1_filter(provider_list, norm_query, intent, runtime_config, usage_acc=_usage_acc)
         if kept_ids is None:
             filtered_list = provider_list
             logger.info('[SEARCH] Pass1 fallback: using all %d candidates', len(provider_list))
@@ -1693,7 +1720,7 @@ async def search_providers(
         pipeline_info['pass1_kept'] = len(filtered_list)
 
         # Pass 2: rank by project similarity (ONE LLM call)
-        ranked_result = await llm_pass2_rank(filtered_list, norm_query, intent, runtime_config)
+        ranked_result = await llm_pass2_rank(filtered_list, norm_query, intent, runtime_config, usage_acc=_usage_acc)
         if ranked_result is None:
             logger.info('[SEARCH] Pass2 fallback: ranking by vector similarity')
             ranked_result = [
@@ -1833,4 +1860,6 @@ async def search_providers(
         pipeline_info.get('pass1_kept', 0),
         pipeline_info.get('pass2_ranked', 0),
     )
+    pipeline_info['llm_prompt_tokens'] = _usage_acc.get('prompt_tokens', 0)
+    pipeline_info['llm_completion_tokens'] = _usage_acc.get('completion_tokens', 0)
     return results, pipeline_info

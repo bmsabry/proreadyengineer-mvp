@@ -228,7 +228,14 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    config (takes effect instantly) with a hardcoded STATIC fallback (so it still works mid-deploy
    or with no network); update `LLM_PRICING` in Settings when a vendor changes prices rather than
    web-scraping. Untracked-but-billing services (AWS/Resend/SignWell/DeepInfra) are listed as a
-   reminder to add via `OPERATING_COST_ITEMS`.
+   reminder to add via `OPERATING_COST_ITEMS`. The search/ranking LLM row is now ALSO
+   actual: `search_service` accumulates `response.usage` tokens across the intent + pass1 +
+   pass2 calls into `pipeline_info`, persisted on `search_requests.llm_prompt_tokens/
+   llm_completion_tokens/llm_cost_usd` (migration `c9f2a7e54b33`); the panel sums them
+   (falling back to a labelled estimate only for older rows with no tokens). Settings exposes
+   editable `LLM_PRICING` + `OPERATING_COST_ITEMS` JSON fields. NOTE: vendor prices are NOT
+   auto-scraped (vendor pricing pages have no stable API and a mis-parse would be a silent
+   1000x cost error) — update `LLM_PRICING` manually; the static catalog is the safe fallback.
 
    **Phase 2 personalization (2026-05-30, `help_context.py`):** before answering, the backend
    builds a COMPACT, user-scoped account snapshot — subscription, RFQ/quote counts, free-NDA

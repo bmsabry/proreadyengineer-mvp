@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlalchemy import (
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -84,6 +85,10 @@ class SearchRequest(Base):
     search_status: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     fallback_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     results_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # LLM token usage for this search (intent + pass1 + pass2 combined), for cost reporting.
+    llm_prompt_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    llm_completion_tokens: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    llm_cost_usd: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Relationships
     user: Mapped[Optional["User"]] = relationship("User")

@@ -4288,21 +4288,34 @@ async def admin_operating_cost(
     except Exception as exc:
         logger.warning("[operating-cost] chatbot agg failed: %s", exc)
 
-    # --- 2) Search/ranking + embedding LLM (LLM1/LLM2): ESTIMATE from call counts ---
-    # These paths don't yet log per-call tokens, so we estimate using a conservative
-    # average token footprint per search request. Clearly labelled as an estimate.
+    # --- 2) Search/ranking LLM (LLM1/LLM2): ACTUAL tokens when recorded, else ESTIMATE ---
     try:
-        AVG_SEARCH_IN, AVG_SEARCH_OUT = 1200, 300   # intent extraction + 2 ranking passes, rough
-        n_search = (await db.execute(
-            select(func.count()).select_from(_SearchReq).where(_SearchReq.created_at >= month_start)
-        )).scalar() or 0
-        if n_search:
-            model = cfg.get("OPENAI_LLM_MODEL") or "moonshotai/Kimi-K2.5"
-            est = cost_for_tokens(model, AVG_SEARCH_IN * n_search, AVG_SEARCH_OUT * n_search, cfg)
+        model = cfg.get("OPENAI_LLM_MODEL") or "moonshotai/Kimi-K2.5"
+        agg = (await db.execute(
+            select(
+                func.coalesce(func.sum(_SearchReq.llm_prompt_tokens), 0),
+                func.coalesce(func.sum(_SearchReq.llm_completion_tokens), 0),
+                func.coalesce(func.sum(_SearchReq.llm_cost_usd), 0.0),
+                func.count(),
+            ).where(_SearchReq.created_at >= month_start)
+        )).first()
+        sum_pt, sum_ct, sum_cost, n_search = int(agg[0] or 0), int(agg[1] or 0), float(agg[2] or 0.0), int(agg[3] or 0)
+        if (sum_pt + sum_ct) > 0:
+            # Real tokens were recorded -> actual.
+            cost = sum_cost if sum_cost > 0 else cost_for_tokens(model, sum_pt, sum_ct, cfg)
             llm_rows.append({
                 "label": "Search & ranking", "model": model,
-                "prompt_tokens": AVG_SEARCH_IN * n_search, "completion_tokens": AVG_SEARCH_OUT * n_search,
-                "calls": int(n_search), "cost_usd": round(est, 4), "basis": "estimate",
+                "prompt_tokens": sum_pt, "completion_tokens": sum_ct,
+                "calls": n_search, "cost_usd": round(cost, 4), "basis": "actual",
+            })
+        elif n_search:
+            # No tokens recorded yet (older rows) -> conservative estimate.
+            AVG_IN, AVG_OUT = 1200, 300
+            est = cost_for_tokens(model, AVG_IN * n_search, AVG_OUT * n_search, cfg)
+            llm_rows.append({
+                "label": "Search & ranking", "model": model,
+                "prompt_tokens": AVG_IN * n_search, "completion_tokens": AVG_OUT * n_search,
+                "calls": n_search, "cost_usd": round(est, 4), "basis": "estimate",
             })
     except Exception as exc:
         logger.warning("[operating-cost] search agg failed: %s", exc)

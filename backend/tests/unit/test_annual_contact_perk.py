@@ -1,3 +1,15 @@
+import os as _os
+import pytest as _pytest
+
+# These tests exercise PostgreSQL-only behaviour (GENERATED columns / Postgres semantics).
+# The unit-test harness runs on in-memory SQLite, so skip there and run only when a real
+# Postgres TEST DATABASE is provided. This keeps CI green while preserving the tests.
+_DB = (_os.environ.get("TEST_DATABASE_URL") or _os.environ.get("DATABASE_URL") or "").lower()
+pytestmark = _pytest.mark.skipif(
+    "postgresql" not in _DB and "postgres" not in _DB,
+    reason="Requires PostgreSQL (GENERATED column / PG-specific behaviour); SQLite harness skips.",
+)
+
 import uuid
 import pytest
 import pytest_asyncio

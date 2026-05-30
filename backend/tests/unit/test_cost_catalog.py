@@ -41,3 +41,10 @@ def test_cost_for_tokens_math():
 
 def test_cost_for_tokens_handles_none():
     assert CC.cost_for_tokens("gemini-2.5-flash", None, None, None) == 0.0
+
+
+def test_search_request_model_has_token_columns():
+    # Guards the operating-cost 'actual' path: the columns it sums must exist.
+    from app.models.search import SearchRequest
+    for col in ("llm_prompt_tokens", "llm_completion_tokens", "llm_cost_usd"):
+        assert hasattr(SearchRequest, col), f"SearchRequest missing {col}"

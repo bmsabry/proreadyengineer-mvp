@@ -235,6 +235,21 @@ async def test_quota_debug(request: Request, db: AsyncSession = Depends(get_db))
 # Primary search endpoint
 # ---------------------------------------------------------------------------
 
+def _search_llm_cost(pinfo: dict):
+    """Cost the search/ranking LLM tokens for one request via the shared cost catalog.
+    Returns None when no tokens were recorded (e.g. keyword-only fallback)."""
+    try:
+        pt = int(pinfo.get("llm_prompt_tokens") or 0)
+        ct = int(pinfo.get("llm_completion_tokens") or 0)
+        if pt + ct <= 0:
+            return None
+        from app.services.cost_catalog import cost_for_tokens
+        model = pinfo.get("llm_model") or ""
+        return cost_for_tokens(model, pt, ct, None)
+    except Exception:
+        return None
+
+
 @router.post("/query", response_model=SearchResponse)
 async def search_query(
     request: Request,
@@ -333,6 +348,9 @@ async def search_query(
                 search_status=pipeline_info.get("pipeline_used") if isinstance(pipeline_info, dict) else "completed",
                 fallback_reason=pipeline_info.get("fallback_reason") if isinstance(pipeline_info, dict) else None,
                 results_count=len(results),
+                llm_prompt_tokens=(pipeline_info.get("llm_prompt_tokens") if isinstance(pipeline_info, dict) else None),
+                llm_completion_tokens=(pipeline_info.get("llm_completion_tokens") if isinstance(pipeline_info, dict) else None),
+                llm_cost_usd=_search_llm_cost(pipeline_info) if isinstance(pipeline_info, dict) else None,
             )
             db.add(sr)
             await db.commit()
