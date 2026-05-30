@@ -258,11 +258,16 @@ This is the flow most often re-explained. Do not redesign it without the owner's
   `provider_company`, `prs`), SignWell **keeps the original auto api_id**
   (`TextField_1`, `Signature_1`). So api_ids in the API ≠ the labels you see. The account
   has exactly **one** template (`promechdirectory NDA 3`).
-- **Do NOT pre-fill the signers' form fields** in `add_provider_to_nda`
-  (`template_fields = []`). Pre-filling every field (a) injected guessed legal values and
-  (b) left the customer (signer 2) with an all-pre-filled form, which SignWell collapses to
-  a "Thanks for filling out your document" screen with **no signature prompt**. Each party
-  fills/confirms their own details at signing.
+- **Do NOT pre-fill the signers' form fields** in `add_provider_to_nda`. Pre-filling every
+  field (a) injected guessed legal values and (b) left the customer (signer 2) with an
+  all-pre-filled form, which SignWell collapses to a "Thanks for filling out your document"
+  screen with **no signature prompt**. Each party fills/confirms their own details at signing.
+  **But you must OMIT the `template_fields` key entirely when there's nothing to pre-fill** —
+  sending `template_fields: []` (empty array) makes SignWell reject the create with
+  `400 {"invalid_keys":["template_fields"]}` (this regressed the Sign-NDA button on
+  2026-05-29; fixed by only adding the key when non-empty). The `/nda/signing-url` endpoint
+  also now catches Signwell HTTP errors and returns a clean 502 (an uncaught 500 reaches the
+  browser without CORS headers and shows as a misleading "Network Error").
 - **Signing order:** the document uses email-based signing with `apply_signing_order: True`
   (provider = signer "1", customer = signer "2"). **Do NOT set document-level
   `embedded_signing`** — it suppresses ALL SignWell invitation emails (that was the bug

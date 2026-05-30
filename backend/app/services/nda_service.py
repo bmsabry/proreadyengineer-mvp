@@ -319,8 +319,12 @@ async def add_provider_to_nda(
             {"id": "1", "name": prov_signer_name, "email": provider_user.email, "placeholder_name": provider_placeholder_name},
             {"id": "2", "name": customer_name,    "email": customer_email,      "placeholder_name": customer_placeholder_name},
         ],
-        "template_fields": template_fields,
     }
+    # Signwell rejects an empty template_fields array ("invalid key values"); only
+    # include it when we actually have prefilled values (we normally do not pre-fill,
+    # so it is omitted and each signer fills their own fields).
+    if template_fields:
+        payload["template_fields"] = template_fields
 
     logger.info("[SIGNWELL] add_provider_to_nda (mutual) rfq=%s provider=%s", rfq_id, provider_id)
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -712,8 +716,12 @@ async def create_post_acceptance_nda(
                 "placeholder_name": provider_placeholder_name,
             },
         ],
-        "template_fields": template_fields,
     }
+    # Signwell rejects an empty template_fields array ("invalid key values"); only
+    # include it when we actually have prefilled values (we normally do not pre-fill,
+    # so it is omitted and each signer fills their own fields).
+    if template_fields:
+        payload["template_fields"] = template_fields
 
     logger.info(
         "[SIGNWELL] create_post_acceptance_nda: RFQ=%s customer=%s provider=%s placeholders=(%s, %s)",

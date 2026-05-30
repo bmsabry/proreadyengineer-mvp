@@ -1558,5 +1558,16 @@ async def get_provider_nda_signing_url(
     if not rfq.nda_required:
         return {"message": "NDA not required for this RFQ", "signing_url": None}
 
-    result = await add_provider_to_nda(rfq_id, membership.provider_id, current_user, db)
+    import httpx
+    try:
+        result = await add_provider_to_nda(rfq_id, membership.provider_id, current_user, db)
+    except httpx.HTTPStatusError as exc:
+        logging.getLogger(__name__).error(
+            "NDA signing-url: Signwell rejected document creation for rfq=%s: %s %s",
+            rfq_id, exc.response.status_code, exc.response.text[:500],
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not start NDA signing with the e-signature provider. Please try again in a moment; if it keeps happening, contact support.",
+        )
     return result
