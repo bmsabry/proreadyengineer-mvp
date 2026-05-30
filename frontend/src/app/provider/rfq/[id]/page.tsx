@@ -662,7 +662,6 @@ function ProviderRFQPageInner() {
       // signed. A closed/cancelled RFQ has no signing action, so don't prompt or poll.
       const _rfqClosed = CLOSED_STATUSES.includes(status.rfq_status || '');
       if (status.nda_required && !status.provider_nda_signed && !_rfqClosed) {
-        setNdaEmailPending(true);
         startNdaPoll();
       }
     }
