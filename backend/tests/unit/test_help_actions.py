@@ -17,10 +17,17 @@ def test_extracts_valid_mark_contacted_proposal():
 
 
 def test_rejects_unknown_or_dangerous_action_types():
-    for bad in ["delete_account", "pay_invoice", "sign_nda", "accept_quote", "cancel_rfq"]:
+    # Truly forbidden / unknown types are never turned into a proposal.
+    for bad in ["delete_account", "pay_invoice", "sign_nda", "launch_missiles"]:
         clean, action = H._extract_action(f"sure\nPROPOSE_ACTION: {bad}|x|do it")
         assert action is None              # not proposable
         assert "PROPOSE_ACTION" not in clean  # control line still stripped
+
+    # Autonomous actions ARE proposable now (execution is gated server-side by the
+    # autonomous flag + ownership check), so the model may propose them.
+    for ok in ["accept_quote", "cancel_rfq", "withdraw_quote"]:
+        _, action = H._extract_action(f"sure\nPROPOSE_ACTION: {ok}|x|do it")
+        assert action is not None and action["type"] == ok
 
 
 def test_missing_quote_id_yields_no_action():

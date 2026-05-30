@@ -39,11 +39,13 @@ class ChatResponse(BaseModel):
     remaining_today: Optional[int] = None
     links: Optional[List[Dict[str, str]]] = None  # in-app navigation buttons
     action: Optional[Dict[str, Any]] = None       # a confirm-then-execute proposal (inert)
+    action_result: Optional[Dict[str, Any]] = None  # result of an auto-executed action (autonomous mode)
 
 
 class ActionRequest(BaseModel):
     type: str = Field(..., max_length=64)
     quote_id: Optional[str] = Field(None, max_length=64)
+    rfq_id: Optional[str] = Field(None, max_length=64)
 
 
 class ActionResponse(BaseModel):
@@ -186,7 +188,82 @@ async def help_chat(
         remaining_today=remaining,
         links=result.get("links") or None,
         action=result.get("action") or None,
+        action_result=result.get("action_result") or None,
     )
+
+
+class AgentEnableRequest(BaseModel):
+    accept_risk: bool = False
+
+
+class AgentStatusResponse(BaseModel):
+    autonomous_enabled: bool
+    consented_at: Optional[str] = None
+
+
+@router.get("/help/agent/status", response_model=AgentStatusResponse)
+async def agent_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    if current_user is None:
+        return AgentStatusResponse(autonomous_enabled=False)
+    ts = getattr(current_user, "agent_autonomous_consented_at", None)
+    return AgentStatusResponse(
+        autonomous_enabled=bool(getattr(current_user, "agent_autonomous_enabled", False)),
+        consented_at=ts.isoformat() if ts else None,
+    )
+
+
+@router.post("/help/agent/enable", response_model=AgentStatusResponse)
+async def agent_enable(
+    data: AgentEnableRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Turn ON autonomous mode. Requires explicit risk acceptance in the body."""
+    if current_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
+    has_access, _ = await user_has_chatbot_access(db, current_user)
+    if not has_access:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Autonomous mode requires an active subscription.")
+    if not data.accept_risk:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You must accept the risk to enable autonomous mode.")
+    from datetime import datetime, timezone
+    current_user.agent_autonomous_enabled = True
+    current_user.agent_autonomous_consented_at = datetime.now(timezone.utc)
+    db.add(current_user)
+    await db.commit()
+    try:
+        from app.models.admin import AuditLog
+        db.add(AuditLog(actor_user_id=current_user.id, entity_type="user", entity_id=str(current_user.id),
+                        action="agent_autonomous_enabled", extra_data={"via": "help_assistant"}))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+    return AgentStatusResponse(autonomous_enabled=True,
+                               consented_at=current_user.agent_autonomous_consented_at.isoformat())
+
+
+@router.post("/help/agent/disable", response_model=AgentStatusResponse)
+async def agent_disable(
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """HARD STOP — instantly turns OFF autonomous mode. Idempotent."""
+    if current_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
+    current_user.agent_autonomous_enabled = False
+    db.add(current_user)
+    await db.commit()
+    try:
+        from app.models.admin import AuditLog
+        db.add(AuditLog(actor_user_id=current_user.id, entity_type="user", entity_id=str(current_user.id),
+                        action="agent_autonomous_disabled", extra_data={"via": "help_assistant_hard_stop"}))
+        await db.commit()
+    except Exception:
+        await db.rollback()
+    return AgentStatusResponse(autonomous_enabled=False)
 
 
 @limiter.limit("20/minute")
@@ -212,36 +289,12 @@ async def help_action(
     if not has_access:
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Assistant actions require an active subscription.")
 
-    action_type = (data.type or "").strip()
-    if action_type not in _EXECUTABLE_ACTIONS:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Action not allowed: {action_type}")
-
-    from app.api.endpoints.quotes import set_quote_contacted
-    if action_type in ("mark_contacted", "undo_mark_contacted"):
-        if not data.quote_id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing quote_id.")
-        contacted = action_type == "mark_contacted"
-        result = await set_quote_contacted(db, current_user, data.quote_id, contacted)
-        # Best-effort audit (separate from the primary write; never gates it).
-        try:
-            from app.models.admin import AuditLog
-            db.add(AuditLog(
-                actor_user_id=current_user.id,
-                entity_type="quote",
-                entity_id=str(data.quote_id),
-                action="assistant_mark_contacted" if contacted else "assistant_unmark_contacted",
-                extra_data={"via": "help_assistant", "contacted": contacted},
-            ))
-            await db.commit()
-        except Exception as exc:
-            logger.warning("[help_action] audit log failed: %s", exc)
-            await db.rollback()
-        msg = ("Done — I marked that accepted RFQ as contacted; it's moved to your closed list."
-               if contacted else
-               "Done — I moved that RFQ back to your active accepted list.")
-        return ActionResponse(ok=True, message=msg)
-
-    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported action.")
+    from app.services.help_actions import execute_action
+    # Autonomous flag is read FRESH from the DB row so a hard-stop takes effect immediately.
+    autonomous = bool(getattr(current_user, "agent_autonomous_enabled", False))
+    params = {"quote_id": data.quote_id, "rfq_id": data.rfq_id}
+    result = await execute_action(db, current_user, (data.type or "").strip(), params, autonomous)
+    return ActionResponse(ok=bool(result.get("ok")), message=result.get("message") or "Done.")
 
 
 @router.get("/admin/help/logs")

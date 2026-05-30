@@ -92,7 +92,7 @@ async def user_has_chatbot_access(db: AsyncSession, user: Optional[User]) -> Tup
 _DELEGATE_PREFIX = "DELEGATE:"
 
 
-def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], account_context: str = "") -> str:
+def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], account_context: str = "", autonomous: bool = False) -> str:
     role_str = "anonymous"
     if user is not None:
         role_str = ",".join(roles) or "authenticated"
@@ -128,17 +128,31 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
         "Never invent a path; omit the line if none fit.\n"
         "- If the user asks you to draft something (an RFQ description, a message to a customer/"
         "provider), write a clear, concise draft they can copy and edit, then point them with a "
-        "link to where they submit it. You prepare drafts; the user reviews and submits.\n\n"        "ACTIONS YOU CAN DO FOR THE USER (confirm-then-execute):\n"
-        "- You may PROPOSE exactly one safe, reversible action: marking an accepted RFQ as "
-        "'customer contacted' (or undoing it). Only for the quote_ids listed under 'Accepted "
-        "RFQs you can mark contacted' in this user's account section above. To propose it, add "
-        "a line at the very END of your reply:\n"
-        "  " + _ACTION_PREFIX + " mark_contacted|<quote_id>|Mark <who> as contacted\n"
-        "  (or 'undo_mark_contacted|<quote_id>|...'). Briefly tell the user you'll mark it once "
-        "they confirm — they will see a Confirm button. NEVER claim it's done yourself.\n"
-        "- You CANNOT and must NOT perform any other action — never pay, sign an NDA, submit or "
-        "accept a quote, cancel, delete, change settings, or send messages. For those, explain "
-        "the steps and give a navigation link to the right page; the user does it themselves.\n\n"
+        "link to where they submit it. You prepare drafts; the user reviews and submits.\n\n"
+        + ("ACTIONS — AUTONOMOUS MODE IS ON for this user:\n"
+           "- You may PROPOSE these actions on the user's OWN records, and they will be EXECUTED "
+           "immediately (the user enabled autonomous mode and accepted the risk): "
+           "mark_contacted / undo_mark_contacted (a quote_id), accept_quote (a quote_id), "
+           "withdraw_quote (a quote_id), cancel_rfq (an RFQ id). Propose with a line at the very "
+           "END of your reply:\n"
+           "  " + _ACTION_PREFIX + " <type>|<id>|<short human summary>\n"
+           "- Only act when the user clearly asks for it, and only on ids from their account "
+           "section above. Tell them what you did in plain language.\n"
+           "- You STILL must NOT pay any fee or sign/countersign an NDA — those are never "
+           "automated. Guide the user through them and link the page; the user clicks.\n\n"
+           if autonomous else
+           "ACTIONS YOU CAN DO FOR THE USER (confirm-then-execute):\n"
+           "- You may PROPOSE exactly one safe, reversible action: marking an accepted RFQ as "
+           "'customer contacted' (or undoing it). Only for the quote_ids listed under 'Accepted "
+           "RFQs you can mark contacted' in this user's account section above. To propose it, add "
+           "a line at the very END of your reply:\n"
+           "  " + _ACTION_PREFIX + " mark_contacted|<quote_id>|Mark <who> as contacted\n"
+           "  (or 'undo_mark_contacted|<quote_id>|...'). Briefly tell the user you'll mark it once "
+           "they confirm — they will see a Confirm button. NEVER claim it's done yourself.\n"
+           "- You CANNOT and must NOT perform any other action — never pay, sign an NDA, submit or "
+           "accept a quote, cancel, delete, change settings, or send messages. For those, explain "
+           "the steps and give a navigation link to the right page; the user does it themselves.\n\n")
+        + 
         "DELEGATION (very important):\n"
         "- You are a fast, cost-effective model. You CANNOT look at images and you CANNOT "
         "read or analyse the contents of a specific document (such as a Quote or an RFQ the "
@@ -359,7 +373,10 @@ def _extract_links(reply: str):
 # The backend returns it as an inert proposal; the user must click Confirm, which
 # is the only thing that triggers the hardened /help/action executor.
 _ACTION_PREFIX = "PROPOSE_ACTION:"
-_PROPOSABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted"}
+_PROPOSABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted",
+                       "accept_quote", "cancel_rfq", "withdraw_quote"}
+# Actions that need an rfq_id rather than a quote_id.
+_RFQ_ID_ACTIONS = {"cancel_rfq"}
 
 
 def _extract_action(reply: str):
@@ -531,6 +548,35 @@ async def _get_grounding(db: AsyncSession, query: str) -> Tuple[str, Optional[fl
     return context, max_sim
 
 
+async def _maybe_autoexecute(db, user, action):
+    """If autonomous mode is ON, execute the proposed action immediately and return a
+    result dict; otherwise return None so the caller leaves it as an inert confirm proposal.
+
+    The autonomous flag is read FRESH from the user row by the executor's caller, so a
+    hard-stop (which flips the flag) takes effect on the very next turn. Failures degrade
+    to a normal proposal rather than breaking the chat.
+    """
+    if not action or user is None:
+        return None
+    autonomous = bool(getattr(user, "agent_autonomous_enabled", False))
+    if not autonomous:
+        return None
+    try:
+        from app.services.help_actions import execute_action, ALL_ACTIONS
+        atype = action.get("type")
+        if atype not in ALL_ACTIONS:
+            return None
+        params = {"quote_id": action.get("quote_id"), "rfq_id": action.get("quote_id")}
+        # cancel_rfq uses an rfq id; the model places it in the same id slot.
+        if atype in ("cancel_rfq",):
+            params = {"rfq_id": action.get("quote_id")}
+        res = await execute_action(db, user, atype, params, autonomous)
+        return {"executed": True, "type": atype, "message": res.get("message")}
+    except Exception as exc:
+        logger.info("[help_service] autonomous execute failed (%s); leaving as proposal", exc)
+        return None
+
+
 async def answer_question(
     db: AsyncSession,
     user: Optional[User],
@@ -608,7 +654,8 @@ async def answer_question(
             "cost_usd": 0.0,
         }
 
-    system_prompt = _build_system_prompt(grounding, user, roles, account_context=account_ctx)
+    _autonomous = bool(getattr(user, "agent_autonomous_enabled", False)) if user else False
+    system_prompt = _build_system_prompt(grounding, user, roles, account_context=account_ctx, autonomous=_autonomous)
 
     safe_history = _sanitize_history(history)
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -657,10 +704,12 @@ async def answer_question(
                     "delegated": True, "latency_ms": res3.get("latency_ms"), "cost_usd": round(cost4 + cost3, 6)}
         clean3, action3 = _extract_action((res3.get("reply") or "").strip())
         clean3, links3 = _extract_links(clean3)
+        auto3 = await _maybe_autoexecute(db, user, action3)
         return {
             "reply": clean3,
             "links": links3,
-            "action": action3,
+            "action": None if auto3 else action3,
+            "action_result": auto3,
             "model": res3.get("model"),
             "delegated": True,
             "prompt_tokens": res3.get("prompt_tokens"),
@@ -673,10 +722,12 @@ async def answer_question(
     # --- Normal LLM4 answer ---
     clean, action = _extract_action(reply)
     clean, links = _extract_links(clean)
+    auto = await _maybe_autoexecute(db, user, action)
     return {
         "reply": clean,
         "links": links,
-        "action": action,
+        "action": None if auto else action,
+        "action_result": auto,
         "model": res.get("model"),
         "delegated": False,
         "prompt_tokens": res.get("prompt_tokens"),

@@ -249,6 +249,19 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
      navigation link for those and the user does them. Reversibility: `undo_mark_contacted` (and an
      Undo button on the Accepted-RFQs closed cards) restores state. See §19 invariant 16.
 
+   **Phase 4b OPT-IN AUTONOMOUS MODE (2026-05-30):** a user can enable autonomous mode
+   (`users.agent_autonomous_enabled`, migration `a7d0e5f41b22`) via `POST /help/agent/enable`
+   which REQUIRES `accept_risk=true` and records `agent_autonomous_consented_at`. When ON, the
+   assistant auto-executes proposed allowlisted actions WITHOUT a per-action confirm card. The
+   executable set expands to `accept_quote`, `cancel_rfq`, `withdraw_quote` (plus the safe
+   mark/undo) — all on the user's OWN records, ownership re-checked, audit-logged, via the single
+   `help_actions.execute_action` authority. **HARD STOP:** `POST /help/agent/disable` (the red STOP
+   button in the widget) flips the flag off; the flag is re-read FRESH from the user row on every
+   turn and at the executor, so the stop takes effect immediately. **Payments and NDA e-signing are
+   NEVER autonomous** — they live in `help_actions.FORBIDDEN_ACTIONS` and are rejected (403) even
+   with the flag on; the assistant instead gives full step-by-step guidance (manual §15b/§15c) and
+   the user clicks. See §19 invariant 17.
+
 (A support-ticket classifier in `support_service.py` reuses LLM3 keys.)
 
 `EMBEDDING_*`, `DOC_LLM_*` and `CHAT_LLM_*` are **runtime-config keys only** (no Pydantic
@@ -644,6 +657,14 @@ as a bug, even if tests pass.
     resource ownership server-side, and audit-logs. Never let the assistant pay, sign, submit,
     accept, cancel, delete, change permissions/settings, or send messages — those stay
     navigation-only and user-performed. Adding to the allowlist is a deliberate security decision.
+
+17. **Autonomous mode is opt-in, consented, hard-stoppable, and NEVER financial/legal.**
+    `agent_autonomous_enabled` is set only via `/help/agent/enable` with explicit `accept_risk`,
+    and cleared instantly by `/help/agent/disable` (STOP). Even when ON, the executor's
+    `FORBIDDEN_ACTIONS` (payments, NDA e-signing) are rejected with 403 — the agent guides but
+    the human clicks. All autonomous actions re-check ownership and audit-log. The autonomous
+    allowlist (`accept_quote`/`cancel_rfq`/`withdraw_quote` + safe mark/undo) is a deliberate
+    security decision; do not add money or signature actions to it.
 ## 20. Known inconsistencies & landmines (current as of 2026-05-29)
 
 Things that look wrong/confusing but are intentional, or are real bugs not yet fixed.

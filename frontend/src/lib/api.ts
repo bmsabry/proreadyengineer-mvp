@@ -832,6 +832,7 @@ export interface HelpChatResponse {
   remaining_today?: number | null;
   links?: HelpChatLink[] | null;
   action?: HelpChatAction | null;
+  action_result?: { executed?: boolean; type?: string; message?: string } | null;
 }
 
 // Route every help endpoint through apiClient so the request interceptor
@@ -849,8 +850,20 @@ export const helpApi = {
     const r = await apiClient.get<{ markdown: string }>('/help/manual');
     return r.data;
   },
-  action: async (type: string, quote_id?: string): Promise<{ ok: boolean; message: string }> => {
-    const r = await apiClient.post<{ ok: boolean; message: string }>('/help/action', { type, quote_id });
+  action: async (type: string, quote_id?: string, rfq_id?: string): Promise<{ ok: boolean; message: string }> => {
+    const r = await apiClient.post<{ ok: boolean; message: string }>('/help/action', { type, quote_id, rfq_id });
+    return r.data;
+  },
+  agentStatus: async (): Promise<{ autonomous_enabled: boolean; consented_at?: string | null }> => {
+    const r = await apiClient.get<{ autonomous_enabled: boolean; consented_at?: string | null }>('/help/agent/status');
+    return r.data;
+  },
+  agentEnable: async (): Promise<{ autonomous_enabled: boolean }> => {
+    const r = await apiClient.post<{ autonomous_enabled: boolean }>('/help/agent/enable', { accept_risk: true });
+    return r.data;
+  },
+  agentDisable: async (): Promise<{ autonomous_enabled: boolean }> => {
+    const r = await apiClient.post<{ autonomous_enabled: boolean }>('/help/agent/disable', {});
     return r.data;
   },
   chat: async (message: string, history: HelpChatTurn[], page?: string): Promise<HelpChatResponse> => {

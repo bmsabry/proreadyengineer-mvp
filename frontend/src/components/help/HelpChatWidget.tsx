@@ -22,7 +22,7 @@ const HIDDEN_PREFIXES = [
 
 type ChatLink = { href: string; label: string };
 type ChatAction = { type: string; quote_id?: string; summary: string };
-type Msg = { role: 'user' | 'assistant'; content: string; links?: ChatLink[]; action?: ChatAction; actionStatus?: 'pending' | 'working' | 'done' | 'cancelled' };
+type Msg = { role: 'user' | 'assistant'; content: string; links?: ChatLink[]; action?: ChatAction; actionStatus?: 'pending' | 'working' | 'done' | 'cancelled'; autoResult?: string };
 
 export default function HelpChatWidget() {
   const pathname = usePathname() || '';
@@ -35,6 +35,9 @@ export default function HelpChatWidget() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autonomous, setAutonomous] = useState(false);
+  const [showConsent, setShowConsent] = useState(false);
+  const [agentBusy, setAgentBusy] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   const hidden = HIDDEN_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + '/'));
@@ -48,8 +51,27 @@ export default function HelpChatWidget() {
       .then((s) => { if (!cancel) setStatus(s); })
       .catch(() => { if (!cancel) setStatus(null); })
       .finally(() => { if (!cancel) setLoadingStatus(false); });
+    helpApi.agentStatus()
+      .then((a) => { if (!cancel) setAutonomous(!!a.autonomous_enabled); })
+      .catch(() => { /* default off */ });
     return () => { cancel = true; };
   }, [open, user]);
+
+  const enableAutonomous = async () => {
+    setAgentBusy(true);
+    try { const r = await helpApi.agentEnable(); setAutonomous(!!r.autonomous_enabled); setShowConsent(false); }
+    catch { setError('Could not enable autonomous mode.'); }
+    finally { setAgentBusy(false); }
+  };
+
+  // HARD STOP: instantly revoke autonomous mode.
+  const stopAutonomous = async () => {
+    setAgentBusy(true);
+    setAutonomous(false); // optimistic — reflect the stop immediately
+    try { await helpApi.agentDisable(); }
+    catch { /* even if the call fails, the next turn re-reads the flag server-side */ }
+    finally { setAgentBusy(false); }
+  };
 
   useEffect(() => {
     if (scrollerRef.current) {
@@ -84,7 +106,7 @@ export default function HelpChatWidget() {
       const page = typeof window !== 'undefined' ? window.location.pathname : undefined;
       const resp = await helpApi.chat(text, history, page);
       const action = resp.action && typeof resp.action.type === 'string' ? resp.action : undefined;
-      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//')), action, actionStatus: action ? 'pending' : undefined }]);
+      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//')), action, actionStatus: action ? 'pending' : undefined, autoResult: resp.action_result && resp.action_result.executed ? (resp.action_result.message || 'Done.') : undefined }]);
       if (status && typeof resp.remaining_today === 'number') {
         setStatus({ ...status, remaining_today: resp.remaining_today });
       }
@@ -243,6 +265,11 @@ export default function HelpChatWidget() {
                           </div>
                         </div>
                       )}
+                      {m.role === 'assistant' && m.autoResult && (
+                        <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                          ✓ {m.autoResult}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -261,6 +288,70 @@ export default function HelpChatWidget() {
               </>
             )}
           </div>
+
+          {/* Autonomous-mode control bar */}
+          {status?.has_access && (
+            <div className="border-t border-slate-200 px-3 py-1.5 bg-slate-50 flex items-center justify-between">
+              {autonomous ? (
+                <>
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /> Autonomous mode ON
+                  </span>
+                  <button
+                    onClick={stopAutonomous}
+                    disabled={agentBusy}
+                    className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-red-700 disabled:opacity-60"
+                  >
+                    ■ STOP
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] text-slate-500">Let the assistant act for you</span>
+                  <button
+                    onClick={() => setShowConsent(true)}
+                    className="text-[11px] font-semibold text-[#0F2B54] hover:underline"
+                  >
+                    Enable autonomous mode
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Consent dialog */}
+          {showConsent && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-xl">
+                <h3 className="text-sm font-bold text-slate-800 mb-2">Enable autonomous mode?</h3>
+                <p className="text-xs text-slate-600 mb-2">
+                  When ON, the assistant can take real actions on your own records without asking each
+                  time — accept a quote, cancel an RFQ, withdraw a quote, or mark an RFQ contacted.
+                </p>
+                <p className="text-xs text-slate-600 mb-2">
+                  These actions are real and some are not reversible. You accept that risk. The assistant
+                  will <strong>never</strong> pay a fee or sign an NDA for you. You can press
+                  <strong> STOP</strong> at any time to turn this off instantly.
+                </p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={enableAutonomous}
+                    disabled={agentBusy}
+                    className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    {agentBusy ? 'Enabling…' : 'I accept the risk — enable'}
+                  </button>
+                  <button
+                    onClick={() => setShowConsent(false)}
+                    disabled={agentBusy}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Input / footer */}
           {status?.has_access ? (

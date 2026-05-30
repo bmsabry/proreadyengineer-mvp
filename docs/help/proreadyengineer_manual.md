@@ -246,6 +246,44 @@ Admins operate the platform from the `/admin` area: dashboard, RFQs, provider cl
 - **I didn't get my verification or NDA email.** Check spam, request a resend, and allowlist our sender domain (`@promechdirectory.com`). Corporate mail filters sometimes hold these.
 - **Sign NDA seems to hang.** It can take a few seconds to prepare the document — wait for the confirmation; don't click repeatedly.
 
+## 15b. Payments — full step-by-step (the assistant can walk you through every step)
+
+The AI Assistant can guide you through these end to end, but for your security **you click the
+final payment button yourself** — the assistant never enters card details or completes a charge.
+
+**Provider — paying the $50 RFQ unlock fee:**
+1. Open the RFQ from your dashboard (`/provider/rfqs`) or the teaser email and click into it.
+2. Click **Unlock**. If you have an active **annual** subscription, unlocking is free and instant — no payment screen.
+3. Otherwise you're taken to Stripe-hosted Checkout. Enter your card and confirm the $50 payment.
+4. After Stripe confirms (a few seconds, processed by webhook), return to the RFQ — full details and the Submit Quote button are now available.
+5. If access doesn't appear within ~1 minute, reload; payments confirm asynchronously.
+
+**Provider — Annual ($1,000/yr) or other plans:** go to **Upgrade** (`/provider/upgrade`), pick a plan, and complete Stripe Checkout. Manage or cancel later from the provider dashboard's billing area.
+
+**Customer — Search subscription ($50/mo or $500/yr):** go to **Billing** (`/billing`), choose monthly or annual, and complete Stripe Checkout. Cancellation is effective at period end (no partial refund); manage it from your profile's billing area.
+
+**Customer — the $10 NDA handling fee:** charged automatically when you mark an RFQ "NDA required" — UNLESS you have a Search subscription with free NDA credits left this month (5/month), in which case it's waived. If charged, you complete it via Stripe Checkout during RFQ submission.
+
+**General payment notes the assistant can explain:** all payments use Stripe (PCI-compliant); we never store your card; confirmations arrive by webhook so allow up to a minute; receipts come from Stripe by email; for billing problems use the Contact page with the payment date and Stripe receipt number.
+
+## 15c. NDA process — full step-by-step (the assistant can guide; you sign yourself)
+
+The NDA is a single **mutual** agreement, signed **provider-first**, via our e-signature provider (SignWell). For your legal protection, **you click "Sign" yourself** — the assistant explains every step but never signs on your behalf.
+
+**Customer side:**
+1. When submitting an RFQ, check **NDA required** (optionally upload your own NDA template; otherwise a standard mutual NDA is used). Pay/clear the $10 handling fee.
+2. Your RFQ dispatches to matched providers normally — the NDA never delays matching.
+3. When a provider signs first, you're notified to **countersign**: by email from SignWell AND an amber "Action required: NDA awaiting your signature" note in your dashboard Activity Summary.
+4. Open the SignWell email (or the dashboard prompt), review, and sign. Once both parties have signed, the provider gets full access and can quote.
+
+**Provider side:**
+1. After unlocking an NDA-required RFQ, click **Sign NDA** on the RFQ page (`/provider/rfq/[id]`). Preparing the document takes a few seconds — wait for the confirmation; don't click repeatedly.
+2. SignWell emails you a signing link; open it and sign.
+3. The customer is then asked to countersign. Once **both** signatures are recorded, the full project description and files unlock for you and you can submit a quote.
+4. Until both have signed, you see only the redacted teaser.
+
+**NDA notes the assistant can explain:** it's one document with both parties as signers; provider signs first to read; full access requires both signatures; signing requests come by email and in-app; a half-signed NDA on a cancelled/closed RFQ won't keep asking you to sign; if a signing email doesn't arrive, check spam and allowlist the sender, or use the in-app prompt.
+
 ## 16. Contacting support
 
 Use the **Contact** page (linked in the footer). Include your account email, a short description, and screenshots if possible. For billing issues, add the payment date and the Stripe receipt number if you have it.

@@ -95,6 +95,18 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # AI assistant AUTONOMOUS mode: when True, the assistant may execute allowlisted,
+    # consequential-but-non-financial actions (accept/cancel/withdraw/mark-contacted) on
+    # THIS user's own records WITHOUT a per-action confirmation. Opt-in with explicit risk
+    # consent; the hard-stop button sets this back to False instantly. Payments and NDA
+    # e-signing are NEVER autonomous regardless of this flag.
+    agent_autonomous_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    agent_autonomous_consented_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Provider invite: stores provider_id from invite token at registration
     linked_provider_id: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, default=None
