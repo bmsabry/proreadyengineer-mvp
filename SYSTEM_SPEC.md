@@ -103,7 +103,10 @@ UUIDs unless noted. Providers use integer ids.
 - **Provider** (`providers`, **int id**) — firm profile, `embedding` (pgvector),
   ranking tier, `full_profile_edit_paid`, claim/membership relations.
 - **RFQ** (`rfqs`) — `id`, `customer_user_id`, `nda_required` (bool), `rfq_status`
-  (`RfqStatus`), `quote_count`, `selected_provider_id`, project description + metadata.
+  (`RfqStatus`), **`is_closed`** (bool), `quote_count`, `selected_provider_id`, project
+  description + metadata. ⚠️ `is_closed` is a SEPARATE stored boolean, not derived from
+  `rfq_status` — see §8 and the invariant in §19. The quote-submit gate checks BOTH
+  (`can_submit_quote` rejects if `is_closed` OR live quote count ≥ `RFQ_MAX_QUOTES`).
 - **RFQFile** (`rfq_files`) — uploaded project files (S3 keys).
 - **RFQMatch** (`rfq_matches`) — AI match results: `rfq_id`, `provider_id`, rank/score.
 - **RFQDispatchBatch** / **RFQDispatch** — teaser dispatch batching + per-provider sends.
@@ -308,6 +311,17 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   `customer_selected_provider`.
 - `RFQ_MAX_QUOTES = 5`: only the first 5 quotes are accepted/shown; the RFQ then reaches
   `quote_limit_reached`.
+- **`is_closed` vs `rfq_status` (read this before touching quote/unlock gating):** an RFQ
+  has a stored `is_closed` boolean that is set to `True` in MULTIPLE places in
+  `rfq_service.py` (e.g. when the quote limit is reached) and read by the quote-submit
+  path (`can_submit_quote`, `submit_provider_quote`) and surfaced to the provider UI. It is
+  NOT computed from `rfq_status`, so the two can drift: an RFQ can read
+  `rfq_status = open_for_unlock` (looks active) while `is_closed = True` (quotes rejected as
+  "This RFQ is closed"). **Unlocking an RFQ must NOT close it** — unlocks are unlimited paid
+  revenue; only an actual submitted-quote count ≥ `RFQ_MAX_QUOTES` (or selection/cancel)
+  should close an RFQ. When you change anything here, keep `is_closed` consistent with
+  `rfq_status` (see §19); the durable fix is to DERIVE `is_closed` from `rfq_status` rather
+  than storing it.
 
 ---
 
