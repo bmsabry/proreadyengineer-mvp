@@ -434,12 +434,10 @@ async def repair_rfq_quote_counts(
         await db.execute(text("""
             UPDATE rfqs 
             SET quote_count = :actual_count,
-                is_closed = :new_is_closed,
                 rfq_status = :new_status
             WHERE id = :rfq_id
         """), {
             "actual_count": actual_count,
-            "new_is_closed": new_is_closed,
             "new_status": new_status,
             "rfq_id": str(rfq_id),
         })

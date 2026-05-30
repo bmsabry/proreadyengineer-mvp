@@ -210,11 +210,7 @@ async def submit_rfq(
             .values(
                 rfq_status=RfqStatus.OPEN_FOR_DISPATCH,
                 submitted_at=func.coalesce(RFQ.submitted_at, datetime.now(timezone.utc)),
-                # Core UPDATE bypasses the ORM @validates('rfq_status') hook, so set is_closed
-                # explicitly: entering dispatch means the RFQ is OPEN. Without this a stale
-                # is_closed=True persists while rfq_status reads open_for_dispatch/unlock, so the
-                # RFQ shows OPEN in admin yet behaves CLOSED in quote/provider gates.
-                is_closed=False,
+                # is_closed is a DB-generated column derived from rfq_status; do NOT write it.
                 closed_at=None,
             )
         )
@@ -308,7 +304,10 @@ async def dispatch_next_batch(
     if isinstance(rfq_id, str):
         rfq_id = uuid.UUID(rfq_id)
 
-    rfq = await db.get(RFQ, rfq_id)
+    # populate_existing=True forces a fresh load of all columns (incl. the DB-computed
+    # is_closed) within this await; without it, reading the Computed column on an object
+    # expired by the prior Core UPDATE triggers a sync lazy-load -> MissingGreenlet.
+    rfq = await db.get(RFQ, rfq_id, populate_existing=True)
     if not rfq:
         return []
     if rfq.is_closed:

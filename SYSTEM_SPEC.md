@@ -520,12 +520,15 @@ as a bug, even if tests pass.
 12. **Production refuses to boot with the default `SECRET_KEY`** — keep that guard.
 13. **One dispatch mechanism in prod:** Render cron + the in-process backup loop. Do not
     add a third trigger or assume a Celery worker exists.
-14. **`is_closed` is auto-synced from `rfq_status`; never assign it directly.** The model
-    validator `RFQ._sync_is_closed` recomputes `is_closed` on every `rfq_status` assignment
-    (closed set: `quote_limit_reached`, `customer_selected_provider`, `closed_no_selection`,
-    `cancelled`). Close an RFQ by setting `rfq_status` to a closed status. Unlocking must
-    never close an RFQ. Don't reintroduce independent `rfq.is_closed = True` writes — they
-    are redundant at best and a drift source at worst.
+14. **`is_closed` is a DATABASE-GENERATED column — unwritable, cannot drift.** As of migration
+    `c3f8e1a90b21` (2026-05-30) `rfqs.is_closed` is `GENERATED ALWAYS AS (rfq_status IN
+    ('quote_limit_reached','customer_selected_provider','closed_no_selection','cancelled'))
+    STORED`; the ORM maps it with `Computed(...)`. NO path (ORM, Core `update()`, raw SQL) can
+    write it — they error if they try. Close an RFQ ONLY by setting `rfq_status` to a closed
+    status; `is_closed` follows in the DB. NOTE: because it is Computed, after a Core UPDATE of
+    `rfq_status` the attribute is expired — re-load with `db.get(RFQ, id, populate_existing=True)`
+    or `select(...).execution_options(populate_existing=True)` before reading it in async code,
+    or you'll hit MissingGreenlet (see `dispatch_next_batch`).
 15. **NDA action prompts must be gated on an OPEN RFQ.** The provider "Sign the NDA" /
     "awaiting signature" card, its auto-poll, and the dashboard `ndaTasks` filter — and the
     customer "NDA awaiting your signature" note — must all require the RFQ to be NOT closed

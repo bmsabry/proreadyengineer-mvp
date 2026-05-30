@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from sqlalchemy import (
     Boolean,
+    Computed,
     DateTime,
     ForeignKey,
     Integer,
@@ -14,7 +15,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
 from app.models.enums import DispatchStatus, RfqStatus, UnlockStatus
@@ -67,8 +68,17 @@ class RFQ(Base):
     quote_count: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    # DATABASE-GENERATED column: always (rfq_status IN <closed statuses>), computed by
+    # the DB at write time. NO writable path (ORM/Core/raw all error if they set it),
+    # so it can never drift from rfq_status. Close an RFQ by setting rfq_status.
     is_closed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
+        Boolean,
+        Computed(
+            "rfq_status IN ('quote_limit_reached', 'customer_selected_provider', "
+            "'closed_no_selection', 'cancelled')",
+            persisted=True,
+        ),
+        nullable=False,
     )
     selected_provider_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("providers.id"), nullable=True
@@ -82,17 +92,6 @@ class RFQ(Base):
     closed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-
-    @validates("rfq_status")
-    def _sync_is_closed(self, key, value):
-        """Keep is_closed in lockstep with rfq_status so they can never drift.
-
-        Any ORM assignment of rfq_status recomputes is_closed. To close an RFQ, set
-        rfq_status to a closed status; do not set is_closed directly.
-        """
-        v = value.value if hasattr(value, "value") else value
-        self.is_closed = v in _CLOSED_RFQ_STATUS_VALUES
-        return value
 
     # Relationships
     customer_user: Mapped[Optional["User"]] = relationship(
