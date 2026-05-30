@@ -891,13 +891,23 @@ function ProviderRFQPageInner() {
                               This RFQ requires a mutual Non-Disclosure Agreement. Sign it to unlock the full project description and files. The customer will be notified to countersign; once both parties sign, you get full access and can submit a quote.
                             </p>
                             <p className="text-xs text-amber-700 mb-3">After both signatures, this page refreshes automatically to show the full RFQ and files.</p>
+                          {ndaEmailPending && (
+                            <div className="mb-3 flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-3">
+                              <ShieldAlert className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                              <div className="text-xs text-blue-800">
+                                <p className="font-semibold text-blue-900">Check your email to sign the NDA</p>
+                                <p className="mt-0.5">We&apos;ve emailed you a secure signing link from SignWell. Open it and sign to continue &mdash; the customer is then notified to countersign. This page unlocks automatically once both parties sign.</p>
+                                <p className="mt-1 text-blue-600">Didn&apos;t get it? Use <span className="font-semibold">Resend signing email</span>. Already signed? Click <span className="font-semibold">Check Status</span>.</p>
+                              </div>
+                            </div>
+                          )}
                             <div className="flex gap-2">
                               <Button
                                 size="sm"
-                                className="bg-amber-600 text-white hover:bg-amber-700"
+                                className={ndaEmailPending ? "bg-amber-300 text-white hover:bg-amber-400" : "bg-amber-600 text-white hover:bg-amber-700"}
                                 onClick={handleSignNda}
                               >
-                                <ShieldAlert className="h-3 w-3 mr-1" />Sign NDA
+                                <ShieldAlert className="h-3 w-3 mr-1" />{ndaEmailPending ? 'Resend signing email' : 'Sign NDA'}
                               </Button>
                               <Button
                                 variant="outline"
