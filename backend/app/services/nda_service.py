@@ -297,13 +297,34 @@ async def add_provider_to_nda(
 
     customer_placeholder_name, provider_placeholder_name = await _fetch_template_placeholder_ids(db)
 
-    # Do NOT pre-fill the signers' form fields. Each party fills and confirms
-    # their OWN details (name, company, entity type, governing state, date) at
-    # signing time. Pre-filling injected guessed/placeholder values into a legal
-    # NDA, and left the customer (signer 2) with an all-pre-filled form that
-    # Signwell short-circuited to a "thanks for filling out" screen instead of
-    # prompting for their signature.
-    template_fields: list = []
+    from datetime import date as _date
+    effective_date = _date.today().strftime("%m/%d/%Y")
+    customer_company = (cust_user.business_name if cust_user else None) or getattr(rfq, "business_name", None)
+    customer_state = (cust_user.state if cust_user else None)
+    provider_company = getattr(provider, "firm_name", None)
+    provider_state = getattr(provider, "state", None)
+
+    # Pre-fill ONLY values we actually hold from the user's authenticated account /
+    # our records (identity-as-known-to-the-platform) plus the system-owned date.
+    # We deliberately do NOT guess fields we don't know (e.g. legal entity type) and
+    # do NOT touch signature fields. _build_template_fields maps by api_id OR label
+    # and only emits fields that exist in the template; empties are dropped below so
+    # a blank value never overwrites a real template default. These values are a
+    # convenience default for the signer, not a hard lock (locking a field requires
+    # marking it read-only in the SignWell template itself).
+    _prefill = {
+        "customer_name": customer_name,
+        "customer_name2": customer_name,
+        "customer_company": customer_company,
+        "governing_state": customer_state,
+        "effective_date": effective_date,
+        "provider_name": prov_signer_name,
+        "provider_name2": prov_signer_name,
+        "provider_company": provider_company,
+        "provider_state": provider_state,
+    }
+    _prefill = {k: v for k, v in _prefill.items() if v not in (None, "")}
+    template_fields = await _build_template_fields(db, _prefill)
 
     # Email-based signing with a signing ORDER: the provider (signer 1) is emailed
     # first; once they sign, Signwell automatically emails the customer (signer 2)
