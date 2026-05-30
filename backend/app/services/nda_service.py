@@ -246,6 +246,7 @@ async def add_provider_to_nda(
     # Idempotency: reuse an existing provider NDA for this RFQ + provider.
     existing = (await db.execute(
         _sel(RFQNDA).where(RFQNDA.rfq_id == rfq_id, RFQNDA.provider_id == provider_id)
+        .order_by(RFQNDA.created_at.desc()).limit(1)
     )).scalar_one_or_none()
     if existing and existing.signrequest_document_id:
         signing_url = None
@@ -615,7 +616,7 @@ async def create_post_acceptance_nda(
         _sel(RFQNDA).where(
             RFQNDA.rfq_id == rfq_id,
             RFQNDA.provider_id == provider_id,
-        )
+        ).order_by(RFQNDA.created_at.desc()).limit(1)
     )).scalar_one_or_none()
     if existing:
         logger.info(

@@ -1248,7 +1248,7 @@ async def get_unlock_status(
                 select(RFQNDA).where(
                     RFQNDA.rfq_id == rfq_id,
                     RFQNDA.provider_id == membership.provider_id,
-                )
+                ).order_by(RFQNDA.created_at.desc()).limit(1)
             )
             provider_nda = nda_result.scalar_one_or_none()
             if provider_nda:
@@ -1485,7 +1485,7 @@ async def get_nda_status(
     result = await db.execute(
         select(RFQNDA).where(
             RFQNDA.rfq_id == rfq_id,
-        ).order_by(RFQNDA.created_at.desc())
+        ).order_by(RFQNDA.created_at.desc()).limit(1)
     )
     nda = result.scalar_one_or_none()
 
