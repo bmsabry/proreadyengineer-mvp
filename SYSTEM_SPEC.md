@@ -82,11 +82,11 @@ site.** Some config constants and product-name strings are stale — see §20. L
 | **RFQ unlock** | Provider | **$50** (`amount=settings.RFQ_UNLOCK_PRICE`, =5000) | To read ANY RFQ they were matched to. **Free** for providers with an active `provider_annual` subscription. | `rfqs.py:987` |
 | **NDA handling fee** | Customer | **$10** (`amount=1000`) | Charged when the customer marks an RFQ "NDA required" — UNLESS the customer has an active search subscription and free NDA credits left this month (5/month, `NDA_FREE_CREDITS_PER_MONTH`), in which case it's waived and a credit consumed. Metered on `users.monthly_nda_credits_used` / `nda_credits_reset_at`. | `rfqs.py` (nda_checkout) |
 | **Provider annual subscription** | Provider | **$1,000/yr** (`PROVIDER_ANNUAL_SUBSCRIPTION_PRICE=100000`) | Grants unlimited free RFQ unlocks while active. | `config.py`, `payments.py` |
-| **Customer search subscription** | Customer | **$50/month or $500/year** (`search_tier_1`; `SEARCH_TIER_1_PRICE=5000`, `SEARCH_ANNUAL_PRICE=50000`) | Raises monthly search quota 10 → 100 AND grants **5 free NDA-required RFQs/month** (`NDA_FREE_CREDITS_PER_MONTH=5`). Monthly vs annual differ only in price + granted period (30 vs 365 days) via metadata `billing_interval`; both are `search_tier_1` so all gates work unchanged. (Tier 2 retired — no longer sold.) | `payments.py` |
+| **Customer search subscription** | Customer | **$50/month or $500/year** (`search_tier_1`; `SEARCH_TIER_1_PRICE=5000`, `SEARCH_ANNUAL_PRICE=50000`) | Raises monthly search quota 5 → 100 AND grants **5 free NDA-required RFQs/month** (`NDA_FREE_CREDITS_PER_MONTH=5`). Monthly vs annual differ only in price + granted period (30 vs 365 days) via metadata `billing_interval`; both are `search_tier_1` so all gates work unchanged. (Tier 2 retired — no longer sold.) | `payments.py` |
 | **Provider full-profile-edit unlock** | Provider | one-time | Unlocks full profile editing (or comes free with annual sub). | `payment_service.py` |
 | **Advertisement** | Advertiser | subscription | Featured-firm / software-provider listings. | `ads.py`, `payment_service.py` |
 
-**Search quota:** Free = **10** searches/month, paid = **100** (`FREE_SEARCH_LIMIT=10`,
+**Search quota:** an account is REQUIRED to search (anonymous returns `registration_required`; the `/search/query` endpoint also hard-rejects unauthenticated callers with 401). Free registered = **5** searches/month, paid = **100** (`FREE_SEARCH_LIMIT=5`,
 `PAID_SEARCH_LIMIT=100` in `search_service.py`). Counter resets monthly. ⚠️ The
 `config.py` constant `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` is **NOT used** by the live
 search path — do not "fix" code to match it (§20). (The RFQ unlock fee now correctly
@@ -387,7 +387,7 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   emerald "Customer Contact (Annual member)" card; the upgrade page lists it as the first
   annual feature.
 - **Customer search** (`search_tier_1`, **$50/month or $500/year**) — raises the monthly
-  search quota from 10 → 100 and grants **5 free NDA-required RFQs per calendar month**
+  search quota from 5 → 100 and grants **5 free NDA-required RFQs per calendar month**
   (the $10 NDA fee is waived until the allowance is used; metered on
   `users.monthly_nda_credits_used` + `nda_credits_reset_at`, enforced in `nda_checkout`).
   Monthly vs annual is the SAME subscription type (`search_tier_1`) and the SAME access —
@@ -557,7 +557,7 @@ as a bug, even if tests pass.
 9. **Live fees are $50 provider unlock / $10 customer NDA (5 free/month for search subscribers) / $1,000 provider annual / $50-mo or $500-yr customer search.**
    Trust the checkout `amount=`, not product-name strings. (Provider unlock now reads the
    `RFQ_UNLOCK_PRICE=5000` constant.)
-10. **Search quota is 10 free / 100 paid** (`search_service.py`), not the `config.py` 5.
+10. **Search requires an account (no anonymous search); quota is 5 free / 100 paid** (`FREE_SEARCH_LIMIT=5`/`PAID_SEARCH_LIMIT=100` in `search_service.py`). The `/search/query` and `/search/extract-and-describe` endpoints hard-reject unauthenticated callers with 401 (do not let the quota fallback fail open).
 11. **Webhooks stay idempotent and signature-verified** (Stripe/PayPal); dedup via
     `WebhookEvent`.
 12. **Production refuses to boot with the default `SECRET_KEY`** — keep that guard.
@@ -602,8 +602,7 @@ live behaviour match the stale value** — the live behaviour is correct.
   best-effort audit logs in a SEPARATE commit AFTER the primary change is committed, with
   `await db.rollback()` on failure, so an audit error can never gate a real mutation.
 
-- **Search limit:** live is **10/100** (`search_service.py`); `config.py`
-  `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` is unused.
+- **Search limit:** live free is **5** (`FREE_SEARCH_LIMIT=5`), paid **100**; this now matches `config.py REGISTERED_SEARCH_LIMIT_PER_MONTH=5`. `ANONYMOUS_SEARCH_LIMIT_PER_MONTH=0` — anonymous cannot search (account required, enforced with a 401 in the search endpoints).
 - **`OPENAI_LLM_MODEL` default differs:** `config.py` says `gpt-4o-mini`; runtime-config
   default is `moonshotai/Kimi-K2.5` (the live model). Runtime config wins.
 - **Celery is dormant in production:** no worker/beat in `render.yaml`. Dispatch runs via

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Monthly search quotas (single source of truth). Free tier matches the value
 # advertised to users and shown on the admin tracking screen.
-FREE_SEARCH_LIMIT = 10
+FREE_SEARCH_LIMIT = 5
 PAID_SEARCH_LIMIT = 100
 
 

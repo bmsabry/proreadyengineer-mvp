@@ -85,7 +85,16 @@ function SkeletonCard() {
 function SearchPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading: authLoading, isAuthenticated } = useAuth();
+
+  // Account required: no one may search without signing in.
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      const q = searchParams.get('q') || '';
+      const next = '/search' + (q ? ('?q=' + encodeURIComponent(q)) : '');
+      router.replace('/auth/login?next=' + encodeURIComponent(next));
+    }
+  }, [authLoading, isAuthenticated, router, searchParams]);
 
   // Block providers from using customer project search
   useEffect(() => {
@@ -160,6 +169,7 @@ function SearchPageContent() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const handleSearch = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
+    if (!isAuthenticated) { router.replace('/auth/login?next=' + encodeURIComponent('/search')); return; }
     setIsLoading(true); setHasSearched(true); setSearchStatus("loading");
     setSearchError(null); setPipelineInfo(null); setShowResults(false);
     startLoadingAnimation();

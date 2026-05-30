@@ -247,6 +247,14 @@ async def search_query(
     global _last_search_error
 
     user_id = current_user.id if current_user else None
+
+    # Account required: no one may search without signing in (enforced here so it
+    # can never fail open via the quota-check fallback below).
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Please sign in or create an account to search ProMechDirectory.",
+        )
     ip = get_client_ip(request)
 
     logger.info(
@@ -392,14 +400,16 @@ async def search_query(
 async def extract_and_describe(
     files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    """Extract text from uploaded documents and use LLM to generate a search query.
-
-    Accepts up to 5 files. Text-readable files (PDF, DOCX, TXT) are extracted
-    and summarised by LLM3. CAD/engineering files (DWG, STEP, IGES, etc.) are
-    stored in S3 and their metadata is passed to the LLM for context, but no
-    text extraction is attempted on binary CAD formats.
-    """
+    """Extract text from uploaded documents and use LLM to generate a search query."""
+    # Account required: document-assisted search is part of search and is gated too.
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Please sign in or create an account to search ProMechDirectory.",
+        )
+    reject_provider_only(current_user)
     import io as _io
     import re as _re
 

@@ -68,10 +68,11 @@ All charges are processed through Stripe.
 
 ### 4.2 Customer charges
 - **NDA handling fee — $10, paid by the customer**, charged when the customer marks an RFQ "NDA required." Charged once per such RFQ. **Customers with an active Search subscription get 5 free NDA-required RFQs each calendar month** — the $10 fee is waived until those 5 credits are used, then it applies normally. The allowance resets on the 1st of each month.
-- **Customer Search subscription — $50 per month, or $500 per year.** Raises the monthly search quota from **10** free searches to **100**, and includes **5 free NDA-required RFQs per month** (see below). The monthly and annual plans grant identical features — annual just bills yearly and saves $100. This is the only customer subscription.
+- **Customer Search subscription — $50 per month, or $500 per year.** Raises the monthly search quota from **5** searches to **100**, and includes **5 free NDA-required RFQs per month** (see below). The monthly and annual plans grant identical features — annual just bills yearly and saves $100. This is the only customer subscription.
 
 ### 4.3 Search quota
-- **Free / registered users: 10 searches per month.**
+- **An account is required to search at all — anonymous visitors cannot search.**
+- **Free registered accounts: 5 searches per month.**
 - **Search subscribers: 100 searches per month.**
 - The counter resets monthly.
 
@@ -86,7 +87,7 @@ All charges are processed through Stripe.
 Sign up as a **Customer**, providing your email, full name, company name, state, and password (phone optional). Open the verification email and click the link. If it doesn't arrive, check spam and request a resend from the login page. Then log in — you land on the customer dashboard.
 
 ### 5.2 Search the firm directory
-From the landing page or the top navigation, type a natural-language description of what you need — for example, "FEA simulation for a stamped sheet-metal bracket, aerospace, 4-week turnaround." The system returns AI-ranked providers, each with a short explanation of why it matched. Click any firm to view its public profile. Search consumes your monthly quota (10 free, 100 with a subscription). Note: provider accounts cannot use this search.
+From the landing page or the top navigation, type a natural-language description of what you need — for example, "FEA simulation for a stamped sheet-metal bracket, aerospace, 4-week turnaround." The system returns AI-ranked providers, each with a short explanation of why it matched. Click any firm to view its public profile. You must be signed in to search — anonymous visitors are prompted to create an account. Search consumes your monthly quota (5 on a free account, 100 with a subscription). Note: provider accounts cannot use this search.
 
 ### 5.3 Submit an RFQ
 From the customer dashboard, start a new RFQ (the **Submit New RFQ** action, at `/customer/rfq/new`). Provide:
@@ -180,7 +181,7 @@ Unlocking an RFQ never closes it (unlocks are unlimited). An RFQ closes only whe
 ## 9. Subscriptions and billing management
 
 - **Provider Annual ($1,000/yr):** unlimited free unlocks, customer-contact visibility, full profile editing.
-- **Customer Search ($50/mo or $500/yr):** raises search quota 10 → 100 and includes 5 free NDA RFQs/month. Monthly or annual (same features).
+- **Customer Search ($50/mo or $500/yr):** raises search quota 5 → 100 and includes 5 free NDA RFQs/month. Monthly or annual (same features).
 - **Advertisement:** recurring featured placement.
 - **Provider full-profile-edit:** one-time unlock (free with annual).
 - Manage or cancel from your profile's billing area / the provider dashboard's subscriptions area. Cancellation takes effect at period end; no partial refunds.

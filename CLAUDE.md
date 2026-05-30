@@ -13,9 +13,9 @@ Hard rules:
    is the only access gate; NDA is provider-first/mutual/one-model; NDA notifications use
    both email + the in-app Activity Summary pattern; SignWell template id is the API UUID;
    never set document-level `embedded_signing`; don't pre-fill NDA signer fields; live fees
-   are $50 provider unlock / $10 customer NDA / $1,000 provider-annual; search quota 10 free / 100 paid).
+   are $50 provider unlock / $10 customer NDA / $1,000 provider-annual; search quota 5 free / 100 paid (account required to search)).
 2. **Trust the live behaviour, not stale constants/comments.** `SYSTEM_SPEC.md` §20 lists
-   the known inconsistencies (e.g. `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` in `config.py` is unused; the live search quota is 10 free / 100 paid).
+   the known inconsistencies (e.g. `config.py` defaults `OPENAI_LLM_MODEL=gpt-4o-mini`, but the live runtime-config model is `moonshotai/Kimi-K2.5` — runtime config wins).
 3. **Keep the spec AND the user manual in sync:** when you change a flow, fee, status,
    gate, integration, capability, button, or UI convention, in the **same commit** update
    BOTH `SYSTEM_SPEC.md` (engineering source of truth) AND
