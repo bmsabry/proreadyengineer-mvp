@@ -568,6 +568,8 @@ function ProviderRFQPageInner() {
   const [loading, setLoading] = useState(true);
   const [filesLoading, setFilesLoading] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [signingNda, setSigningNda] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
   const [quoteSubmitted, setQuoteSubmitted] = useState(false);
   const [existingQuote, setExistingQuote] = useState<Quote | null>(null);
   const [quotesLoading, setQuotesLoading] = useState(false);
@@ -734,6 +736,8 @@ function ProviderRFQPageInner() {
   };
 
   const handleSignNda = async () => {
+    if (signingNda) return;  // ignore double-clicks while in flight
+    setSigningNda(true);
     try {
       const res = await api.providerRFQ.initiateProviderNda(rfqId);
       const data = res.data as { signing_url?: string; message?: string };
@@ -747,6 +751,8 @@ function ProviderRFQPageInner() {
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } }; message?: string };
       toast.error(err.response?.data?.detail || err.message || 'Could not start NDA signing.');
+    } finally {
+      setSigningNda(false);
     }
   };
 
@@ -879,10 +885,13 @@ function ProviderRFQPageInner() {
                             <Button
                               variant="outline"
                               size="sm"
+                              disabled={checkingStatus}
                               className="border-amber-400 text-amber-800 hover:bg-amber-100"
-                              onClick={() => loadStatus()}
+                              onClick={async () => { if (checkingStatus) return; setCheckingStatus(true); try { await loadStatus(); } finally { setCheckingStatus(false); } }}
                             >
-                              <RefreshCw className="h-3 w-3 mr-1" />Check Status
+                              {checkingStatus
+                                ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking&hellip;</>
+                                : <><RefreshCw className="h-3 w-3 mr-1" />Check Status</>}
                             </Button>
                           </>
                         ) : (
@@ -902,21 +911,33 @@ function ProviderRFQPageInner() {
                               </div>
                             </div>
                           )}
+                            {signingNda && (
+                              <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-100/70 px-3 py-2 text-xs text-amber-900">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                                <span>Setting up your NDA with SignWell&hellip; this can take a few seconds. Please don&apos;t close or click again.</span>
+                              </div>
+                            )}
                             <div className="flex gap-2">
                               <Button
                                 size="sm"
+                                disabled={signingNda || checkingStatus}
                                 className={ndaEmailPending ? "bg-amber-300 text-white hover:bg-amber-400" : "bg-amber-600 text-white hover:bg-amber-700"}
                                 onClick={handleSignNda}
                               >
-                                <ShieldAlert className="h-3 w-3 mr-1" />{ndaEmailPending ? 'Resend signing email' : 'Sign NDA'}
+                                {signingNda
+                                  ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Working&hellip;</>
+                                  : <><ShieldAlert className="h-3 w-3 mr-1" />{ndaEmailPending ? 'Resend signing email' : 'Sign NDA'}</>}
                               </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
+                                disabled={signingNda || checkingStatus}
                                 className="border-amber-400 text-amber-800 hover:bg-amber-100"
-                                onClick={() => loadStatus()}
+                                onClick={async () => { if (checkingStatus) return; setCheckingStatus(true); try { await loadStatus(); } finally { setCheckingStatus(false); } }}
                               >
-                                <RefreshCw className="h-3 w-3 mr-1" />Check Status
+                                {checkingStatus
+                                  ? <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Checking&hellip;</>
+                                  : <><RefreshCw className="h-3 w-3 mr-1" />Check Status</>}
                               </Button>
                             </div>
                           </>

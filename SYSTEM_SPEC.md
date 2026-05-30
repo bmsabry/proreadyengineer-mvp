@@ -448,6 +448,14 @@ refresh-retry) — see §20.
   with `!is_closed && rfq_status !== 'cancelled'`). When adding a note,
   derive its condition from live status/flags so it auto-clears when the underlying state
   changes (e.g. an RFQ is cancelled, an NDA is countersigned).
+- **Async actions must guard against double-clicks and show progress.** Any button that
+  fires a request which can take more than ~1s (Sign NDA / Resend, Check Status, Unlock,
+  Submit Quote, Accept Quote, NDA pay) must: (a) set an in-flight state and `return` early
+  if re-clicked, (b) `disabled` while in flight, (c) swap its label to a `Loader2` spinner
+  + 'Working…/Checking…/Accepting…' text, and for multi-second ops (e.g. Sign NDA, which
+  calls SignWell) (d) show a short inline 'please wait, don't click again' banner. This is
+  the standard interactive pattern across both portals (see provider `handleSignNda`/
+  `signingNda`, customer `handleAcceptQuote`/`acceptingId`).
 - **"Action required" pattern:** amber card (`bg-amber-50 border-amber-200`) with an
   `AlertCircle` icon, a bold "Action required: …" heading, and explanatory subtext.
 - Status pills via the shared `STATUS_COLORS` map; NDA state via `NdaBadge`.

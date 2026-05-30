@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { formatDate, getRFQStatusBadgeColor, formatCurrency } from '@/lib/utils';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy, Download , ShieldAlert } from 'lucide-react';
+import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy, Download , ShieldAlert, Loader2 } from 'lucide-react';
 import NdaBadge from '@/components/ui/NdaBadge';
 
 export default function RFQDetailPage() {
@@ -20,6 +20,7 @@ export default function RFQDetailPage() {
   const [quotes, setQuotes] = useState<QuoteForCustomerResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [downloadingQuoteId, setDownloadingQuoteId] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [ndaFullySigned, setNdaFullySigned] = useState(false);
@@ -54,7 +55,9 @@ export default function RFQDetailPage() {
   }, [user, id]);
 
   const handleAcceptQuote = async (quoteId: string) => {
+    if (acceptingId) return;  // prevent double-accept while in flight
     setAcceptError(null);
+    setAcceptingId(quoteId);
     try {
       await api.quotes.accept(quoteId);
       const [rfqResponse, quotesResponse] = await Promise.all([
@@ -66,6 +69,8 @@ export default function RFQDetailPage() {
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } } };
       setAcceptError(err?.response?.data?.detail || 'Failed to accept quote. Please try again.');
+    } finally {
+      setAcceptingId(null);
     }
   };
 
@@ -382,10 +387,12 @@ export default function RFQDetailPage() {
                       <div className="mt-4 pt-4 border-t">
                         <button
                           onClick={() => handleAcceptQuote(quote.id)}
-                          className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors"
+                          disabled={acceptingId !== null}
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-md bg-green-600 hover:bg-green-700 text-white text-sm font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          <CheckCircle className="h-4 w-4" />
-                          Accept This Quote &amp; Reveal Contact
+                          {acceptingId === quote.id
+                            ? <><Loader2 className="h-4 w-4 animate-spin" />Accepting&hellip; please wait</>
+                            : <><CheckCircle className="h-4 w-4" />Accept This Quote &amp; Reveal Contact</>}
                         </button>
                         <p className="text-xs text-muted-foreground mt-2">
                           Accepting a quote will reveal the provider&apos;s direct contact information and mark other quotes as not selected.
