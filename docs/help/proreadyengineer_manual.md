@@ -1,233 +1,254 @@
-# ProReadyEngineer - User Manual
-
-> This is the source-of-truth help document for the ProReadyEngineer platform. It is rendered at /help for end users and loaded into the in-app AI Help Assistant as its grounding context. Edit this file to change what the platform says about itself.
-
-## 1. What ProReadyEngineer is
-
-ProReadyEngineer is a B2B marketplace that connects companies needing engineering services ("customers") with engineering consulting firms ("providers"). Customers post Requests for Quotation (RFQs) that describe an engineering problem, and providers unlock those RFQs to submit competitive quotes. The site also offers a searchable directory of engineering firms, paid advertisement slots for providers, and NDA management for confidential projects.
-
-There are exactly **two kinds of accounts**:
-
-- **Customer** - a company (or individual) that needs engineering work done.
-- **Provider** - an engineering firm that performs work for customers.
-
-The same email address cannot hold both a customer and a provider account. If you need both roles, use two separate emails.
-
-There are also administrator accounts (internal ProReadyEngineer staff) and advertiser records (providers who buy advertisement slots) - those are not self-serve signup flows.
-
-## 2. Glossary
-
-- **RFQ** - Request for Quotation. A customer's description of a project, uploaded files, deadline, and preferences.
-- **Quote** - a provider's price/timeline proposal for a specific RFQ.
-- **Unlock** - a provider pays a fee to see the full details of an RFQ (contact info, uploaded files) so they can quote on it.
-- **NDA** - Non-Disclosure Agreement. Customers can require providers to sign an NDA before unlocking an RFQ.
-- **Tollgate (TG0-TG6)** - engineering development phases used to tag the maturity of a project. Options in RFQ submission:
-  - TG0: Idea Generation
-  - TG1: Basic Engineering
-  - TG2: Concept Validation
-  - TG3: Intermediate Analysis
-  - TG4: Full Scale Modeling
-  - TG5: Pre-Production Testing
-  - TG6: Full System Testing
-- **Firm Directory** - the searchable catalog of engineering providers, with ranking.
-- **Subscription** - a recurring paid plan. Both customers and providers can subscribe.
-
-## 3. Subscriptions and pricing
-
-There are **two subscription audiences** (customer, provider), each with tiers, and both billing monthly or annually.
-
-### Customer subscriptions
-- **Search Tier 1** - $20/month. Basic natural-language search of the firm directory, limited query volume.
-- **Search Tier 2** - higher monthly price. Larger query volume and premium ranking features.
-
-### Provider subscriptions
-- **Provider Profile (monthly)** - keeps your firm listed in the directory and allows quote submission.
-- **Provider Annual ($1,000/yr)** - the "Annual Professional" plan. Everything in monthly plus a discount and year-long commitment.
-
-### One-off payments (not subscriptions)
-- **RFQ Unlock fee** - providers pay per RFQ to see full details and submit a quote.
-- **NDA fee** - when a customer requires an NDA, the provider pays a small signing fee before unlocking.
-- **Advertisement slot** - $50/month subscription for a featured slot. Cancelling stops auto-renewal; the ad remains visible until the last paid month ends.
-
-### Cancelling a subscription
-Go to your profile -> "Manage Billing" or the Provider Dashboard -> "Subscriptions." Click **Cancel** next to the plan you want to stop. We use Stripe's "cancel at period end" semantics: you keep access until the end of the current billing period, then the subscription stops. We do not issue partial-month refunds.
-
-### Refunds
-Refund requests are reviewed case by case. Contact support via the contact page; include your email and the payment date.
-
-## 4. Customer walkthrough
-
-### 4.1 Creating a customer account
-1. Go to the homepage and click **Sign Up** (top right).
-2. Choose **Customer** as the account type.
-3. Enter your email, password, company name. Verify the email from the link we send.
-4. Log in.
-
-### 4.2 Searching for engineering firms
-From the landing page or the top nav, enter a natural-language description of what you need: "FEA simulation for a stamped metal bracket, aerospace, SLA 4 weeks." The system returns ranked providers with short summaries of why each one matches. Click a firm to see its public profile.
-
-**Note:** provider accounts cannot use the project search - it is designed for customers hiring firms. If you are a provider and want to see the directory, browse via the public /providers pages.
-
-### 4.3 Submitting an RFQ
-1. From the customer dashboard, click **Submit New RFQ** (or go to /customer/rfq/new).
-2. Fill in:
-   - **Title** - short, descriptive.
-   - **Description** - the problem, constraints, deliverables.
-   - **Tollgate (TG0-TG6)** - the phase of engineering maturity.
-   - **Deadline** - when you need results.
-   - **NDA required?** - check if the work requires an NDA before unlock.
-3. Attach supporting files (PDF, DOCX, DWG, STEP, IGES, STL, and others). Max 5 files, 25 MB each.
-4. Submit. The RFQ becomes visible to providers immediately (as a summary); full details are gated behind unlock + NDA.
-
-### 4.4 Tracking your RFQ
-From the customer dashboard you can view:
-- **All RFQs** - every RFQ you've posted.
-- **Active** - RFQs open for quoting.
-- **Quoted** - RFQs that have received at least one quote.
-- **Accepted** - RFQs where you accepted a quote.
-- **Cancelled** - RFQs you withdrew.
-
-Click any RFQ to see the quotes, shortlist providers, and accept a quote.
-
-### 4.5 Accepting a quote
-On an RFQ's detail page, review each quote (price, timeline, scope notes). Click **Accept** on the one you want. The provider is notified by email. Contact details are exchanged. Payment between you and the provider is handled off-platform (we do not escrow project fees in the MVP).
-
-### 4.6 NDAs
-If you marked "NDA required," providers must sign the NDA (via SignWell) and pay the NDA fee before they can unlock your RFQ. You can upload your own NDA template in the RFQ form; otherwise we use a standard mutual NDA.
-
-## 5. Provider walkthrough
-
-### 5.1 Claiming or creating a firm profile
-Two paths:
-
-- **Claim an existing firm.** On signup, search for your firm by name. If we already index it, pick it from the list - the account is linked to that firm directly and you skip manual entry.
-- **Create a new firm.** If your firm isn't in the directory, fill out the new-firm form on signup or later via Provider Dashboard -> **Add Firm**.
-
-After signup, you may still need to verify ownership (email from the firm's domain or admin approval).
-
-### 5.2 Completing your profile
-Go to Provider Dashboard -> **Profile**. Fill in:
-- Services offered
-- Industries served
-- Certifications
-- Portfolio / case studies
-- Team size and locations
-- Contact email
-
-A complete profile ranks higher in customer searches.
-
-### 5.3 Finding RFQs
-Provider Dashboard -> **All RFQs** shows every visible RFQ. You see:
-- Title, short description
-- Tollgate, industry tags
-- Deadline
-- Whether the customer requires an NDA
-
-### 5.4 Unlocking an RFQ
-1. Open the RFQ summary.
-2. Click **Unlock**. If an NDA is required, you'll be taken to the NDA signing page (SignWell); sign + pay the NDA fee, then return.
-3. Pay the unlock fee. Full details (customer contact, files) become visible to you.
-4. Click **Submit Quote** on the detail page.
-
-### 5.5 Submitting a quote
-Quote form fields:
-- **Price** - fixed amount in USD.
-- **Timeline** - delivery window.
-- **Scope** - what's included and what isn't.
-- **Assumptions** - anything the price depends on.
-
-The customer sees all quotes side by side. You're notified by email when your quote is accepted or declined.
-
-### 5.6 Advertisements
-Provider Dashboard -> **Advertise**. Choose a slot (categories and locations available). Pay $50/month. The slot is featured at the top of matching search results. Cancel any time; the ad remains until the last paid month ends.
-
-### 5.7 Restrictions on provider accounts
-Provider accounts **cannot**:
-- Use the customer project search (/search).
-- Submit RFQs (the customer-side form).
-
-If you also need to hire engineering firms as a customer, create a separate customer account with a different email address.
-
-## 6. Admin overview (staff only)
-
-Administrators can:
-- Approve provider claims and firm-verification requests.
-- Review support tickets, including AI-classified triage suggestions.
-- Inspect payments, refunds, and subscription statuses.
-- Manage ad slots.
-- Configure the three LLM backends (see below).
-- View webhook logs for Stripe, PayPal, SignWell, Resend.
-
-### The three LLMs
-- **LLM1** - customer search / query generation. Configured via OPENAI_* env vars or Admin Settings.
-- **LLM2** - firm ranking. Uses its own key/model; falls back to LLM1.
-- **LLM3** - Document Collapse LLM (DOC_LLM_*). Used for support ticket classification, quote-document summarization, website extraction for firm profiles, and the in-app AI Help Assistant.
-
-Admins can swap any LLM's provider, model, or key without a redeploy via **Admin -> Settings**.
-
-## 7. The AI Help Assistant (in-app chatbot)
-
-The chat widget in the lower-right opens the AI Help Assistant. It answers questions about the platform itself: how to submit an RFQ, how unlock fees work, what a tollgate means, how to cancel a subscription, and so on. It is grounded on this manual only.
-
-**Who can use it:** users with an active paid subscription (Customer Search Tier 1/2, Provider Profile monthly, or Provider Annual). Advertisement-only subscriptions do not grant access. Free and anonymous visitors see a preview and a prompt to subscribe.
-
-**What it won't do:**
-- Give legal, financial, medical, or engineering advice.
-- Take actions for you (submit, cancel, or pay). It will tell you which page to go to.
-- Discuss other users' data.
-- Generate content unrelated to the platform.
-
-**Limits:** subscribers get 50 messages per day. If you hit the limit, try again tomorrow or browse the manual at /help.
-
-## 8. FAQ
-
-**Can I have both a customer and a provider account?**
-Yes, but they must use different email addresses. The platform refuses to create two accounts on the same email with conflicting roles.
-
-**What files can I attach to an RFQ?**
-PDF, DOCX, DOC, TXT, DWG, DXF, STEP (STP), IGES (IGS), SolidWorks (SLDPRT, SLDASM), CATIA (CATPART, CATPRODUCT), STL, Parasolid (X_T, X_B), NX (PRT, ASM). Max 5 files, 25 MB each.
-
-**How long does an RFQ stay open?**
-Until you mark it accepted or cancelled. If there's no activity for 90 days, we email you to ask whether to keep it open.
-
-**How much does it cost a provider to unlock an RFQ?**
-The unlock fee is shown on each RFQ before you pay. NDA fees are separate and only apply when the customer requires an NDA.
-
-**I cancelled my provider subscription - why can I still see my firm in the directory?**
-You have access until the end of the current billing period. After that, your profile is delisted (you can re-subscribe to relist it).
-
-**How do I change my password?**
-Log out, click **Forgot password**, enter your email, follow the link.
-
-**How do I delete my account?**
-Email support from the contact page. We delete account data within 30 days of request.
-
-**Does ProReadyEngineer take a cut of project payments?**
-Not in the MVP. Project fees are paid directly by the customer to the provider off-platform. We make money from subscriptions, unlock fees, NDA fees, and ads.
-
-## 9. Troubleshooting
-
-**"This email is already registered as a provider account."** - You already have a provider account on this email. Use a different email to make a customer account, or log in with your provider credentials.
-
-**"Provider accounts cannot submit RFQs or search for firms."** - You're logged in as a provider. Log out and use a customer account, or create one under a different email.
-
-**My payment went through but my subscription isn't active.** - Stripe/PayPal webhooks are processed asynchronously; wait a minute and reload. If still inactive after 10 minutes, contact support.
-
-**My ad is still showing after I cancelled.** - Correct behavior: cancellation stops auto-renewal; the ad runs through the end of the current billing month.
-
-**I didn't get my verification email.** - Check spam, then request a resend from the login page. Corporate mail servers sometimes hold our emails; allowlist noreply@proreadyengineer.com.
-
-**I'm a provider and I can't use the search bar.** - Intentional. Providers are blocked from hiring other providers via the platform.
-
-## 10. Contacting support
-
-Email support via the **Contact** page (link in the footer). Include:
-- Your account email
-- A short description
-- Screenshots if possible
-
-For billing issues, include the payment date and Stripe/PayPal receipt number if you have one.
+# ProMechDirectory — Complete User Manual
+
+> This is the source-of-truth help document for the **ProMechDirectory** platform. It is rendered at `/help` for end users and loaded into the in-app AI Help Assistant as its grounding context. Every fact here is meant to match the live product exactly. Edit this file to change what the platform — and the assistant — says about itself.
+>
+> Maintenance rule: whenever a feature, fee, status, workflow, gate, or button changes in the code, this manual MUST be updated in the same change. The assistant can only be as accurate as this document.
 
 ---
 
-_Last updated: 2026-04-17. This manual is the source of truth for the AI Help Assistant - edit here to update what the assistant knows._
+## 1. What ProMechDirectory is
+
+ProMechDirectory is a B2B marketplace that connects companies that need engineering work ("customers") with engineering consulting firms ("providers"). Customers post **Requests for Quotation (RFQs)** describing an engineering problem; the platform uses AI to match each RFQ to the most relevant providers and emails them a short teaser. Providers pay to **unlock** an RFQ, optionally **sign an NDA**, then submit a competitive **quote**. The platform also offers an AI-powered searchable **directory of engineering firms**, **featured advertisement** placements for providers, and built-in **NDA management** for confidential projects.
+
+How the platform makes money: provider per-RFQ unlock fees, an optional customer NDA handling fee, provider annual subscriptions, customer search subscriptions, and advertising. ProMechDirectory does **not** take a percentage of the project fees that customers pay providers — in the current product, project payment happens directly between the two parties, off-platform.
+
+## 2. Accounts and roles
+
+There are four personas:
+
+- **Customer** — a company or individual that needs engineering work done. Posts RFQs and receives quotes.
+- **Provider** — an engineering firm that performs the work. Gets matched to RFQs, unlocks them, and quotes.
+- **Advertiser** — pays for featured-firm / software-provider listings (typically a provider promoting itself).
+- **Admin** — internal ProMechDirectory staff who operate the platform. Not a self-serve signup.
+
+A single login can technically hold more than one role, but the self-serve signup creates either a customer or a provider. The customer project search and RFQ submission are **customer-only**; provider accounts are blocked from them by design (a provider cannot hire other providers through the platform). If you genuinely need both sides, the cleanest approach is separate accounts.
+
+### 2.1 What's required to create a customer account
+Creating a customer account requires, and validates, all of the following:
+
+- **Email address** (you must verify it via the link we send).
+- **Full name.**
+- **Company name.**
+- **State / province** (used for the governing-law clause of any NDA).
+- **Password.**
+- **Phone number is optional.**
+
+If any required field is missing, the sign-up is rejected. Providers register through a separate firm-lookup flow (see §6) and are not subject to this exact field set.
+
+## 3. Glossary
+
+- **RFQ — Request for Quotation.** A customer's description of a project: the problem, constraints, deliverables, deadline, tollgate, uploaded files, and whether an NDA is required.
+- **Quote.** A provider's proposal for a specific RFQ: price (or price range), turnaround, scope, and assumptions.
+- **Unlock.** A provider pays the unlock fee (or uses an annual subscription) to gain access to an RFQ so they can read it fully and quote.
+- **NDA — Non-Disclosure Agreement.** A mutual confidentiality agreement. When a customer marks an RFQ "NDA required," a provider must sign the NDA before the full project description and files are revealed.
+- **Match.** An AI-scored pairing between an RFQ and a provider. Matched providers receive a teaser email.
+- **Dispatch.** The process of matching an RFQ to providers and sending teaser emails in batches.
+- **Teaser.** The short, redacted preview of an RFQ that a matched provider sees before unlocking.
+- **Tollgate (TG0–TG6).** The engineering maturity phase of a project. Options when submitting an RFQ:
+  - **TG0** — Idea Generation
+  - **TG1** — Basic Engineering
+  - **TG2** — Concept Validation
+  - **TG3** — Intermediate Analysis
+  - **TG4** — Full Scale Modeling
+  - **TG5** — Pre-Production Testing
+  - **TG6** — Full System Testing
+- **Firm Directory.** The public, searchable, AI-ranked catalog of engineering providers.
+- **Subscription.** A recurring paid plan (provider annual, or customer monthly search).
+- **Activity Summary.** The dashboard panel (both customer and provider) where your stats and your "action required" notifications appear. This is where the platform tells you what needs your attention.
+
+## 4. Pricing and fees (exact, current)
+
+All charges are processed through Stripe.
+
+### 4.1 Provider charges
+- **RFQ unlock fee — $50, paid by the provider, per RFQ.** Pays to read the full RFQ and submit a quote. **Free** for providers with an active annual subscription.
+- **Provider Annual subscription — $1,000 per year.** Grants **unlimited free RFQ unlocks** while active, plus direct visibility of the customer's contact details on RFQs you've unlocked (see §7.6), plus full profile editing. This is the best value for active providers.
+- **Provider full-profile-edit unlock — one-time fee** to unlock editing of all profile fields (included free with the annual subscription).
+- **Advertisement — a recurring subscription** for a featured slot (featured-firm / software-provider listings). Cancelling stops auto-renewal; the ad stays visible through the end of the paid period.
+
+### 4.2 Customer charges
+- **NDA handling fee — $10, paid by the customer**, charged when the customer marks an RFQ "NDA required." This is charged once for that RFQ, when the NDA is required.
+- **Customer Search subscription — $20 per month.** Raises the monthly search quota from **10** free searches to **100**. This is the only customer subscription and it is **monthly** — there is no annual customer plan.
+
+### 4.3 Search quota
+- **Free / registered users: 10 searches per month.**
+- **Search subscribers: 100 searches per month.**
+- The counter resets monthly.
+
+### 4.4 Cancellation, refunds, and what's NOT charged
+- **Cancellation** uses Stripe's "cancel at period end": you keep access until the end of the current billing period, then it stops. There are no partial-period refunds.
+- **Refunds** are reviewed case by case — contact support with your account email and the payment date.
+- ProMechDirectory does **not** escrow or take a cut of project fees. The customer pays the provider directly, off-platform, in the current product.
+
+## 5. Customer guide
+
+### 5.1 Create your account and verify email
+Sign up as a **Customer**, providing your email, full name, company name, state, and password (phone optional). Open the verification email and click the link. If it doesn't arrive, check spam and request a resend from the login page. Then log in — you land on the customer dashboard.
+
+### 5.2 Search the firm directory
+From the landing page or the top navigation, type a natural-language description of what you need — for example, "FEA simulation for a stamped sheet-metal bracket, aerospace, 4-week turnaround." The system returns AI-ranked providers, each with a short explanation of why it matched. Click any firm to view its public profile. Search consumes your monthly quota (10 free, 100 with a subscription). Note: provider accounts cannot use this search.
+
+### 5.3 Submit an RFQ
+From the customer dashboard, start a new RFQ (the **Submit New RFQ** action, at `/customer/rfq/new`). Provide:
+
+- **Title** — short and descriptive.
+- **Description** — the problem, constraints, and deliverables.
+- **Tollgate (TG0–TG6)** — the engineering maturity phase.
+- **Deadline** — when you need results.
+- **NDA required?** — check this if providers must sign an NDA before seeing full details. If you check it, you pay the **$10** NDA handling fee, and you can optionally provide your own NDA template (otherwise a standard mutual NDA is used).
+- **Files** — attach supporting documents. **Up to 5 files, 25 MB each.** Supported types include PDF, DOC/DOCX, TXT, DWG, DXF, STEP (STP), IGES (IGS), SolidWorks (SLDPRT, SLDASM), CATIA (CATPART, CATPRODUCT), STL, Parasolid (X_T, X_B), and NX (PRT, ASM).
+
+On submission the platform immediately runs AI matching and begins dispatching teaser emails to matched providers in batches. Providers only see the full description and files after they unlock (and, if required, sign the NDA).
+
+### 5.4 Track your RFQs
+The customer portal organizes your RFQs into views: **All**, **Active** (open for quoting), **Quoted** (received at least one quote), **Accepted** (you accepted a quote), and **Cancelled**. There's also a per-RFQ **tracking** view. Your dashboard's **Activity Summary** highlights what needs you — for example, "you have N new quotes to review" appears when new quotes arrive and clears once you open that RFQ.
+
+### 5.5 Review and accept a quote
+Open an RFQ to see its quotes side by side — price, turnaround, scope, and assumptions. The received quote is shown prominently. When you accept one (the **Accept** action), the provider is notified by email, the provider gains visibility of your contact details, and the RFQ moves to "provider selected." Up to 5 quotes are collected per RFQ; after that the RFQ reaches its quote limit and closes to new quotes.
+
+### 5.6 NDAs from the customer side
+If you required an NDA, here's your part: you pay the $10 fee up front (this does **not** delay providers from being matched — dispatch proceeds normally). When a provider signs the NDA, you are asked to **countersign** — you'll get an email from our e-signature provider (SignWell) AND an amber "Action required: NDA awaiting your signature" note in your dashboard's Activity Summary. The agreement is a single, mutual NDA; the full project details are unlocked to that provider only once **both** of you have signed.
+
+## 6. Provider guide
+
+### 6.1 Register: claim or add your firm
+Providers register through a firm-lookup flow:
+
+- **Claim an existing firm.** Search for your firm by name; if it's already in our directory, select it and your account links to it directly.
+- **Add a new firm.** If it isn't listed, create it (on signup or later from the provider dashboard's add-firm flow at `/provider/add-firm`).
+
+You may need to verify ownership of the firm (via a company-domain email or admin approval) before you have full control.
+
+### 6.2 Complete your profile
+From the provider dashboard's **Profile** area, fill in your services, industries served, certifications, portfolio / case studies, team size and locations, and contact details. A complete, detailed profile ranks higher in customer searches because the matching uses your profile text. Editing all profile fields requires the full-profile-edit unlock (a one-time fee, or free with the annual subscription); the page is at `/provider/profile/full-edit`.
+
+### 6.3 Receive and review RFQs
+When the AI matches your firm to an RFQ, you receive a **teaser email** and the RFQ appears in your provider dashboard (`/provider/rfqs`). The teaser shows enough to decide whether to pursue it — title, short description, tollgate, deadline, and whether an NDA is required — but not the customer's identity, full details, or files.
+
+### 6.4 Unlock an RFQ
+Open the RFQ and **Unlock** it. If you hold an active **annual subscription**, unlocking is free and immediate. Otherwise you pay the **$50** unlock fee through Stripe. Unlocking grants access to the RFQ; for NDA RFQs, the full description and files remain gated on the NDA (next step).
+
+### 6.5 Sign the NDA (only for NDA-required RFQs)
+ProMechDirectory uses a **provider-first, mutual, single-document** NDA:
+
+1. You click **Sign NDA**. (This call can take a few seconds while the document is prepared — wait for the confirmation rather than clicking again.)
+2. One mutual NDA is created with both you and the customer as signers. You sign first, via the link our e-signature provider (SignWell) emails you.
+3. The customer is then automatically asked to countersign (by email and in their dashboard).
+4. Once **both** parties have signed, the **full project description and files unlock** for you, and you can submit a quote.
+
+Until both signatures are in, you only see the redacted teaser/preview. There is no "customer signs first" requirement — you always sign first to read.
+
+### 6.6 Submit a quote
+With full access, submit your quote: price or price range (USD), turnaround, scope (what's in and out), and assumptions; you can optionally upload a quote document, and an AI extractor can pre-fill the form from it. The customer sees all quotes together. You're notified when your quote is accepted or declined. When the customer **accepts** your quote, their contact details are revealed to you so you can coordinate the work directly.
+
+### 6.7 Annual subscription benefits (the customer-contact perk)
+Beyond free unlocks, an active **Provider Annual** subscription reveals the customer's **direct contact details** — name, company, email, **phone**, and state — on any RFQ you've unlocked, shown as a "Customer Contact (Annual member)" card. This lets you reach out and win the deal directly. It respects NDAs: on an NDA-required RFQ the contact is revealed only after the mutual NDA is fully signed (it never bypasses an NDA the customer paid for). Non-subscribers do not see this.
+
+### 6.8 Advertise
+From the provider dashboard's **Advertise** area, choose a featured slot. Featured listings appear prominently in relevant results. It's a recurring subscription; cancel any time and the placement runs through the end of the paid period.
+
+### 6.9 Upgrade
+The provider **Upgrade** page (`/provider/upgrade`) compares the plans: the **Annual Professional** plan ($1,000/yr, recommended — free unlocks, customer contact on every RFQ, unlimited profile edits), a one-time **Profile Edit** unlock, and **Pay Per RFQ** ($50 per unlock, no commitment).
+
+### 6.10 Provider restrictions
+Provider accounts **cannot** use the customer project search or submit RFQs — those are customer-only. To browse the directory, use the public provider pages.
+
+## 7. RFQ lifecycle and statuses
+
+An RFQ moves through these stages (you'll see status labels reflecting them):
+
+- **Draft** — being created, not yet submitted.
+- **Submitted** — submitted by the customer; AI matching runs.
+- **(NDA RFQs, transitional)** — bookkeeping states around the customer's NDA fee. These never block matching; dispatch proceeds as soon as the $10 fee is recorded.
+- **Open for dispatch / Dispatching** — matched providers are being emailed in batches.
+- **Open for unlock** — providers can unlock and quote.
+- **Quote limit reached** — 5 quotes received; closed to new quotes.
+- **Provider selected** — the customer accepted a quote.
+- **Closed (no selection)** / **Cancelled** — closed without a selection, or withdrawn by the customer.
+
+Unlocking an RFQ never closes it (unlocks are unlimited). An RFQ closes only when it reaches the quote limit, the customer selects a provider, or it's cancelled.
+
+## 8. NDA workflow (detail)
+
+- It is **one mutual NDA document** per (RFQ, provider), with both parties as signers.
+- It is **provider-first**: the provider signs to read; the customer then countersigns.
+- The customer pays the **$10** NDA handling fee when they require the NDA; this never delays provider matching/dispatch.
+- Both parties are always notified when it's their turn — by email (SignWell) **and** in the in-app Activity Summary.
+- Full project details + files unlock to the provider only after **both** signatures are recorded.
+- Action prompts only appear for **open** RFQs — a half-signed NDA on a cancelled or already-selected RFQ won't ask anyone to keep signing.
+
+## 9. Subscriptions and billing management
+
+- **Provider Annual ($1,000/yr):** unlimited free unlocks, customer-contact visibility, full profile editing.
+- **Customer Search ($20/mo):** raises search quota 10 → 100. Monthly only.
+- **Advertisement:** recurring featured placement.
+- **Provider full-profile-edit:** one-time unlock (free with annual).
+- Manage or cancel from your profile's billing area / the provider dashboard's subscriptions area. Cancellation takes effect at period end; no partial refunds.
+
+## 10. Notifications and where to find what needs you
+
+Your dashboard's **Activity Summary** panel is the single place for "action required" items, and it updates live (on load, every ~20 seconds, and when you refocus the tab) — no manual reload needed. Examples:
+
+- **Customer:** "N new quotes to review" (clears when you open the RFQ); "NDA awaiting your signature" (when a provider has signed and you must countersign).
+- **Provider:** "Accepted RFQ — contact the customer"; "Sign the NDA to read this RFQ" while an NDA is pending on an open RFQ.
+
+Email notifications (via Resend / SignWell) accompany the key events: RFQ teaser, quote received, quote accepted, NDA signing requests, welcome, password reset, and email verification.
+
+## 11. The AI Help Assistant (in-app chatbot)
+
+The chat widget (lower-right) is the AI Help Assistant. It answers questions about the platform itself — how to submit an RFQ, how unlock fees work, what a tollgate means, how to cancel a subscription, what to do next, and so on — grounded on this manual.
+
+- **Who can use it:** users with an active paid subscription (Customer Search, Provider Annual, or provider profile subscription) plus admins. Advertisement-only subscriptions do not grant access. Free and anonymous visitors see a preview and a prompt to subscribe.
+- **Scope:** strictly the ProMechDirectory platform. It politely declines off-platform questions (general knowledge, code, legal/financial/medical/engineering advice).
+- **What it won't do:** take consequential actions on your behalf (it will point you to the exact page and button), discuss other users' data, or give professional advice.
+- **Document/image analysis:** for questions that require reading a document or image, the assistant routes the request to a more capable model behind the scenes.
+- **Usage limits:** there is a per-user daily message limit and a monthly usage budget; if you hit a limit, it resets (daily, or monthly on the 1st), and you can always read this manual at `/help`.
+
+## 12. Account and security
+
+- **Email verification** is required before full use.
+- **Change/reset password:** use **Forgot password** on the login page; enter your email and follow the link.
+- **Account lockout:** repeated failed logins temporarily lock the account as a security measure.
+- **Delete account:** request deletion via the Contact page; data is removed within 30 days of the request.
+- Sessions use short-lived access tokens with automatic refresh.
+
+## 13. For administrators (staff only)
+
+Admins operate the platform from the `/admin` area: dashboard, RFQs, provider claims, providers, payments, webhooks, campaigns, support tickets (with AI-classified triage), ads, users, data extraction, debugging, and settings. Admin → Settings configures the four LLM backends, payment/email/storage/e-signature credentials, and RFQ batch parameters live (no redeploy needed). Admin → Debugging exposes per-LLM connectivity tests (including the chatbot LLM) and webhook/email health.
+
+## 14. FAQ
+
+**Can I be both a customer and a provider?** The self-serve flows create one side; the customer search and RFQ submission are customer-only and providers are blocked from them. Use separate accounts if you truly need both.
+
+**What does it cost a provider to see an RFQ?** $50 per RFQ unlock — or $0 with an active annual subscription. If the customer required an NDA, you also sign it (the customer, not you, pays the $10 NDA handling fee).
+
+**What files can I attach to an RFQ?** PDF, DOC, DOCX, TXT, DWG, DXF, STEP (STP), IGES (IGS), SLDPRT, SLDASM, CATPART, CATPRODUCT, STL, X_T, X_B, PRT, ASM. Up to 5 files, 25 MB each.
+
+**How many quotes can an RFQ get?** Up to 5; then it closes to new quotes.
+
+**How long does an RFQ stay open?** Until you accept a quote or cancel it.
+
+**I cancelled my subscription — why do I still have access?** Cancellation is effective at the end of the current billing period; you keep access until then.
+
+**Does ProMechDirectory take a cut of the project fee?** No. You pay the provider directly, off-platform. We earn from unlock fees, the NDA fee, subscriptions, and ads.
+
+**Why can't I (a provider) use the search bar or post an RFQ?** Those are customer-only by design — providers can't hire other providers through the platform.
+
+**How do I change my password / delete my account?** Password: "Forgot password" on the login page. Deletion: request via the Contact page (completed within 30 days).
+
+## 15. Troubleshooting
+
+- **"This email is already registered."** You already have an account on this email; log in, or use a different email for a different role.
+- **"Provider accounts cannot submit RFQs or search for firms."** You're logged in as a provider; this is intentional.
+- **Payment went through but my subscription/unlock isn't active yet.** Payments confirm via webhook asynchronously — wait a minute and reload. If it's still not active after ~10 minutes, contact support.
+- **My ad is still showing after I cancelled.** Correct — cancellation stops renewal; the placement runs through the end of the paid period.
+- **I didn't get my verification or NDA email.** Check spam, request a resend, and allowlist our sender domain (`@promechdirectory.com`). Corporate mail filters sometimes hold these.
+- **Sign NDA seems to hang.** It can take a few seconds to prepare the document — wait for the confirmation; don't click repeatedly.
+
+## 16. Contacting support
+
+Use the **Contact** page (linked in the footer). Include your account email, a short description, and screenshots if possible. For billing issues, add the payment date and the Stripe receipt number if you have it.
+
+---
+
+_This manual is the source of truth for the AI Help Assistant — edit here to update what the assistant knows. Keep it in lockstep with the product: any change to a feature, fee, status, workflow, or gate must be reflected here in the same change._

@@ -13,11 +13,18 @@ Hard rules:
    is the only access gate; NDA is provider-first/mutual/one-model; NDA notifications use
    both email + the in-app Activity Summary pattern; SignWell template id is the API UUID;
    never set document-level `embedded_signing`; don't pre-fill NDA signer fields; live fees
-   are $20 unlock / $10 NDA / $1,000 provider-annual; search quota 10 free / 100 paid).
+   are $50 provider unlock / $10 customer NDA / $1,000 provider-annual; search quota 10 free / 100 paid).
 2. **Trust the live behaviour, not stale constants/comments.** `SYSTEM_SPEC.md` §20 lists
-   the known inconsistencies (e.g. `RFQ_UNLOCK_PRICE=5000` is stale; live unlock is $20).
-3. **Keep the spec in sync:** when you change a flow, fee, status, gate, integration, or UI
-   convention, update `SYSTEM_SPEC.md` in the **same commit**.
+   the known inconsistencies (e.g. `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` in `config.py` is unused; the live search quota is 10 free / 100 paid).
+3. **Keep the spec AND the user manual in sync:** when you change a flow, fee, status,
+   gate, integration, capability, button, or UI convention, in the **same commit** update
+   BOTH `SYSTEM_SPEC.md` (engineering source of truth) AND
+   `docs/help/proreadyengineer_manual.md` (the user-facing manual rendered at `/help` and
+   used as the grounding context for the AI Help Assistant). A capability the manual omits
+   is one the assistant can't help users with; a stale fee/flow in the manual becomes a
+   wrong answer shown to paying users. The manual is user-facing — it must say
+   **ProMechDirectory** (never the internal codename ProReadyEngineer). Treat "did I update
+   the manual?" as a required checklist item for every user-visible change.
 4. **Verify against code before relying on a number** for anything money-, legal-, or
    signature-related — confirm the specific lines.
 5. **Deploy:** push to `main` → Render auto-deploys api + web. CI runs `pytest tests/unit`.

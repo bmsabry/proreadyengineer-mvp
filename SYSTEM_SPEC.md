@@ -626,14 +626,23 @@ live behaviour match the stale value** — the live behaviour is correct.
 
 ## 21. Maintenance rule
 
-When you change any flow, fee, status, gate, integration, or UI convention described here:
+When you change any flow, fee, status, gate, integration, capability, or UI convention
+described here:
 
 1. Update the relevant section of this file **in the same commit** as the code change.
-2. If you change a number, update §3 / §19 and remove or correct the stale constant in §20.
-3. If you fix a §20 landmine, move it out of §20 (and into the body) so the doc reflects
+2. **Also update the user-facing manual `docs/help/proreadyengineer_manual.md` in the same
+   commit** for any user-visible change (new capability, changed fee, new button/workflow,
+   status rename, etc.). That manual renders at `/help` AND is the grounding context for the
+   AI Help Assistant, so a stale manual = wrong answers to paying users and a capability the
+   assistant can't help with. The manual is user-facing: it must say **ProMechDirectory**
+   (never the internal codename ProReadyEngineer) and quote the live fees ($50 unlock /
+   $10 NDA / $1,000 annual / $20-mo search).
+3. If you change a number, update §3 / §19 here, §4 of the manual, and remove or correct the
+   stale constant in §20.
+4. If you fix a §20 landmine, move it out of §20 (and into the body) so the doc reflects
    reality.
-4. Keep this file as the single source of truth — fold new knowledge in here rather than
-   creating parallel docs.
+5. Keep this file as the single source of truth for engineering and the manual as the single
+   source of truth for users — fold new knowledge into both rather than creating parallel docs.
 
 _Companion docs:_ `ARCHITECTURE.md` (short pointer to this file), `HANDOFF.md` /
 `DEVELOPMENT_HISTORY.md` (historical), `api_contract_v1.md` (route contract, may lag),
