@@ -24,9 +24,19 @@ def test_cosine_basics():
 
 
 def test_estimate_cost_uses_defaults():
-    # 2000 prompt + 500 completion tokens at default $0.0003/$0.0010 per 1K
+    # 2000 prompt + 500 completion tokens at the Gemini 2.5 Flash default $0.0003/$0.0025 per 1K
     c = H._estimate_cost("some-model", 2000, 500, {})
-    assert abs(c - (2.0 * 0.0003 + 0.5 * 0.0010)) < 1e-9  # 0.0011
+    assert abs(c - (2.0 * 0.0003 + 0.5 * 0.0025)) < 1e-9  # 0.000600 + 0.001250 = 0.00185
+
+
+def test_default_pricing_is_gemini_flash():
+    assert H._DEFAULT_PRICE_PER_1K == {"in": 0.0003, "out": 0.0025}
+
+
+def test_engineering_questions_are_in_scope():
+    assert H._looks_engineering("what aluminum alloy is best for a lightweight bracket?")
+    assert H._looks_engineering("how do I calculate beam deflection under load?")
+    assert not H._looks_engineering("what is the capital of France?")
 
 
 def test_estimate_cost_respects_runtime_override():

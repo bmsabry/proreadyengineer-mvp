@@ -207,11 +207,17 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
      `_SCOPE_MIN_SIM=0.20`; a clearly off-topic question is refused with a canned message
      BEFORE any paid LLM call. Conservative threshold to avoid false refusals.
    - **Budget cap:** every turn's estimated cost (`_estimate_cost`, default
-     $0.0003/$0.0010 per 1K in/out, overridable via runtime-config `CHAT_LLM_PRICING` JSON)
+     Gemini 2.5 Flash $0.0003/$0.0025 per 1K in/out, overridable via runtime-config `CHAT_LLM_PRICING` JSON)
      is stored in `help_chat_logs.cost_usd` (migration `f6c9d4e32a10`). A pre-flight sums the
      user's month-to-date cost; at `CHATBOT_MONTHLY_BUDGET_USD=15.0` it **hard-blocks** with a
      "contact us to raise your limit" message (zero cost). Admins are exempt. This is in
      addition to the existing 50-messages/day cap.
+   - **Scope widened (2026-05-30):** the assistant answers BOTH platform and general
+     mechanical-engineering questions; the scope-gate allows engineering-intent queries
+     (`_looks_engineering`) so eng questions aren't refused. Still no legal/financial/medical
+     advice and no safety-critical engineering sign-off.
+   - **Cost accuracy:** uses real API `usage` tokens with a char-based (~4 chars/token) fallback
+     in `_call_llm` so a turn is never undercounted to $0 if usage is omitted.
 
    **Phase 2 personalization (2026-05-30, `help_context.py`):** before answering, the backend
    builds a COMPACT, user-scoped account snapshot — subscription, RFQ/quote counts, free-NDA

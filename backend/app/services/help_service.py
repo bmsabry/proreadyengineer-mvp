@@ -97,13 +97,23 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
     if user is not None:
         role_str = ",".join(roles) or "authenticated"
     return (
-        "You are the ProMechDirectory AI Help Assistant. Your only job is to help users "
-        "understand how the ProMechDirectory website works, using the MANUAL below as the "
-        "source of truth.\n\n"
+        "You are the ProMechDirectory AI Assistant. You help users with (1) how the "
+        "ProMechDirectory website works — using the MANUAL below as the source of truth — and "
+        "(2) general MECHANICAL ENGINEERING questions, since this is a mechanical-engineering "
+        "services directory.\n\n"
         "GROUND RULES (non-negotiable):\n"
-        "- Answer only questions about the ProMechDirectory platform. If the user asks "
-        "about anything else (legal advice, engineering advice, general knowledge, code, "
-        "other products), politely decline and offer to help with the platform instead.\n"
+        "- IN SCOPE: anything about the ProMechDirectory platform, and general mechanical / "
+        "engineering topics (design, materials, manufacturing, FEA/CFD, thermodynamics, "
+        "tolerances, standards, CAD, etc.). For platform facts, rely on the MANUAL; for "
+        "engineering questions, answer helpfully and accurately, note key assumptions, and add "
+        "a brief caveat that it's general information, not a stamped professional engineering "
+        "judgement.\n"
+        "- OUT OF SCOPE: topics unrelated to the platform or to engineering (politics, general "
+        "trivia, other products, coding help, etc.) — politely decline and offer to help with "
+        "the platform or an engineering question instead. Still never give legal, financial, or "
+        "medical advice, and never give specific safety-critical engineering sign-off (e.g. "
+        "'this pressure vessel is safe to operate') — give general guidance and recommend a "
+        "qualified, licensed engineer for anything safety-critical or code-stamped.\n"
         "- Never take actions on the user's behalf. You cannot submit, cancel, pay, or "
         "modify anything. If a user asks you to do something, tell them which page and "
         "button to use.\n"
@@ -312,12 +322,20 @@ async def _call_llm(
         logger.exception("[help_service] Unparseable LLM response: %s", exc)
         return {"reply": "", "error": f"llm_parse_failed: {exc}",
                 "latency_ms": latency_ms, "model": cfg["model"]}
+    # Fallback so a turn is NEVER counted as $0 just because the provider omitted usage:
+    # estimate tokens from text length (~4 chars/token). Real usage is preferred when present.
+    pt = usage.get("prompt_tokens")
+    ct = usage.get("completion_tokens")
+    if pt is None:
+        pt = max(1, sum(len(str(m.get("content", ""))) for m in messages) // 4)
+    if ct is None:
+        ct = max(1, len(reply) // 4)
     return {
         "reply": reply,
         "model": cfg["model"],
-        "prompt_tokens": usage.get("prompt_tokens"),
-        "completion_tokens": usage.get("completion_tokens"),
-        "total_tokens": usage.get("total_tokens"),
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
+        "total_tokens": usage.get("total_tokens") or (pt + ct),
         "latency_ms": latency_ms,
     }
 
@@ -336,6 +354,27 @@ _ACCOUNT_HINTS = (
 def _looks_account_related(msg: str) -> bool:
     m = (msg or "").lower()
     return any(h in m for h in _ACCOUNT_HINTS)
+
+
+# Mechanical-engineering vocabulary. A query hitting any of these is treated as in-domain
+# even if it doesn't match the platform manual (the manual is about the website, not
+# engineering theory), so the scope-gate won't wrongly refuse a legitimate eng question.
+_ENG_HINTS = (
+    "engineer", "mechanic", "material", "steel", "aluminum", "aluminium", "alloy",
+    "stress", "strain", "fatigue", "load", "torque", "bearing", "gear", "shaft",
+    "weld", "machining", "cnc", "tolerance", "gd&t", "fea", "cfd", "thermo", "heat",
+    "fluid", "pressure", "vessel", "pump", "valve", "actuator", "hvac", "combustion",
+    "turbine", "casting", "injection mold", "3d print", "additive", "cad", "solidwork",
+    "ansys", "beam", "moment", "deflection", "yield", "modulus", "viscosity", "flow rate",
+    "bolt", "fastener", "spring", "vibration", "rpm", "horsepower", "kw", "newton",
+    "pascal", "psi", "fea ", "simulation", "design for manufactur", "dfm", "tolerancing",
+    "corrosion", "lubric", "gearbox", "piston", "cylinder", "manifold", "heat exchanger",
+)
+
+
+def _looks_engineering(msg: str) -> bool:
+    m = (msg or "").lower()
+    return any(h in m for h in _ENG_HINTS)
 
 
 # Navigation: the model may end a reply with a line like
@@ -444,10 +483,10 @@ _RAG_TOP_K = 4
 # to avoid wrongly refusing a paying user. Tunable.
 _SCOPE_MIN_SIM = 0.20
 
-# Default token prices (USD per 1K tokens). Cheap models (DeepSeek V4 Flash,
-# gpt-4o-mini class) are well under these; admins can override per model via the
-# runtime-config key CHAT_LLM_PRICING (JSON: {"model": {"in": x, "out": y}, ...}).
-_DEFAULT_PRICE_PER_1K = {"in": 0.0003, "out": 0.0010}
+# Default token prices in USD per 1K tokens. Set to Google Gemini 2.5 Flash
+# ($0.30 / 1M input, $2.50 / 1M output as of 2026). Admins can override per model via
+# runtime-config CHAT_LLM_PRICING (JSON: {"model": {"in": x_per_1k, "out": y_per_1k}}).
+_DEFAULT_PRICE_PER_1K = {"in": 0.0003, "out": 0.0025}
 
 # In-memory chunk + embedding cache, keyed by a hash of the manual text.
 _CHUNK_CACHE: Dict[str, List[str]] = {}
@@ -669,13 +708,17 @@ async def answer_question(
 
     # Scope-gate: clearly off-topic question -> refuse cheaply, no LLM call.
     # Account-related questions or any staged upload bypass the gate.
-    if max_sim is not None and max_sim < _SCOPE_MIN_SIM and not _looks_account_related(user_message) and not atts:
+    if (max_sim is not None and max_sim < _SCOPE_MIN_SIM
+            and not _looks_account_related(user_message)
+            and not _looks_engineering(user_message)
+            and not atts):
         logger.info("[help_service] scope-gate refused (sim=%.3f) msg=%r", max_sim, user_message[:80])
         return {
             "reply": (
-                "I can only help with the ProMechDirectory platform — things like RFQs, quotes, "
-                "unlocking, NDAs, subscriptions, search, and your account. Could you rephrase your "
-                "question about the platform?"
+                "I can help with the ProMechDirectory platform (RFQs, quotes, NDAs, "
+                "subscriptions, search, your account) and with general mechanical-engineering "
+                "questions. That one looks outside both — could you rephrase it around the "
+                "platform or an engineering topic?"
             ),
             "error": "out_of_scope",
             "cost_usd": 0.0,
