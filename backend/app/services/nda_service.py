@@ -312,15 +312,20 @@ async def add_provider_to_nda(
     # a blank value never overwrites a real template default. These values are a
     # convenience default for the signer, not a hard lock (locking a field requires
     # marking it read-only in the SignWell template itself).
+    # The provider on this platform is always a firm, so the NDA's provider PARTY is the
+    # company: provider_name/provider_name2 = the firm name (NOT the signer's personal name
+    # or email), and provider_entity_type is always "Company". prov_signer_name is used only
+    # as the SignWell recipient (the human who signs), not as the NDA entity name.
     _prefill = {
         "customer_name": customer_name,
         "customer_name2": customer_name,
         "customer_company": customer_company,
         "governing_state": customer_state,
         "effective_date": effective_date,
-        "provider_name": prov_signer_name,
-        "provider_name2": prov_signer_name,
+        "provider_name": provider_company,
+        "provider_name2": provider_company,
         "provider_company": provider_company,
+        "provider_entity_type": "Company",
         "provider_state": provider_state,
     }
     _prefill = {k: v for k, v in _prefill.items() if v not in (None, "")}
