@@ -540,6 +540,8 @@ Things that look wrong/confusing but are intentional, or are real bugs not yet f
 Documented so they stop costing time. **None of these should be "fixed" by making the
 live behaviour match the stale value** — the live behaviour is correct.
 
+- **AuditLog gotcha (fixed 2026-05-30):** the `AuditLog` model maps its metadata column to the Python attribute **`audit_metadata`** (DB column `"metadata"`, since `metadata` is reserved by SQLAlchemy), and `before_state`/`after_state` are NOT NULL. Constructing `AuditLog(metadata=...)` is wrong. Worse, admin `terminate_dispatch` committed the audit row in the SAME transaction as the RFQ status change, so a bad audit row rolled the cancel back -> admin 'cancel' returned 500 and the RFQ stayed OPEN. Rule: **write best-effort audit logs in a SEPARATE commit AFTER the primary change is committed, with `await db.rollback()` on failure** — never let an audit insert gate a real mutation.
+
 - **Search limit:** live is **10/100** (`search_service.py`); `config.py`
   `REGISTERED_SEARCH_LIMIT_PER_MONTH=5` is unused.
 - **`OPENAI_LLM_MODEL` default differs:** `config.py` says `gpt-4o-mini`; runtime-config
