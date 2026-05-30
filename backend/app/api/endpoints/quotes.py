@@ -519,15 +519,12 @@ async def get_provider_quotes(
     return responses
 
 
-@router.post("/provider/quotes/{quote_id}/mark-contacted")
-async def mark_quote_contacted(
-    quote_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_role(["provider"])),
-):
-    """Persist the provider's "customer already contacted" dismissal for an accepted RFQ.
+async def set_quote_contacted(db: AsyncSession, current_user: User, quote_id: str, contacted: bool) -> dict:
+    """Set/clear the provider "customer contacted" flag on an accepted-RFQ quote.
 
-    Idempotent. Verifies the quote belongs to the calling provider's firm.
+    Ownership-checked: the quote MUST belong to the calling provider's firm. Reversible
+    (contacted=False clears it). Shared by the REST endpoints and the chatbot action
+    executor so authorization lives in exactly one place.
     """
     from sqlalchemy import select
     from datetime import datetime, timezone
@@ -550,7 +547,29 @@ async def mark_quote_contacted(
     if not quote:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Quote not found")
 
-    if quote.provider_contacted_at is None:
-        quote.provider_contacted_at = datetime.now(timezone.utc)
+    new_val = datetime.now(timezone.utc) if contacted else None
+    changed = (quote.provider_contacted_at is None) != (new_val is None)
+    if changed:
+        quote.provider_contacted_at = new_val
         await db.commit()
-    return {"quote_id": str(quote_uuid), "provider_contacted": True}
+    return {"quote_id": str(quote_uuid), "provider_contacted": contacted, "changed": changed}
+
+
+@router.post("/provider/quotes/{quote_id}/mark-contacted")
+async def mark_quote_contacted(
+    quote_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["provider"])),
+):
+    """Persist the provider's "customer already contacted" dismissal (idempotent, owned)."""
+    return await set_quote_contacted(db, current_user, quote_id, True)
+
+
+@router.post("/provider/quotes/{quote_id}/unmark-contacted")
+async def unmark_quote_contacted(
+    quote_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["provider"])),
+):
+    """Undo the "customer contacted" dismissal so the card returns to the active list."""
+    return await set_quote_contacted(db, current_user, quote_id, False)

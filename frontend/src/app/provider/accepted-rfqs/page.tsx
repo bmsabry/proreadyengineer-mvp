@@ -36,6 +36,20 @@ export default function AcceptedRFQsPage() {
     })();
   }, [user]);
 
+  const handleUndoContacted = async (quoteId: string) => {
+    if (contactingId) return;
+    setContactingId(quoteId);
+    setItems(prev => prev.map(q => q.id === quoteId ? { ...q, provider_contacted: false } : q));
+    try {
+      await api.quotes.unmarkContacted(quoteId);
+    } catch (e) {
+      console.error(e);
+      setItems(prev => prev.map(q => q.id === quoteId ? { ...q, provider_contacted: true } : q));
+    } finally {
+      setContactingId(null);
+    }
+  };
+
   const handleContacted = async (quoteId: string) => {
     if (contactingId) return;                 // guard double-clicks
     setContactingId(quoteId);
@@ -196,6 +210,13 @@ export default function AcceptedRFQsPage() {
                   </span>
                 )}
                 <span className="text-xs text-slate-400 ml-auto">{formatDate(q.updated_at ?? q.created_at)}</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleUndoContacted(q.id); }}
+                  disabled={contactingId === q.id}
+                  className="text-xs font-medium text-[#0F2B54] hover:underline disabled:opacity-60"
+                >
+                  {contactingId === q.id ? '…' : 'Undo'}
+                </button>
                 <ArrowRight className="h-3.5 w-3.5 text-slate-300" />
               </div>
             ))}

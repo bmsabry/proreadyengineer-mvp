@@ -38,6 +38,23 @@ class ChatResponse(BaseModel):
     error: Optional[str] = None
     remaining_today: Optional[int] = None
     links: Optional[List[Dict[str, str]]] = None  # in-app navigation buttons
+    action: Optional[Dict[str, Any]] = None       # a confirm-then-execute proposal (inert)
+
+
+class ActionRequest(BaseModel):
+    type: str = Field(..., max_length=64)
+    quote_id: Optional[str] = Field(None, max_length=64)
+
+
+class ActionResponse(BaseModel):
+    ok: bool
+    message: str
+
+
+# The ONLY actions the assistant may execute. All are reversible, non-financial,
+# non-signature, non-destructive, and re-authorized server-side. Anything else is
+# navigation-only (Phase 3). Adding to this set is a deliberate security decision.
+_EXECUTABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted"}
 
 
 class StatusResponse(BaseModel):
@@ -168,7 +185,63 @@ async def help_chat(
         error=result.get("error"),
         remaining_today=remaining,
         links=result.get("links") or None,
+        action=result.get("action") or None,
     )
+
+
+@limiter.limit("20/minute")
+@router.post("/help/action", response_model=ActionResponse)
+async def help_action(
+    request: Request,
+    data: ActionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Execute a confirm-then-execute assistant action.
+
+    SECURITY: this is the ONLY path that performs a write on the assistant's behalf,
+    and it is the source of truth for authorization. It (1) requires an authenticated
+    user, (2) only allows the tiny `_EXECUTABLE_ACTIONS` allowlist of reversible,
+    non-financial actions, (3) re-checks resource ownership inside the executor, and
+    (4) audit-logs the result. The LLM can only *propose* an action; nothing runs until
+    the user explicitly confirms, which is what calls this endpoint.
+    """
+    if current_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in required.")
+    has_access, _reason = await user_has_chatbot_access(db, current_user)
+    if not has_access:
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail="Assistant actions require an active subscription.")
+
+    action_type = (data.type or "").strip()
+    if action_type not in _EXECUTABLE_ACTIONS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Action not allowed: {action_type}")
+
+    from app.api.endpoints.quotes import set_quote_contacted
+    if action_type in ("mark_contacted", "undo_mark_contacted"):
+        if not data.quote_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing quote_id.")
+        contacted = action_type == "mark_contacted"
+        result = await set_quote_contacted(db, current_user, data.quote_id, contacted)
+        # Best-effort audit (separate from the primary write; never gates it).
+        try:
+            from app.models.admin import AuditLog
+            db.add(AuditLog(
+                actor_user_id=current_user.id,
+                entity_type="quote",
+                entity_id=str(data.quote_id),
+                action="assistant_mark_contacted" if contacted else "assistant_unmark_contacted",
+                extra_data={"via": "help_assistant", "contacted": contacted},
+            ))
+            await db.commit()
+        except Exception as exc:
+            logger.warning("[help_action] audit log failed: %s", exc)
+            await db.rollback()
+        msg = ("Done — I marked that accepted RFQ as contacted; it's moved to your closed list."
+               if contacted else
+               "Done — I moved that RFQ back to your active accepted list.")
+        return ActionResponse(ok=True, message=msg)
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported action.")
 
 
 @router.get("/admin/help/logs")

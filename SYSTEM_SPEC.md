@@ -229,8 +229,25 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    from the visible text and returns validated **internal-only** links (allowlisted prefixes,
    no external/`/admin`/`//`, max 3) as `ChatResponse.links`. The chat widget renders them as
    buttons that `router.push` in-app (and close the widget). The prompt also instructs the model
-   to draft RFQ descriptions / messages for the user to review and submit. No write actions yet
-   (that's Phase 4) — navigation and drafting only.
+   to draft RFQ descriptions / messages for the user to review and submit.
+
+   **Phase 4 confirm-then-execute actions (2026-05-30):** the assistant can perform a tightly
+   bounded set of SAFE, REVERSIBLE writes — currently only `mark_contacted` / `undo_mark_contacted`
+   on a provider's accepted-RFQ quote. Security model (do not weaken):
+   - **The LLM can only PROPOSE, never execute.** It emits `PROPOSE_ACTION: type|quote_id|summary`;
+     `help_service._extract_action` validates the type against `_PROPOSABLE_ACTIONS`, strips the
+     line, and returns an INERT `ChatResponse.action`. No write happens during answer generation.
+   - **Explicit user confirmation** — the widget renders a Confirm/Cancel card; only the user's
+     Confirm click calls `POST /help/action`.
+   - **The endpoint is the authorization source of truth** — it requires auth + chatbot access,
+     enforces the `_EXECUTABLE_ACTIONS={mark_contacted, undo_mark_contacted}` allowlist, and calls
+     `quotes.set_quote_contacted` which **re-checks ownership** (the quote must belong to the
+     caller's provider membership). It writes an `AuditLog` (`extra_data`, separate commit). It
+     NEVER trusts the LLM's framing or a hallucinated id (a non-owned id → 404, no harm).
+   - **Allowlist is intentionally tiny and reversible.** Pay, sign NDA, submit/accept a quote,
+     cancel, delete, change settings, and send messages are NOT executable — the assistant gives a
+     navigation link for those and the user does them. Reversibility: `undo_mark_contacted` (and an
+     Undo button on the Accepted-RFQs closed cards) restores state. See §19 invariant 16.
 
 (A support-ticket classifier in `support_service.py` reuses LLM3 keys.)
 
@@ -619,6 +636,14 @@ as a bug, even if tests pass.
 
 ---
 
+
+16. **The AI assistant may only EXECUTE allowlisted, reversible, non-financial actions, and
+    only after explicit user confirmation.** The LLM proposes (`PROPOSE_ACTION`, inert); the
+    hardened `POST /help/action` endpoint is the sole executor, enforces
+    `_EXECUTABLE_ACTIONS` (currently just `mark_contacted`/`undo_mark_contacted`), re-checks
+    resource ownership server-side, and audit-logs. Never let the assistant pay, sign, submit,
+    accept, cancel, delete, change permissions/settings, or send messages — those stay
+    navigation-only and user-performed. Adding to the allowlist is a deliberate security decision.
 ## 20. Known inconsistencies & landmines (current as of 2026-05-29)
 
 Things that look wrong/confusing but are intentional, or are real bugs not yet fixed.

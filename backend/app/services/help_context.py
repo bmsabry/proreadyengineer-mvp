@@ -137,6 +137,22 @@ async def _provider_context(db: AsyncSession, user: User, ctx: Dict[str, Any]) -
         if to_contact:
             ctx["actions"].insert(0,
                 f"{to_contact} customer(s) accepted your quote and are waiting for you to reach out — see Accepted RFQs.")
+        # The actual accepted-but-uncontacted quotes (id + label) so the assistant can
+        # propose the reversible mark_contacted action for a specific one.
+        rows = (await db.execute(
+            select(Quote.id, RFQ.business_name, RFQ.id).join(RFQ, RFQ.id == Quote.rfq_id).where(
+                Quote.provider_id == pid,
+                Quote.quote_status == "accepted",
+                Quote.provider_contacted_at.is_(None),
+            ).limit(5)
+        )).all()
+        items = []
+        for qid, biz, rid in rows:
+            label = (biz or "a customer")
+            label = f"{label} (RFQ {str(rid)[:8]})"
+            items.append({"quote_id": str(qid), "label": label})
+        if items:
+            ctx["accepted_uncontacted"] = items
     except Exception as exc:
         logger.info("[help_context] provider accepted failed: %s", exc)
 
@@ -183,6 +199,12 @@ def render_account_context(ctx: Dict[str, Any], page: Optional[str] = None) -> s
         lines.append(f"RFQs: {r.get('total',0)} total, {r.get('open',0)} open, {r.get('open_with_quotes',0)} with quotes to review.")
     if ctx.get("nda_free_credits_remaining") is not None:
         lines.append(f"Free NDA credits left this month: {ctx['nda_free_credits_remaining']}.")
+
+    au = ctx.get("accepted_uncontacted") or []
+    if au:
+        lines.append("Accepted RFQs you can mark contacted (quote_id — who):")
+        for it in au:
+            lines.append(f"- {it['quote_id']} — {it['label']}")
 
     actions = ctx.get("actions") or []
     if actions:

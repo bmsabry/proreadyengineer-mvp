@@ -401,6 +401,9 @@ const quotes = {
   markContacted: (quoteId: string) =>
     apiClient.post<{ quote_id: string; provider_contacted: boolean }>(`/provider/quotes/${quoteId}/mark-contacted`),
 
+  unmarkContacted: (quoteId: string) =>
+    apiClient.post<{ quote_id: string; provider_contacted: boolean }>(`/provider/quotes/${quoteId}/unmark-contacted`),
+
   extractQuoteDocument: async (rfqId: string, file: File): Promise<QuoteDocExtractResponse> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -817,11 +820,18 @@ export interface HelpChatLink {
   label: string;
 }
 
+export interface HelpChatAction {
+  type: string;
+  quote_id?: string;
+  summary: string;
+}
+
 export interface HelpChatResponse {
   reply: string;
   error?: string | null;
   remaining_today?: number | null;
   links?: HelpChatLink[] | null;
+  action?: HelpChatAction | null;
 }
 
 // Route every help endpoint through apiClient so the request interceptor
@@ -837,6 +847,10 @@ export const helpApi = {
   },
   manual: async (): Promise<{ markdown: string }> => {
     const r = await apiClient.get<{ markdown: string }>('/help/manual');
+    return r.data;
+  },
+  action: async (type: string, quote_id?: string): Promise<{ ok: boolean; message: string }> => {
+    const r = await apiClient.post<{ ok: boolean; message: string }>('/help/action', { type, quote_id });
     return r.data;
   },
   chat: async (message: string, history: HelpChatTurn[], page?: string): Promise<HelpChatResponse> => {

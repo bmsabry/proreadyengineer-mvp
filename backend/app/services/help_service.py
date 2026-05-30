@@ -128,7 +128,17 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
         "Never invent a path; omit the line if none fit.\n"
         "- If the user asks you to draft something (an RFQ description, a message to a customer/"
         "provider), write a clear, concise draft they can copy and edit, then point them with a "
-        "link to where they submit it. You prepare drafts; the user reviews and submits.\n\n"
+        "link to where they submit it. You prepare drafts; the user reviews and submits.\n\n"        "ACTIONS YOU CAN DO FOR THE USER (confirm-then-execute):\n"
+        "- You may PROPOSE exactly one safe, reversible action: marking an accepted RFQ as "
+        "'customer contacted' (or undoing it). Only for the quote_ids listed under 'Accepted "
+        "RFQs you can mark contacted' in this user's account section above. To propose it, add "
+        "a line at the very END of your reply:\n"
+        "  " + _ACTION_PREFIX + " mark_contacted|<quote_id>|Mark <who> as contacted\n"
+        "  (or 'undo_mark_contacted|<quote_id>|...'). Briefly tell the user you'll mark it once "
+        "they confirm — they will see a Confirm button. NEVER claim it's done yourself.\n"
+        "- You CANNOT and must NOT perform any other action — never pay, sign an NDA, submit or "
+        "accept a quote, cancel, delete, change settings, or send messages. For those, explain "
+        "the steps and give a navigation link to the right page; the user does it themselves.\n\n"
         "DELEGATION (very important):\n"
         "- You are a fast, cost-effective model. You CANNOT look at images and you CANNOT "
         "read or analyse the contents of a specific document (such as a Quote or an RFQ the "
@@ -342,6 +352,36 @@ def _extract_links(reply: str):
         else:
             kept.append(ln)
     return "\n".join(kept).strip(), links
+
+
+# Confirm-then-execute actions the model may PROPOSE (never execute). The model
+# emits, on its own line:  PROPOSE_ACTION: <type>|<quote_id>|<human summary>
+# The backend returns it as an inert proposal; the user must click Confirm, which
+# is the only thing that triggers the hardened /help/action executor.
+_ACTION_PREFIX = "PROPOSE_ACTION:"
+_PROPOSABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted"}
+
+
+def _extract_action(reply: str):
+    """Return (clean_reply, action_or_None). action = {type, quote_id, summary}."""
+    if not reply or _ACTION_PREFIX not in reply:
+        return reply, None
+    kept, action = [], None
+    for ln in reply.splitlines():
+        if action is None and ln.strip().upper().startswith(_ACTION_PREFIX):
+            payload = ln.split(":", 1)[1] if ":" in ln else ""
+            parts = [p.strip() for p in payload.split("|")]
+            atype = parts[0] if parts else ""
+            if atype in _PROPOSABLE_ACTIONS and len(parts) >= 2 and parts[1]:
+                action = {
+                    "type": atype,
+                    "quote_id": parts[1][:64],
+                    "summary": (parts[2] if len(parts) >= 3 else atype)[:140],
+                }
+            # whether valid or not, drop the control line from the visible reply
+        else:
+            kept.append(ln)
+    return "\n".join(kept).strip(), action
 
 
 def _sanitize_history(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -615,10 +655,12 @@ async def answer_question(
         if res3.get("error"):
             return {"reply": "", "error": res3["error"], "model": res3.get("model"),
                     "delegated": True, "latency_ms": res3.get("latency_ms"), "cost_usd": round(cost4 + cost3, 6)}
-        clean3, links3 = _extract_links((res3.get("reply") or "").strip())
+        clean3, action3 = _extract_action((res3.get("reply") or "").strip())
+        clean3, links3 = _extract_links(clean3)
         return {
             "reply": clean3,
             "links": links3,
+            "action": action3,
             "model": res3.get("model"),
             "delegated": True,
             "prompt_tokens": res3.get("prompt_tokens"),
@@ -629,10 +671,12 @@ async def answer_question(
         }
 
     # --- Normal LLM4 answer ---
-    clean, links = _extract_links(reply)
+    clean, action = _extract_action(reply)
+    clean, links = _extract_links(clean)
     return {
         "reply": clean,
         "links": links,
+        "action": action,
         "model": res.get("model"),
         "delegated": False,
         "prompt_tokens": res.get("prompt_tokens"),

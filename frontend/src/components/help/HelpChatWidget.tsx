@@ -21,7 +21,8 @@ const HIDDEN_PREFIXES = [
 ];
 
 type ChatLink = { href: string; label: string };
-type Msg = { role: 'user' | 'assistant'; content: string; links?: ChatLink[] };
+type ChatAction = { type: string; quote_id?: string; summary: string };
+type Msg = { role: 'user' | 'assistant'; content: string; links?: ChatLink[]; action?: ChatAction; actionStatus?: 'pending' | 'working' | 'done' | 'cancelled' };
 
 export default function HelpChatWidget() {
   const pathname = usePathname() || '';
@@ -82,7 +83,8 @@ export default function HelpChatWidget() {
       const history: HelpChatTurn[] = nextMsgs.slice(-10);
       const page = typeof window !== 'undefined' ? window.location.pathname : undefined;
       const resp = await helpApi.chat(text, history, page);
-      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//')) }]);
+      const action = resp.action && typeof resp.action.type === 'string' ? resp.action : undefined;
+      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//')), action, actionStatus: action ? 'pending' : undefined }]);
       if (status && typeof resp.remaining_today === 'number') {
         setStatus({ ...status, remaining_today: resp.remaining_today });
       }
@@ -101,6 +103,26 @@ export default function HelpChatWidget() {
     } finally {
       setSending(false);
     }
+  };
+
+  const confirmAction = async (idx: number) => {
+    const m = messages[idx];
+    if (!m || !m.action || m.actionStatus === 'working' || m.actionStatus === 'done') return;
+    setMessages((prev) => prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'working' } : x)));
+    try {
+      const res = await helpApi.action(m.action.type, m.action.quote_id);
+      setMessages((prev) => {
+        const upd = prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'done' as const } : x));
+        return [...upd, { role: 'assistant' as const, content: res.message || 'Done.' }];
+      });
+    } catch {
+      setMessages((prev) => prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'pending' } : x)));
+      setError("Couldn't complete that action. Please try again or use the page directly.");
+    }
+  };
+
+  const cancelAction = (idx: number) => {
+    setMessages((prev) => prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'cancelled' } : x)));
   };
 
   if (hidden) return null;
@@ -198,6 +220,27 @@ export default function HelpChatWidget() {
                               <span aria-hidden>&rarr;</span>
                             </button>
                           ))}
+                        </div>
+                      )}
+                      {m.role === 'assistant' && m.action && m.actionStatus !== 'done' && m.actionStatus !== 'cancelled' && (
+                        <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2.5">
+                          <p className="text-xs text-amber-900 mb-2">{m.action.summary} — confirm?</p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => confirmAction(i)}
+                              disabled={m.actionStatus === 'working'}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 disabled:opacity-60 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 transition-colors"
+                            >
+                              {m.actionStatus === 'working' ? 'Working…' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => cancelAction(i)}
+                              disabled={m.actionStatus === 'working'}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
