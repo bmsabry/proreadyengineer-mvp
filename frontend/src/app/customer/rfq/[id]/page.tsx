@@ -252,9 +252,10 @@ export default function RFQDetailPage() {
         </div>
       )}
 
-      <Tabs defaultValue="details">
+      {/* Lead with what the customer came to act on: open on Quotes when any exist,
+          and order tabs Quotes -> Files -> Details (the RFQ details are their own input). */}
+      <Tabs defaultValue={(rfq.quote_count || 0) > 0 ? 'quotes' : 'details'}>
         <TabsList>
-          <TabsTrigger value="details">Details</TabsTrigger>
           <TabsTrigger value="quotes">
             <MessageSquare className="h-4 w-4 mr-1" />
             Quotes ({rfq.quote_count})
@@ -263,6 +264,7 @@ export default function RFQDetailPage() {
             <FileText className="h-4 w-4 mr-1" />
             Files
           </TabsTrigger>
+          <TabsTrigger value="details">Details</TabsTrigger>
         </TabsList>
 
         <TabsContent value="details" className="space-y-6">
