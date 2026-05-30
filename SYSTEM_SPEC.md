@@ -540,6 +540,8 @@ Things that look wrong/confusing but are intentional, or are real bugs not yet f
 Documented so they stop costing time. **None of these should be "fixed" by making the
 live behaviour match the stale value** — the live behaviour is correct.
 
+- **`is_closed` drift via Core/raw UPDATE (fixed 2026-05-30):** the `@validates('rfq_status')` hook that keeps `is_closed` in lockstep ONLY fires on ORM attribute assignment. `submit_rfq` sets `rfq_status` via SQLAlchemy **Core `update().values()`** (and admin repair uses raw SQL), which bypass the validator — so a stale `is_closed=True` persisted while `rfq_status` moved to `open_for_dispatch/unlock`, making an RFQ show OPEN in admin yet behave CLOSED in quote/provider gates. Fix: `submit_rfq`'s Core update now sets `is_closed=False, closed_at=None` explicitly, and a one-time reconcile (`UPDATE rfqs SET is_closed = (rfq_status IN <closed set>)`) cleared all drift. **Rule: any Core/raw write of `rfq_status` MUST also write `is_closed`.** The bulletproof end-state (not yet done) is to make `is_closed` a Postgres GENERATED column = (rfq_status IN closed-set), which removes every write path and the validator entirely.
+
 - **Admin "Force close" (override-status) contract mismatch (fixed 2026-05-30):** the admin
   "Force close" button calls `overrideRFQStatus` which POSTed **`{ status }`**, but
   `/admin/rfqs/{id}/override-status` requires **`{ new_status, reason }`** (`reason` required,
