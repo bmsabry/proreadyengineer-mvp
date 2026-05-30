@@ -35,7 +35,11 @@ async def build_account_context(db: AsyncSession, user: Optional[User]) -> Dict[
     ctx: Dict[str, Any] = {
         "name": user.full_name or None,
         "company": user.business_name or None,
+        "email": getattr(user, "email", None),
+        "state": getattr(user, "state", None),
+        "phone": getattr(user, "phone", None),
         "roles": roles,
+        "member_since": (user.created_at.date().isoformat() if getattr(user, "created_at", None) else None),
         "actions": [],   # prioritized "do this next" strings
     }
 
@@ -73,7 +77,16 @@ async def _customer_context(db: AsyncSession, user: User, ctx: Dict[str, Any]) -
         total = len(rows)
         open_with_quotes = sum(1 for st, qc, closed in rows if (qc or 0) > 0 and not closed)
         open_rfqs = sum(1 for st, qc, closed in rows if not closed)
-        ctx["rfqs"] = {"total": total, "open": open_rfqs, "open_with_quotes": open_with_quotes}
+        statuses = [_status_str(st) for st, qc, closed in rows]
+        quoted = sum(1 for st, qc, closed in rows if (qc or 0) > 0)
+        selected = sum(1 for s in statuses if s == "customer_selected_provider")
+        cancelled = sum(1 for s in statuses if s == "cancelled")
+        total_quotes_received = sum(int(qc or 0) for st, qc, closed in rows)
+        ctx["rfqs"] = {
+            "total": total, "open": open_rfqs, "open_with_quotes": open_with_quotes,
+            "quoted": quoted, "provider_selected": selected, "cancelled": cancelled,
+            "total_quotes_received": total_quotes_received,
+        }
         if open_with_quotes:
             ctx["actions"].append(
                 f"You have {open_with_quotes} open RFQ(s) with quotes to review — open the RFQ to compare and accept a quote."
@@ -124,6 +137,37 @@ async def _provider_context(db: AsyncSession, user: User, ctx: Dict[str, Any]) -
     except Exception as exc:
         logger.info("[help_context] provider membership failed: %s", exc)
         return
+
+    # --- Headline metrics, mirroring the provider dashboard's Activity Summary ---
+    try:
+        from app.models.rfq import RFQDispatch
+        rfqs_received = (await db.execute(
+            select(func.count()).select_from(RFQDispatch).where(RFQDispatch.provider_id == pid)
+        )).scalar() or 0
+        q_rows = (await db.execute(
+            select(Quote.quote_status).where(Quote.provider_id == pid)
+        )).all()
+        statuses = [(_status_str(r[0])) for r in q_rows]
+        submitted = sum(1 for st in statuses if st != "draft")
+        accepted = sum(1 for st in statuses if st == "accepted")
+        pending_decisions = sum(1 for st in statuses if st in ("submitted", "customer_viewed", "shortlisted"))
+        not_selected = sum(1 for st in statuses if st in ("not_selected", "expired"))
+        ndas_signed = (await db.execute(
+            select(func.count()).select_from(RFQNDA).where(
+                RFQNDA.provider_id == pid, RFQNDA.provider_signed_at.isnot(None)
+            )
+        )).scalar() or 0
+        ctx["provider_metrics"] = {
+            "rfqs_received": rfqs_received,
+            "quotes_submitted": submitted,
+            "accepted": accepted,
+            "pending_decisions": pending_decisions,
+            "not_selected": not_selected,
+            "ndas_signed": int(ndas_signed),
+            "win_rate_pct": (round(accepted / submitted * 100) if submitted else 0),
+        }
+    except Exception as exc:
+        logger.info("[help_context] provider metrics failed: %s", exc)
 
     # Accepted quotes where the customer hasn't been marked contacted yet.
     try:
@@ -183,6 +227,12 @@ def render_account_context(ctx: Dict[str, Any], page: Optional[str] = None) -> s
     if ctx.get("company"):
         line += f" ({ctx['company']})"
     line += f"; role(s): {roles}."
+    if ctx.get("email"):
+        line += f" Email: {ctx['email']}."
+    if ctx.get("state"):
+        line += f" State: {ctx['state']}."
+    if ctx.get("member_since"):
+        line += f" Member since {ctx['member_since']}."
     lines.append(line)
 
     sub = ctx.get("subscription")
@@ -196,9 +246,27 @@ def render_account_context(ctx: Dict[str, Any], page: Optional[str] = None) -> s
 
     if "rfqs" in ctx:
         r = ctx["rfqs"]
-        lines.append(f"RFQs: {r.get('total',0)} total, {r.get('open',0)} open, {r.get('open_with_quotes',0)} with quotes to review.")
+        lines.append(
+            "Your RFQs (as a customer): "
+            f"{r.get('total',0)} total, {r.get('open',0)} open, "
+            f"{r.get('quoted',0)} have received quotes, {r.get('open_with_quotes',0)} open with quotes to review, "
+            f"{r.get('provider_selected',0)} where you selected a provider, {r.get('cancelled',0)} cancelled; "
+            f"{r.get('total_quotes_received',0)} quotes received in total."
+        )
+    if ctx.get("search_used_this_month") is not None:
+        lines.append(f"Searches used this month: {ctx['search_used_this_month']}.")
     if ctx.get("nda_free_credits_remaining") is not None:
         lines.append(f"Free NDA credits left this month: {ctx['nda_free_credits_remaining']}.")
+
+    pm = ctx.get("provider_metrics")
+    if pm:
+        lines.append(
+            "Your provider activity: "
+            f"RFQs received {pm.get('rfqs_received',0)}, quotes submitted {pm.get('quotes_submitted',0)}, "
+            f"accepted {pm.get('accepted',0)}, pending decisions {pm.get('pending_decisions',0)}, "
+            f"not selected {pm.get('not_selected',0)}, NDAs signed {pm.get('ndas_signed',0)}, "
+            f"win rate {pm.get('win_rate_pct',0)}%."
+        )
 
     au = ctx.get("accepted_uncontacted") or []
     if au:

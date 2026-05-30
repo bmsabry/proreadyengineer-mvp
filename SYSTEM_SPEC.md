@@ -222,7 +222,7 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    RFQs/quotes/subscription. Read-only and scoped to the authenticated user (never another
    user's data); every query is defensive and degrades to an empty snapshot on error. The chat
    widget also passes the current page path (`ChatRequest.page`) for context-awareness.
-   Account-related questions bypass the scope-gate so they're never wrongly refused.
+   Account-related questions bypass the scope-gate so they're never wrongly refused. (2026-05-30: the snapshot was expanded to the FULL dashboard metric set — provider rfqs_received/quotes_submitted/accepted/pending/not_selected/ndas_signed/win_rate; customer rfqs total/open/quoted/selected/cancelled/quotes-received + searches-used; identity + member_since — so the assistant answers any account-figure question directly. Every query is filtered by the signed-in user's id / provider membership, so there is zero cross-user contamination.)
 
    **Phase 3 navigation + drafting (2026-05-30):** the system prompt lets the model end a reply
    with a `SUGGESTED_LINKS: /path|Label ;; ...` line; `help_service._extract_links` strips it
