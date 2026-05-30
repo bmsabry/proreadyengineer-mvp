@@ -38,6 +38,10 @@ interface ServerConfig {
   chat_llm_model_set: boolean
   render_api_key_set: boolean
   render_monthly_budget_set: boolean
+  llm_pricing: string
+  llm_pricing_set: boolean
+  operating_cost_items: string
+  operating_cost_items_set: boolean
   stripe_secret_key_set: boolean
   stripe_webhook_secret_set: boolean
   stripe_publishable_key: string
@@ -95,6 +99,8 @@ interface FormFields {
   paypal_webhook_id: string
   render_api_key: string
   render_monthly_budget: string
+  llm_pricing: string
+  operating_cost_items: string
   paypal_plan_search_tier1: string
   paypal_plan_search_tier2: string
   paypal_plan_provider_profile: string
@@ -152,6 +158,8 @@ const EMPTY_FORM: FormFields = {
   paypal_webhook_id: '',
   render_api_key: '',
   render_monthly_budget: '',
+  llm_pricing: '',
+  operating_cost_items: '',
   paypal_plan_search_tier1: '',
   paypal_plan_search_tier2: '',
   paypal_plan_provider_profile: '',
@@ -199,6 +207,8 @@ function populateFormFromConfig(cfg: ServerConfig): Partial<FormFields> {
     rfq_batch_size: cfg.rfq_batch_size || '',
     rfq_batch_interval_hours: cfg.rfq_batch_interval_hours || '',
     rfq_closed_message: cfg.rfq_closed_message || '',
+    llm_pricing: cfg.llm_pricing || '',
+    operating_cost_items: cfg.operating_cost_items || '',
   }
 }
 
@@ -260,6 +270,38 @@ function FieldRow({
         onChange={(e) => onChange(fieldName, e.target.value)}
         placeholder={effectivePlaceholder}
         autoComplete='off'
+      />
+      {hint && <p className='text-xs text-muted-foreground'>{hint}</p>}
+    </div>
+  )
+}
+
+interface TextAreaRowProps {
+  label: string
+  fieldName: keyof FormFields
+  value: string
+  onChange: (field: keyof FormFields, value: string) => void
+  isSet: boolean
+  placeholder?: string
+  hint?: string
+  rows?: number
+}
+
+function TextAreaRow({ label, fieldName, value, onChange, isSet, placeholder, hint, rows = 4 }: TextAreaRowProps) {
+  return (
+    <div className='space-y-1.5'>
+      <div className='flex items-center justify-between'>
+        <Label htmlFor={fieldName} className='text-sm font-medium'>{label}</Label>
+        <StatusBadge isSet={isSet} />
+      </div>
+      <textarea
+        id={fieldName}
+        value={value}
+        onChange={(e) => onChange(fieldName, e.target.value)}
+        placeholder={placeholder || ''}
+        rows={rows}
+        spellCheck={false}
+        className='w-full rounded-md border border-input bg-background px-3 py-2 text-xs font-mono shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring'
       />
       {hint && <p className='text-xs text-muted-foreground'>{hint}</p>}
     </div>
@@ -362,6 +404,8 @@ export default function AdminSettingsPage() {
       paypal_webhook_id: 'paypal_configured',
       render_api_key: 'render_api_key_set',
       render_monthly_budget: 'render_monthly_budget_set',
+      llm_pricing: 'llm_pricing_set',
+      operating_cost_items: 'operating_cost_items_set',
       paypal_plan_search_tier1: 'paypal_configured',
       paypal_plan_search_tier2: 'paypal_configured',
       paypal_plan_provider_profile: 'paypal_configured',
@@ -838,6 +882,41 @@ export default function AdminSettingsPage() {
                 isSet={isFieldSet('render_monthly_budget')}
                 placeholder='e.g. 50'
                 hint='Optional manual budget figure. Shown as a progress bar in Payment Monitoring.'
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className='flex items-center gap-2'>
+                <Brain className='w-5 h-5' />
+                Operating Cost — Prices &amp; Monthly Items
+              </CardTitle>
+              <CardDescription>
+                Powers the Admin → Operating Cost panel. LLM prices are read live from here (with a
+                built-in static fallback), so update them when a vendor changes pricing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className='space-y-4'>
+              <TextAreaRow
+                label='LLM Pricing (JSON, USD per 1K tokens)'
+                fieldName='llm_pricing'
+                value={form.llm_pricing}
+                onChange={handleChange}
+                isSet={isFieldSet('llm_pricing')}
+                rows={5}
+                placeholder={'{"gemini-2.5-flash": {"in": 0.0003, "out": 0.0025}}'}
+                hint='Per-model override; keys match the model name as a substring. Leave blank to use built-in defaults.'
+              />
+              <TextAreaRow
+                label='Other Monthly Costs (JSON array)'
+                fieldName='operating_cost_items'
+                value={form.operating_cost_items}
+                onChange={handleChange}
+                isSet={isFieldSet('operating_cost_items')}
+                rows={5}
+                placeholder={'[{"label": "AWS S3", "detail": "storage+egress", "cost_usd": 12.50}]'}
+                hint='Fixed/usage monthly line items (AWS, Resend, SignWell, etc.) added to the Operating Cost total.'
               />
             </CardContent>
           </Card>
