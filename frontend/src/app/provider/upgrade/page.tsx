@@ -223,6 +223,7 @@ export default function ProviderUpgradePage() {
   // ── Pricing tiers ────────────────────────────────────────────────────
 
   const annualFeatures: PricingFeature[] = [
+    { text: 'See the customer\u2019s direct contact info on every RFQ \u2014 reach out and win the deal', included: true },
     { text: 'Receive ALL matching RFQs automatically', included: true },
     { text: 'Unlimited RFQ access — no $50 per-unlock fee', included: true },
     { text: 'Quote every RFQ you receive', included: true },

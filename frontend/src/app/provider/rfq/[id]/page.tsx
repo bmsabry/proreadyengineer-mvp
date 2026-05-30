@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   Loader2, AlertCircle, CheckCircle, Download, FileText, Clock,
   Lock, LockOpen, Building2, ShieldAlert, ArrowLeft, CalendarDays, Layers,
-  CreditCard, Send, Upload, X, Sparkles, Trophy, Ban, RefreshCw,
+  CreditCard, Send, Upload, X, Sparkles, Trophy, Ban, RefreshCw, Mail, Star,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +35,9 @@ interface UnlockStatus {
   project_description?: string;
   rfq_status?: string;
   submitted_at?: string;
+  is_annual_subscriber?: boolean;
+  customer_contact?: { name?: string | null; company?: string | null; email?: string | null; state?: string | null } | null;
+  contact_locked_reason?: string | null;
 }
 
 interface RFQFile {
@@ -865,6 +868,52 @@ function ProviderRFQPageInner() {
                   </CardHeader>
                   <CardContent>
                     <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{status.project_description}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ANNUAL PERK: direct customer contact for active provider_annual subscribers. */}
+              {status.is_annual_subscriber && status.customer_contact && (
+                <Card className="border-emerald-200 bg-emerald-50">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-emerald-900">
+                      <Star className="h-5 w-5 text-emerald-600" />Customer Contact
+                      <span className="ml-1 text-xs font-medium text-emerald-700 bg-emerald-100 rounded-full px-2 py-0.5">Annual member</span>
+                    </CardTitle>
+                    <CardDescription className="text-emerald-800">
+                      Reach out directly to discuss this project.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid sm:grid-cols-2 gap-3 text-sm">
+                      {status.customer_contact.name && (
+                        <div><p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Contact</p><p className="text-gray-900">{status.customer_contact.name}</p></div>
+                      )}
+                      {status.customer_contact.company && (
+                        <div className="flex flex-col"><p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Company</p><p className="text-gray-900 inline-flex items-center gap-1"><Building2 className="h-3.5 w-3.5 text-emerald-600" />{status.customer_contact.company}</p></div>
+                      )}
+                      {status.customer_contact.email && (
+                        <div><p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Email</p><a href={`mailto:${status.customer_contact.email}`} className="text-emerald-700 inline-flex items-center gap-1 hover:underline"><Mail className="h-3.5 w-3.5" />{status.customer_contact.email}</a></div>
+                      )}
+                      {status.customer_contact.state && (
+                        <div><p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">Location</p><p className="text-gray-900">{status.customer_contact.state}</p></div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* ANNUAL PERK gated behind NDA: tell them to sign first. */}
+              {status.is_annual_subscriber && status.contact_locked_reason === 'nda_required' && (
+                <Card className="border-emerald-200 bg-emerald-50/60">
+                  <CardContent className="pt-5">
+                    <div className="flex items-start gap-3">
+                      <Star className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="font-semibold text-emerald-900 mb-1">Customer contact unlocks after the NDA</h3>
+                        <p className="text-sm text-emerald-800">As an Annual member you get the customer&apos;s direct contact details &mdash; this RFQ requires a mutual NDA, so sign it above and the contact will appear here once both parties have signed.</p>
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               )}

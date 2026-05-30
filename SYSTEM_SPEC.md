@@ -360,6 +360,15 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 
 - **Provider annual** (`provider_annual`, $1,000/yr) — grants free RFQ unlocks while
   active (the unlock path checks for it and writes an unlocked `RFQUnlock` with no payment).
+  As of 2026-05-30 it ALSO grants **direct customer-contact visibility**: on an RFQ the
+  subscriber has unlocked, `/provider/rfqs/{id}/unlock/status` returns `customer_contact`
+  (name, company, email, state — the only contact fields in the data model; no phone/street
+  address exists). Gating mirrors the NDA rules: non-NDA RFQ shows contact on unlock; an
+  NDA-required RFQ returns `contact_locked_reason='nda_required'` and reveals contact only
+  after the mutual NDA is fully signed (never overrides the NDA the customer paid for).
+  Non-subscribers get `customer_contact=null`. The provider RFQ page renders this as an
+  emerald "Customer Contact (Annual member)" card; the upgrade page lists it as the first
+  annual feature.
 - **Customer search** (`search_tier_1`, $20/month) — raises the monthly search quota from
   10 → 100. **This is the only customer subscription, and it is monthly — there is no
   annual customer plan.** `search_tier_2` has been **retired** (no longer sold/displayed);

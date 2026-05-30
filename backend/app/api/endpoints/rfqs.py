@@ -1275,12 +1275,45 @@ async def get_unlock_status(
         # For NDA RFQs the full description is only revealed once the mutual NDA is
         # fully signed. Until then the provider sees only the redacted preview.
         _can_view_full = (not rfq.nda_required) or provider_nda_signed
+
+        # ANNUAL-SUBSCRIBER PERK: providers on an active provider_annual subscription get the
+        # customer's contact details on RFQs they've unlocked, so they can reach out directly.
+        # Gating: non-NDA RFQ -> show on unlock; NDA RFQ -> only after the mutual NDA is fully
+        # signed (we never override the NDA protection the customer paid for). We only have
+        # name/company/email/state on record (no phone/street address in the data model).
+        customer_contact = None
+        contact_locked_reason = None
+        _is_annual = await _provider_has_annual_subscription(membership.provider_id, db)
+        if _is_annual:
+            if rfq.nda_required and not provider_nda_signed:
+                contact_locked_reason = "nda_required"  # sign the NDA first, then contact is shown
+            else:
+                _cust = None
+                if rfq.customer_user_id:
+                    from app.models.user import User as _User
+                    _cust = (await db.execute(
+                        select(_User).where(_User.id == rfq.customer_user_id)
+                    )).scalar_one_or_none()
+                _cname = None
+                if _cust:
+                    _cname = (f"{(_cust.first_name or '').strip()} {(_cust.last_name or '').strip()}".strip()
+                              or _cust.full_name or rfq.contact_name)
+                customer_contact = {
+                    "name": _cname or rfq.contact_name,
+                    "company": (rfq.business_name or (_cust.business_name if _cust else None)),
+                    "email": rfq.customer_email or (_cust.email if _cust else None),
+                    "state": (_cust.state if _cust else None),
+                }
+
         return {
             "unlocked": True,
             "project_description": rfq.project_description if _can_view_full else None,
             "provider_nda_signed": provider_nda_signed,
             "provider_has_signed": provider_has_signed,
             "quote_accepted": quote_accepted,
+            "is_annual_subscriber": _is_annual,
+            "customer_contact": customer_contact,
+            "contact_locked_reason": contact_locked_reason,
             **base_info
         }
     else:
