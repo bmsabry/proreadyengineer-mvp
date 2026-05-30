@@ -254,7 +254,7 @@ export default function CustomerProfilePage() {
                       <Star className="h-5 w-5 text-emerald-500" />
                       <span className="font-semibold text-slate-800 text-lg">Search Subscriber</span>
                     </div>
-                    <p className="text-slate-500 text-sm mt-0.5">100 searches / month &middot; $20/month</p>
+                    <p className="text-slate-500 text-sm mt-0.5">100 searches / month &middot; $50/mo or $500/yr</p>
                     {cancelAtDate ? (
                       <p className="text-amber-600 text-xs mt-1 font-medium">Cancels on {cancelAtDate} &mdash; access continues until then</p>
                     ) : renewsDate ? (
@@ -319,7 +319,7 @@ export default function CustomerProfilePage() {
                         style={{ width: ndaPercent + '%' }}
                       />
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">{ndaCreditsRemaining} NDAs remaining &#xB7; $30 value included with your plan</p>
+                    <p className="text-xs text-slate-400 mt-1">{ndaCreditsRemaining} NDAs remaining &#xB7; $50 value included with your plan</p>
                   </div>
                 )}
               </div>
@@ -337,7 +337,7 @@ export default function CustomerProfilePage() {
                     href="/billing"
                     className="px-4 py-2 bg-[#0F2B54] text-white rounded-lg text-sm font-semibold hover:bg-[#1a3a6b] transition-colors flex items-center gap-1.5"
                   >
-                    <Zap className="h-4 w-4" /> Upgrade &mdash; $20/mo
+                    <Zap className="h-4 w-4" /> Upgrade &mdash; $50/mo
                   </Link>
                 </div>
                 <div>
@@ -354,7 +354,7 @@ export default function CustomerProfilePage() {
                   <p className="text-xs text-slate-400 mt-1">{searchesRemaining} searches remaining &middot; Upgrade for 100/month</p>
                 </div>
                 <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
-                  <p className="text-sm text-blue-800 font-medium">&#x1F680; Upgrade to Search Plan &mdash; $20/month</p>
+                  <p className="text-sm text-blue-800 font-medium">&#x1F680; Upgrade to Search Plan &mdash; $50/mo or $500/yr</p>
                   <p className="text-xs text-blue-600 mt-0.5">Get 100 searches/month, priority RFQ matching, and full platform access.</p>
                 </div>
               </div>

@@ -216,7 +216,7 @@ function CustomerNdaSignContent() {
                 Subscription Benefit — Free NDA
               </div>
               <p className="text-sm text-green-700">
-                Your subscription includes 3 free NDAs per month (a $30 value).
+                Your subscription includes 5 free NDAs per month (a $50 value).
                 You have <strong>{creditsRemaining} credit{creditsRemaining !== 1 ? 's' : ''} remaining</strong> this month.
               </p>
               <p className="text-sm text-green-700">
@@ -246,7 +246,7 @@ function CustomerNdaSignContent() {
                 </div>
                 <p>A one-time <strong>$10 fee</strong> covers NDA preparation, signing, and secure storage.</p>
                 <p className="text-xs text-gray-500">
-                  Tip: Subscribers get 3 free NDAs/month ($30 value).{' '}
+                  Tip: Subscribers get 5 free NDAs/month ($50 value).{' '}
                   <Link href="/billing" className="text-blue-600 underline">Upgrade your plan.</Link>
                 </p>
               </div>

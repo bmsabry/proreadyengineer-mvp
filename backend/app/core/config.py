@@ -97,9 +97,13 @@ class Settings(BaseSettings):
     ANONYMOUS_SEARCH_LIMIT_PER_MONTH: int = 0  # anonymous users must register
     REGISTERED_SEARCH_LIMIT_PER_MONTH: int = 5
     SEARCH_TIER_1_LIMIT: int = 100
-    SEARCH_TIER_1_PRICE: int = 2000  # $20.00/month
+    SEARCH_TIER_1_PRICE: int = 5000  # $50.00/month
+    SEARCH_ANNUAL_PRICE: int = 50000  # $500.00/year (same access as monthly, billed yearly)
     RFQ_UNLOCK_PRICE: int = 5000  # $50.00
     NDA_FEE_PRICE: int = 1000  # $10.00
+    # Paid customer search subscribers get this many free NDA-required RFQs per calendar
+    # month; beyond it they pay the $10 NDA handling fee.
+    NDA_FREE_CREDITS_PER_MONTH: int = 5
     PROVIDER_ANNUAL_SUBSCRIPTION_PRICE: int = 100000  # $1000.00/year
     AD_SUBSCRIPTION_PRICE: int = 5000  # $50.00
 

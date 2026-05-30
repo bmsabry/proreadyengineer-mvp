@@ -101,7 +101,7 @@ function SubscriptionCard({ subStatus, isLoading }: SubscriptionCardProps) {
           <p className="text-sm text-slate-600 mb-4">5 searches / month included.</p>
           <Link href="/billing">
             <button className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm hover:shadow-md">
-              <Zap className="h-4 w-4" /> Upgrade — $20/month
+              <Zap className="h-4 w-4" /> Upgrade — $50/mo or $500/yr
             </button>
           </Link>
           <p className="text-xs text-slate-400 text-center mt-2">100 searches/month</p>
@@ -112,7 +112,7 @@ function SubscriptionCard({ subStatus, isLoading }: SubscriptionCardProps) {
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Current Plan</span>
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">{displayTier}</span>
           </div>
-          <p className="text-sm text-slate-600 mb-4">100 searches / month — $20/month.</p>
+          <p className="text-sm text-slate-600 mb-4">100 searches / month — $50/mo or $500/yr.</p>
           <Link href="/billing">
             <button className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-[#0F2B54] text-[#0F2B54] hover:bg-[#0F2B54] hover:text-white rounded-xl font-semibold text-sm transition-all duration-150">
               <CreditCard className="h-4 w-4" /> Active — Manage Subscription

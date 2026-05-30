@@ -1426,13 +1426,16 @@ async def _fulfill_search_subscription(
     metadata = payment.extra_data or {}
     # Checkout session passes 'subscription_type' in metadata (e.g. 'search_tier1')
     sub_type_raw = metadata.get("subscription_type", metadata.get("tier", "search_tier1"))
+    # billing_interval determines the granted period: "year" -> 365 days, else 30 days.
+    billing_interval = str(metadata.get("billing_interval", "month")).lower()
+    period_days = 365 if billing_interval == "year" else 30
+    # Display amount for the confirmation email ($50/mo or $500/yr).
+    amount_usd = 500.00 if billing_interval == "year" else 50.00
 
     if sub_type_raw in ("search_tier2", "tier_2", "search_tier_2"):
         sub_type = SubscriptionType.SEARCH_TIER_2
-        amount_usd = 20.00
     else:
         sub_type = SubscriptionType.SEARCH_TIER_1
-        amount_usd = 10.00
 
     # Idempotency: check for existing active subscription of this type
     existing_result = await db.execute(
@@ -1446,9 +1449,9 @@ async def _fulfill_search_subscription(
     if existing_sub:
         # Update period dates for renewal
         existing_sub.current_period_start = datetime.utcnow()
-        existing_sub.current_period_end = datetime.utcnow() + timedelta(days=30)
+        existing_sub.current_period_end = datetime.utcnow() + timedelta(days=period_days)
         await db.commit()
-        _log.info("search_subscription: renewed %s for user %s (idempotent)", sub_type, user_id)
+        _log.info("search_subscription: renewed %s (%s) for user %s (idempotent)", sub_type, billing_interval, user_id)
         return
 
     # Create new subscription record
@@ -1458,11 +1461,11 @@ async def _fulfill_search_subscription(
         subscription_type=sub_type,
         subscription_status=SubscriptionStatus.ACTIVE,
         current_period_start=datetime.utcnow(),
-        current_period_end=datetime.utcnow() + timedelta(days=30),
+        current_period_end=datetime.utcnow() + timedelta(days=period_days),
     )
     db.add(subscription)
     await db.commit()
-    _log.info("search_subscription: activated %s for user %s", sub_type, user_id)
+    _log.info("search_subscription: activated %s (%s) for user %s", sub_type, billing_interval, user_id)
 
     # Send confirmation email
     try:

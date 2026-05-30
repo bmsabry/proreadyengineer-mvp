@@ -87,7 +87,7 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
-    # NDA credit tracking (3 free NDAs/month for subscribed customers)
+    # NDA credit tracking (5 free NDAs/month for subscribed customers)
     monthly_nda_credits_used: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )

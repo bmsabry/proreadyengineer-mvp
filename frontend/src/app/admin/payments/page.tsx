@@ -754,7 +754,7 @@ export default function AdminPaymentsPage() {
   const provTotalStr = '$' + provTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const rfqSubtitle = rfqCount + ' unlock' + (rfqCount !== 1 ? 's' : '') + ' · $50 each';
   const ndaSubtitle = ndaCount + ' NDA' + (ndaCount !== 1 ? 's' : '') + ' · $10 each';
-  const custSubtitle = custCount + ' payment' + (custCount !== 1 ? 's' : '') + ' · $20/month';
+  const custSubtitle = custCount + ' payment' + (custCount !== 1 ? 's' : '') + ' · $50/mo or $500/yr';
   const provSubtitle = provCount + ' payment' + (provCount !== 1 ? 's' : '') + ' · $500 edit or $1,000/yr';
   const adTotalStr = '$' + adTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const adSubtitle = adCount + ' payment' + (adCount !== 1 ? 's' : '') + ' · $50/month';

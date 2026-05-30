@@ -67,8 +67,8 @@ All charges are processed through Stripe.
 - **Advertisement — a recurring subscription** for a featured slot (featured-firm / software-provider listings). Cancelling stops auto-renewal; the ad stays visible through the end of the paid period.
 
 ### 4.2 Customer charges
-- **NDA handling fee — $10, paid by the customer**, charged when the customer marks an RFQ "NDA required." This is charged once for that RFQ, when the NDA is required.
-- **Customer Search subscription — $20 per month.** Raises the monthly search quota from **10** free searches to **100**. This is the only customer subscription and it is **monthly** — there is no annual customer plan.
+- **NDA handling fee — $10, paid by the customer**, charged when the customer marks an RFQ "NDA required." Charged once per such RFQ. **Customers with an active Search subscription get 5 free NDA-required RFQs each calendar month** — the $10 fee is waived until those 5 credits are used, then it applies normally. The allowance resets on the 1st of each month.
+- **Customer Search subscription — $50 per month, or $500 per year.** Raises the monthly search quota from **10** free searches to **100**, and includes **5 free NDA-required RFQs per month** (see below). The monthly and annual plans grant identical features — annual just bills yearly and saves $100. This is the only customer subscription.
 
 ### 4.3 Search quota
 - **Free / registered users: 10 searches per month.**
@@ -107,7 +107,7 @@ The customer portal organizes your RFQs into views: **All**, **Active** (open fo
 Open an RFQ to see its quotes side by side — price, turnaround, scope, and assumptions. The received quote is shown prominently. When you accept one (the **Accept** action), the provider is notified by email, the provider gains visibility of your contact details, and the RFQ moves to "provider selected." Up to 5 quotes are collected per RFQ; after that the RFQ reaches its quote limit and closes to new quotes.
 
 ### 5.6 NDAs from the customer side
-If you required an NDA, here's your part: you pay the $10 fee up front (this does **not** delay providers from being matched — dispatch proceeds normally). When a provider signs the NDA, you are asked to **countersign** — you'll get an email from our e-signature provider (SignWell) AND an amber "Action required: NDA awaiting your signature" note in your dashboard's Activity Summary. The agreement is a single, mutual NDA; the full project details are unlocked to that provider only once **both** of you have signed.
+If you required an NDA, here's your part: you pay the $10 fee up front — unless you have a Search subscription and free NDA credits remaining this month, in which case it's waived (5 free per month) — and this does **not** delay providers from being matched — dispatch proceeds normally). When a provider signs the NDA, you are asked to **countersign** — you'll get an email from our e-signature provider (SignWell) AND an amber "Action required: NDA awaiting your signature" note in your dashboard's Activity Summary. The agreement is a single, mutual NDA; the full project details are unlocked to that provider only once **both** of you have signed.
 
 ## 6. Provider guide
 
@@ -180,7 +180,7 @@ Unlocking an RFQ never closes it (unlocks are unlimited). An RFQ closes only whe
 ## 9. Subscriptions and billing management
 
 - **Provider Annual ($1,000/yr):** unlimited free unlocks, customer-contact visibility, full profile editing.
-- **Customer Search ($20/mo):** raises search quota 10 → 100. Monthly only.
+- **Customer Search ($50/mo or $500/yr):** raises search quota 10 → 100 and includes 5 free NDA RFQs/month. Monthly or annual (same features).
 - **Advertisement:** recurring featured placement.
 - **Provider full-profile-edit:** one-time unlock (free with annual).
 - Manage or cancel from your profile's billing area / the provider dashboard's subscriptions area. Cancellation takes effect at period end; no partial refunds.

@@ -183,6 +183,7 @@ async def get_subscription_status(
     """Get current user subscription status for customer dashboard/profile."""
     from sqlalchemy import select as _select
     from app.models.payment import Subscription
+    from app.core.config import settings
     result = await db.execute(
         _select(Subscription)
         .where(
@@ -198,7 +199,7 @@ async def get_subscription_status(
     # Compute NDA credits for subscribed customers (defensive - columns may not exist yet)
     try:
         from datetime import datetime, timezone as _tz
-        nda_credits_total = 3 if sub else 0
+        nda_credits_total = (getattr(settings, 'NDA_FREE_CREDITS_PER_MONTH', 5) if sub else 0)
         if sub:
             _now = datetime.now(_tz.utc)
             _credits_used = getattr(current_user, 'monthly_nda_credits_used', None)
@@ -218,7 +219,7 @@ async def get_subscription_status(
             nda_credits_used = 0
         nda_credits_remaining = max(0, nda_credits_total - nda_credits_used)
     except Exception:
-        nda_credits_total = 3 if sub else 0
+        nda_credits_total = (getattr(settings, 'NDA_FREE_CREDITS_PER_MONTH', 5) if sub else 0)
         nda_credits_used = 0
         nda_credits_remaining = nda_credits_total
 
@@ -248,18 +249,21 @@ async def stripe_create_search_subscription(
 
     body = await request.json()
     subscription_type = body.get("subscription_type", "search_tier1")
+    # billing_interval: "month" ($50/mo) or "year" ($500/yr). Same access tier
+    # (search_tier_1) either way - only the price and the granted period differ.
+    billing_interval = str(body.get("billing_interval", "month")).lower()
+    if billing_interval not in ("month", "year"):
+        billing_interval = "month"
     origin = body.get("origin", "https://proreadyengineer.com")
 
-    # Map subscription_type to amount from settings (no hardcoded prices)
-    amount_map = {
-        "search_tier1": settings.SEARCH_TIER_1_PRICE,   # 2000 cents = $20/month
-    }
-    amount = amount_map.get(subscription_type)
-    if amount is None:
+    # Map to amount from settings (no hardcoded prices). The customer search plan is
+    # the only customer subscription; it can be billed monthly or annually.
+    if subscription_type not in ("search_tier1", "search_tier_1"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown subscription_type: {subscription_type}. Allowed: {list(amount_map.keys())}",
+            detail=f"Unknown subscription_type: {subscription_type}. Allowed: ['search_tier1']",
         )
+    amount = settings.SEARCH_ANNUAL_PRICE if billing_interval == "year" else settings.SEARCH_TIER_1_PRICE
 
     related_id = str(current_user.id)
     success_url = f"{origin}/customer/dashboard?payment=success&purpose=search_subscription&session_id={{CHECKOUT_SESSION_ID}}"
@@ -276,7 +280,7 @@ async def stripe_create_search_subscription(
             related_id=related_id,
             success_url=success_url,
             cancel_url=cancel_url,
-            metadata={"subscription_type": subscription_type},
+            metadata={"subscription_type": "search_tier1", "billing_interval": billing_interval},
         )
         return session_data
     except RuntimeError as exc:

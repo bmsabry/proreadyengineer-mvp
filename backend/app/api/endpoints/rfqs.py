@@ -20,6 +20,21 @@ from app.services.payment_service import create_payment_intent
 router = APIRouter()
 
 
+def compute_nda_credit_grant(used, reset_at, now, limit):
+    """Pure decision for the monthly free-NDA allowance for paid customers.
+
+    Resets the counter at the start of a new calendar month, then grants a credit
+    if the (possibly reset) usage is below ``limit``.
+    Returns ``(grant: bool, new_used: int, remaining: int)``.
+    """
+    used = used or 0
+    if reset_at is not None and (now.year * 12 + now.month) > (reset_at.year * 12 + reset_at.month):
+        used = 0
+    if used < limit:
+        return True, used + 1, max(0, limit - (used + 1))
+    return False, used, 0
+
+
 def _redact_pii(text: str, business_name: str = "") -> str:
     """Strip emails, phone numbers, and the customer's business name from teaser text."""
     import re
@@ -365,7 +380,7 @@ async def nda_checkout(
     except (ValueError, AttributeError):
         rfq_uuid = rfq_id
 
-    # --- NDA Credit Check: subscribed customers get 3 free NDAs/month ---
+    # --- NDA Credit Check: subscribed customers get 5 free NDAs/month ---
     _active_sub = None
     try:
         from app.models.payment import Subscription as _Sub
@@ -382,19 +397,39 @@ async def nda_checkout(
         _active_sub = None
 
     if _active_sub:
-        # NOTE: Do NOT move the RFQ to awaiting_customer_signature here. The customer
-        # NDA signature is collected later (provider-triggered) and must never block
-        # dispatch. Leaving the RFQ in its pre-dispatch state lets the frontend's
-        # follow-up submit() call dispatch it normally (root-cause fix for stuck RFQs).
-        _log.info(f"NDA free credit granted rfq={rfq_id} user={current_user.id}")
-        # Free credit == NDA fee satisfied -> dispatch now (idempotent).
-        _schedule_rfq_dispatch(background_tasks, rfq_id)
-        return {
-            "free_credit": True,
-            "credits_remaining": 3,
-            "checkout_url": None,
-            "payment_attempt_id": None,
-        }
+        # Meter the monthly free-NDA allowance for paid customers. The fields
+        # monthly_nda_credits_used / nda_credits_reset_at live on the user row.
+        from datetime import datetime as _dt, timezone as _tzc
+        _limit = getattr(_settings, "NDA_FREE_CREDITS_PER_MONTH", 5)
+        _now = _dt.now(_tzc.utc)
+        _used = getattr(current_user, "monthly_nda_credits_used", 0) or 0
+        _reset_at = getattr(current_user, "nda_credits_reset_at", None)
+        _grant, _new_used, _remaining = compute_nda_credit_grant(_used, _reset_at, _now, _limit)
+        if _grant:
+            # Grant a free NDA: consume one credit and persist the counter.
+            current_user.monthly_nda_credits_used = _new_used
+            current_user.nda_credits_reset_at = _now
+            try:
+                db.add(current_user)
+                await db.commit()
+            except Exception as _credit_err:
+                await db.rollback()
+                _log.warning(f"NDA credit persist failed user={current_user.id}: {_credit_err}")
+            # NOTE: Do NOT move the RFQ to awaiting_customer_signature here. The customer
+            # NDA signature is collected later (provider-triggered) and must never block
+            # dispatch. Leaving the RFQ in its pre-dispatch state lets the frontend's
+            # follow-up submit() call dispatch it normally (root-cause fix for stuck RFQs).
+            _log.info(f"NDA free credit granted rfq={rfq_id} user={current_user.id} remaining={_remaining}")
+            # Free credit == NDA fee satisfied -> dispatch now (idempotent).
+            _schedule_rfq_dispatch(background_tasks, rfq_id)
+            return {
+                "free_credit": True,
+                "credits_remaining": _remaining,
+                "checkout_url": None,
+                "payment_attempt_id": None,
+            }
+        # Allowance exhausted this month -> fall through to the $10 paid checkout below.
+        _log.info(f"NDA free allowance exhausted user={current_user.id} ({_used}/{_limit}); charging fee")
     # --- End NDA Credit Check ---
     _log.info(f"Creating NDA Stripe checkout for rfq={rfq_id} user={current_user.id}")
 

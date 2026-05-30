@@ -62,13 +62,13 @@ export default function ForCustomersPage() {
               <div className="mb-4">
                 <span className="text-xs font-semibold uppercase tracking-wider text-blue-200">Search Plan</span>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-3xl font-bold">$20</span>
-                  <span className="text-blue-200">/month</span>
+                  <span className="text-3xl font-bold">$50</span>
+                  <span className="text-blue-200">/mo · $500/yr</span>
                 </div>
               </div>
               <ul className="space-y-2 text-sm text-blue-100 mb-6">
                 <li className="flex items-center gap-2">&#10003; 100 searches / month</li>
-                <li className="flex items-center gap-2">&#10003; 3 free NDAs / month <span className="text-xs text-emerald-600 font-semibold ml-1">($30 value)</span></li>
+                <li className="flex items-center gap-2">&#10003; 5 free NDAs / month <span className="text-xs text-emerald-600 font-semibold ml-1">($50 value)</span></li>
                 <li className="flex items-center gap-2">✓ Submit unlimited RFQs</li>
                 <li className="flex items-center gap-2">✓ Receive up to 5 quotes per RFQ</li>
                 <li className="flex items-center gap-2">✓ Priority support</li>
@@ -77,14 +77,14 @@ export default function ForCustomersPage() {
                 href="/billing"
                 className="block text-center bg-white text-[#0F2B54] px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-50 transition-colors"
               >
-                Upgrade — $20/month
+                Upgrade — $50/mo or $500/yr
               </Link>
             </div>
           </div>
           {/* Fee notes */}
           <div className="mt-6 max-w-2xl mx-auto grid md:grid-cols-2 gap-4">
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
-              <strong>NDA Handling Fee:</strong> $10 one-time fee per RFQ when NDA protection is required. <strong>Subscribers get 3 free NDAs/month</strong> ($30 value) — fee waived until credits are used.
+              <strong>NDA Handling Fee:</strong> $10 one-time fee per RFQ when NDA protection is required. <strong>Subscribers get 5 free NDAs/month</strong> ($50 value) — fee waived until credits are used.
             </div>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-800">
               <strong>Provider RFQ Unlock:</strong> Engineering firms pay $50 to access your full RFQ details and submit a quote.

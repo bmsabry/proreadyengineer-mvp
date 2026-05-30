@@ -80,9 +80,9 @@ site.** Some config constants and product-name strings are stale — see §20. L
 | Charge | Who pays | Live amount | When / rule | Code |
 |---|---|---|---|---|
 | **RFQ unlock** | Provider | **$50** (`amount=settings.RFQ_UNLOCK_PRICE`, =5000) | To read ANY RFQ they were matched to. **Free** for providers with an active `provider_annual` subscription. | `rfqs.py:987` |
-| **NDA handling fee** | Customer | **$10** (`amount=1000`) | Charged when the customer marks an RFQ "NDA required". Always, when NDA is required. | `rfqs.py:399` |
+| **NDA handling fee** | Customer | **$10** (`amount=1000`) | Charged when the customer marks an RFQ "NDA required" — UNLESS the customer has an active search subscription and free NDA credits left this month (5/month, `NDA_FREE_CREDITS_PER_MONTH`), in which case it's waived and a credit consumed. Metered on `users.monthly_nda_credits_used` / `nda_credits_reset_at`. | `rfqs.py` (nda_checkout) |
 | **Provider annual subscription** | Provider | **$1,000/yr** (`PROVIDER_ANNUAL_SUBSCRIPTION_PRICE=100000`) | Grants unlimited free RFQ unlocks while active. | `config.py`, `payments.py` |
-| **Customer search subscription** | Customer | **$20/month** (`search_tier_1`) | Raises monthly search quota from 10 → 100. Monthly only; **no annual customer plan**. (Tier 2 retired — no longer sold.) | `payments.py` |
+| **Customer search subscription** | Customer | **$50/month or $500/year** (`search_tier_1`; `SEARCH_TIER_1_PRICE=5000`, `SEARCH_ANNUAL_PRICE=50000`) | Raises monthly search quota 10 → 100 AND grants **5 free NDA-required RFQs/month** (`NDA_FREE_CREDITS_PER_MONTH=5`). Monthly vs annual differ only in price + granted period (30 vs 365 days) via metadata `billing_interval`; both are `search_tier_1` so all gates work unchanged. (Tier 2 retired — no longer sold.) | `payments.py` |
 | **Provider full-profile-edit unlock** | Provider | one-time | Unlocks full profile editing (or comes free with annual sub). | `payment_service.py` |
 | **Advertisement** | Advertiser | subscription | Featured-firm / software-provider listings. | `ads.py`, `payment_service.py` |
 
@@ -386,9 +386,14 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   Non-subscribers get `customer_contact=null`. The provider RFQ page renders this as an
   emerald "Customer Contact (Annual member)" card; the upgrade page lists it as the first
   annual feature.
-- **Customer search** (`search_tier_1`, $20/month) — raises the monthly search quota from
-  10 → 100. **This is the only customer subscription, and it is monthly — there is no
-  annual customer plan.** `search_tier_2` has been **retired** (no longer sold/displayed);
+- **Customer search** (`search_tier_1`, **$50/month or $500/year**) — raises the monthly
+  search quota from 10 → 100 and grants **5 free NDA-required RFQs per calendar month**
+  (the $10 NDA fee is waived until the allowance is used; metered on
+  `users.monthly_nda_credits_used` + `nda_credits_reset_at`, enforced in `nda_checkout`).
+  Monthly vs annual is the SAME subscription type (`search_tier_1`) and the SAME access —
+  only the price and granted period differ (30 vs 365 days), carried in checkout metadata
+  `billing_interval` and applied in `_fulfill_search_subscription`. This is the only
+  customer subscription. `search_tier_2` has been **retired** (no longer sold/displayed);
   any pre-existing tier-2 subscriber is still honored via the `.in_(['search_tier_1',
   'search_tier_2'])` quota lookup, but it cannot be purchased.
 - **Provider full-profile-edit** — one-time unlock (or included with annual).
@@ -549,7 +554,7 @@ as a bug, even if tests pass.
    empty.** Pre-fill only known account/record values + date as editable defaults; to lock a
    value, mark the template field read-only in SignWell (the API only sets a default).
 8. **`nda_fee` fulfillment must not change `rfq_status`** (it once stranded NDA RFQs).
-9. **Live fees are $50 provider unlock / $10 customer NDA / $1,000 provider annual.**
+9. **Live fees are $50 provider unlock / $10 customer NDA (5 free/month for search subscribers) / $1,000 provider annual / $50-mo or $500-yr customer search.**
    Trust the checkout `amount=`, not product-name strings. (Provider unlock now reads the
    `RFQ_UNLOCK_PRICE=5000` constant.)
 10. **Search quota is 10 free / 100 paid** (`search_service.py`), not the `config.py` 5.

@@ -221,7 +221,7 @@ export default function AdminUsersPage() {
         <span className="font-medium text-foreground">Monthly search quotas:</span>
         <span>&#128275; Unregistered: <strong>3</strong></span>
         <span>&#128100; Free account: <strong>10</strong></span>
-        <span>&#11088; Search Plan ($20/mo): <strong>100</strong></span>
+        <span>&#11088; Search Plan ($50/mo): <strong>100</strong></span>
         <span className="ml-auto text-xs italic">Auto-refreshes every 30s &bull; Updates on tab focus</span>
       </div>
 
