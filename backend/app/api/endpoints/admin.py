@@ -480,8 +480,7 @@ async def admin_terminate_rfq_dispatch(
 
     old_status = rfq.rfq_status.value if hasattr(rfq.rfq_status, 'value') else str(rfq.rfq_status)
 
-    rfq.is_closed = True
-    rfq.rfq_status = RfqStatus.CANCELLED
+    rfq.rfq_status = RfqStatus.CANCELLED  # validator syncs is_closed
     rfq.closed_at = datetime.utcnow()
 
     # Audit log
