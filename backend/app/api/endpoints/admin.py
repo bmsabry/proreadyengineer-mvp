@@ -4290,10 +4290,16 @@ async def admin_bandwidth(
             svc_resp = await client.get(f'{base}/services?limit=50', headers=headers)
             if svc_resp.status_code != 200:
                 return {'available': False, 'error': f'Render API returned {svc_resp.status_code} for services list'}
+            # Only this product's own services — the Render account may host unrelated
+            # software. Allowlist by name (override via BANDWIDTH_SERVICES = comma list).
+            _allow_raw = (cfg.get('BANDWIDTH_SERVICES') or 'proreadyengineer-api,proreadyengineer-web')
+            _allow = {n.strip().lower() for n in _allow_raw.split(',') if n.strip()}
             services = []
             for item in svc_resp.json():
                 svc = item.get('service', item)
                 if svc.get('type') not in ('web_service', 'web', 'private_service'):
+                    continue
+                if (svc.get('name') or '').strip().lower() not in _allow:
                     continue
                 services.append({
                     'id': svc.get('id'),
