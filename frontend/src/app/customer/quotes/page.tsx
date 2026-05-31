@@ -131,7 +131,7 @@ export default function CustomerQuotesPage() {
             <p className="text-red-600 font-medium">{error}</p>
             {error.includes('log in') && (
               <Link
-                href="/auth/login"
+                href="/login"
                 className="mt-4 inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
               >Log In</Link>
             )}
