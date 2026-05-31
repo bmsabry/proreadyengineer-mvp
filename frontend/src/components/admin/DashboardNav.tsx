@@ -29,7 +29,7 @@ const navItems = [
   { href: '/admin/bandwidth',       label: 'Bandwidth',        icon: Gauge },
   { href: '/admin/webhooks',        label: 'Webhooks',         icon: Webhook },
   { href: '/admin/campaigns',       label: 'Email Campaigns',  icon: Mail },
-  { href: '/admin/support',         label: 'Support Tickets',  icon: LifeBuoy,  badgeKey: 'tickets' },
+  { href: '/admin/support',         label: 'Support Tickets',  icon: LifeBuoy,  badgeKey: 'tickets', redWhenPending: true },
   { href: '/admin/ads',             label: 'Ads',              icon: Megaphone, badgeKey: 'ads' },
   { href: '/admin/users',           label: 'Users',            icon: Users },
   { href: '/admin/data-extraction', label: 'Data Extraction',  icon: Download },
@@ -76,7 +76,7 @@ export function DashboardNav() {
 
     fetchCounts();
     // Refresh every 60 seconds so the badge stays current
-    const interval = setInterval(fetchCounts, 60_000);
+    const interval = setInterval(fetchCounts, 25_000);
     return () => clearInterval(interval);
   }, [user]);
 

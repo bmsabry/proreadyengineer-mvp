@@ -82,20 +82,32 @@ export default function AdminSupportDetailPage() {
   const [isSending, setIsSending] = useState(false);
   const [isActing, setIsActing] = useState(false);
 
-  const fetchTicket = async () => {
-    setIsLoading(true);
+  const fetchTicket = async (silent = false) => {
+    if (!silent) setIsLoading(true);
     try {
       const res = await apiClient.get(`/admin/support/tickets/${ticketId}`);
       setTicket(res.data);
     } catch {
-      toast.error('Failed to load ticket');
+      if (!silent) toast.error('Failed to load ticket');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!authLoading && ticketId) fetchTicket();
+    if (authLoading || !ticketId) return;
+    fetchTicket();
+    // Live updates: silently refresh the thread every 20s and whenever the admin
+    // refocuses the tab, so new customer replies appear without leaving the page.
+    const interval = setInterval(() => fetchTicket(true), 20_000);
+    const onFocus = () => fetchTicket(true);
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
   }, [authLoading, ticketId]);
 
   const handleReply = async () => {
