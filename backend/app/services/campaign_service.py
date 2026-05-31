@@ -322,7 +322,10 @@ async def send_next_batch(db: AsyncSession, campaign_id: uuid.UUID) -> Dict[str,
                     logger.warning("Failed to render default template: %s", tmpl_exc)
                     html_body = f"<p>You are invited to join ProReadyEngineer. <a href='{invite_link}'>Register here</a>.</p>"
 
-            subject = campaign.email_subject or "You're invited to join ProReadyEngineer"
+            subject = _render_email_body(
+                campaign.email_subject or "You're invited to join ProMechDirectory",
+                context,
+            )
 
             # Wrap the authored body in the deliverability-safe shell (CAN-SPAM footer +
             # physical address + unsubscribe) and attach a plain-text alternative.

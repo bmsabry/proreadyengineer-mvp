@@ -462,10 +462,23 @@ async def preview_email(
         except Exception as exc:
             html_body = f"<p>Template render error: {exc}</p>"
 
-    subject = campaign.email_subject or "You're invited to join ProReadyEngineer"
+    # Render the subject through the same token substitution as the send path,
+    # and wrap the body in the exact deliverability shell recipients receive
+    # (branded header + CAN-SPAM footer + unsubscribe) so preview == sent email.
+    subject = _render_email_body(
+        campaign.email_subject or "You're invited to join ProMechDirectory",
+        context,
+    )
+    from app.services.campaign_email import body_to_html, wrap_campaign_email
+    unsub_url = f"{invite_link}&action=unsubscribe"
+    wrapped_preview = wrap_campaign_email(
+        body_to_html(html_body),
+        unsubscribe_url=unsub_url,
+        preheader=subject,
+    )
     return {
         "subject": subject,
-        "html_preview": html_body,
+        "html_preview": wrapped_preview,
         "variables_used": list(context.keys()),
     }
 
