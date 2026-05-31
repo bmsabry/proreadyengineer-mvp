@@ -92,7 +92,7 @@ async def user_has_chatbot_access(db: AsyncSession, user: Optional[User]) -> Tup
 _DELEGATE_PREFIX = "DELEGATE:"
 
 
-def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], account_context: str = "", autonomous: bool = False) -> str:
+def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], account_context: str = "", autonomous: bool = False, is_admin: bool = False, page: Optional[str] = None) -> str:
     role_str = "anonymous"
     if user is not None:
         role_str = ",".join(roles) or "authenticated"
@@ -178,8 +178,18 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
            "- You CANNOT and must NOT pay, sign an NDA, accept a quote, cancel, delete, change "
            "settings, or send messages. For those, explain the steps and give a navigation link; "
            "the user does it themselves.\n\n")
-        + 
-        "DELEGATION (very important):\n"
+        + (("ADMIN ACTIONS (you are talking to an ADMIN):\n"
+            "- On a support ticket page (/admin/support/<id>) you CAN directly act on THIS ticket. "
+            "The exact on-screen buttons are: **Resolve** (green), **Escalate**, **Archive**, "
+            "**Mark Spam**. When the admin asks to close/resolve/escalate/archive/mark-spam the "
+            "ticket, DO IT — end your reply with one line:\n"
+            "  " + _ACTION_PREFIX + " resolve_ticket|<any>|Resolve this ticket\n"
+            "  (types: resolve_ticket, escalate_ticket, archive_ticket, mark_ticket_spam). You do "
+            "NOT need a ticket id in the line — the server uses the ticket from the current page. "
+            "These run immediately for admins (no separate Autonomous toggle needed). Tell the "
+            "admin plainly what you did. The button to close a ticket is literally 'Resolve'.\n\n")
+           if is_admin else "")
+        + "DELEGATION (very important):\n"
         "- You are a fast, cost-effective model. You CANNOT look at images and you CANNOT "
         "read or analyse the contents of a specific document (such as a Quote or an RFQ the "
         "user received, or any attached/pasted file). A more capable specialist model "
@@ -430,7 +440,8 @@ def _extract_links(reply: str):
 _ACTION_PREFIX = "PROPOSE_ACTION:"
 _PROPOSABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted",
                        "accept_quote", "cancel_rfq", "withdraw_quote",
-                       "create_rfq_from_docs", "submit_quote_from_docs"}
+                       "create_rfq_from_docs", "submit_quote_from_docs",
+                       "resolve_ticket", "escalate_ticket", "archive_ticket", "mark_ticket_spam"}
 # Actions that need an rfq_id rather than a quote_id.
 _RFQ_ID_ACTIONS = {"cancel_rfq"}
 
@@ -604,30 +615,45 @@ async def _get_grounding(db: AsyncSession, query: str) -> Tuple[str, Optional[fl
     return context, max_sim
 
 
-async def _maybe_autoexecute(db, user, action, attachments=None):
-    """If autonomous mode is ON, execute the proposed action immediately and return a
-    result dict; otherwise return None so the caller leaves it as an inert confirm proposal.
+import re as _re
 
-    The autonomous flag is read FRESH from the user row by the executor's caller, so a
-    hard-stop (which flips the flag) takes effect on the very next turn. Failures degrade
-    to a normal proposal rather than breaking the chat.
+
+def _ticket_id_from_page(page: Optional[str]) -> Optional[str]:
+    """Extract a support-ticket UUID from an /admin/support/<id> page path."""
+    if not page:
+        return None
+    m = _re.search(r"/admin/support/([0-9a-fA-F-]{8,})", page)
+    return m.group(1) if m else None
+
+
+async def _maybe_autoexecute(db, user, action, attachments=None, page=None):
+    """Auto-execute a proposed action when allowed, else return None (inert confirm).
+
+    Fires when EITHER the user has autonomous mode ON, OR the action is an admin action
+    and the user is an admin (admins are privileged operators — they don't need the
+    consumer consent flag to operate their own support queue). The flag/role are read
+    fresh each turn so the hard-stop takes effect immediately. Failures degrade to a
+    normal confirm proposal rather than breaking the chat.
     """
     if not action or user is None:
         return None
+    from app.services.help_actions import execute_action, ALL_ACTIONS, ADMIN_ACTIONS
+    atype = action.get("type")
+    if atype not in ALL_ACTIONS:
+        return None
     autonomous = bool(getattr(user, "agent_autonomous_enabled", False))
-    if not autonomous:
+    is_admin = "admin" in (user.roles or [])
+    # Admin ticket actions auto-run for admins; everything else needs autonomous mode.
+    if not (autonomous or (atype in ADMIN_ACTIONS and is_admin)):
         return None
     try:
-        from app.services.help_actions import execute_action, ALL_ACTIONS
-        atype = action.get("type")
-        if atype not in ALL_ACTIONS:
-            return None
         _id = action.get("quote_id")
-        params = {"quote_id": _id, "rfq_id": _id, "attachments": attachments or []}
+        params = {"quote_id": _id, "rfq_id": _id, "attachments": attachments or [],
+                  "ticket_id": _ticket_id_from_page(page)}
         res = await execute_action(db, user, atype, params, autonomous)
         return {"executed": True, "type": atype, "message": res.get("message"), "link": res.get("link")}
     except Exception as exc:
-        logger.info("[help_service] autonomous execute failed (%s); leaving as proposal", exc)
+        logger.info("[help_service] auto execute failed (%s); leaving as proposal", exc)
         return None
 
 
@@ -725,7 +751,8 @@ async def answer_question(
         }
 
     _autonomous = bool(getattr(user, "agent_autonomous_enabled", False)) if user else False
-    system_prompt = _build_system_prompt(grounding, user, roles, account_context=account_ctx, autonomous=_autonomous)
+    _is_admin = bool(user and "admin" in (user.roles or []))
+    system_prompt = _build_system_prompt(grounding, user, roles, account_context=account_ctx, autonomous=_autonomous, is_admin=_is_admin, page=page)
 
     safe_history = _sanitize_history(history)
     messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
@@ -774,7 +801,7 @@ async def answer_question(
                     "delegated": True, "latency_ms": res3.get("latency_ms"), "cost_usd": round(cost4 + cost3, 6)}
         clean3, action3 = _extract_action((res3.get("reply") or "").strip())
         clean3, links3 = _extract_links(clean3)
-        auto3 = await _maybe_autoexecute(db, user, action3, attachments)
+        auto3 = await _maybe_autoexecute(db, user, action3, attachments, page=page)
         return {
             "reply": clean3,
             "links": links3,
@@ -792,7 +819,7 @@ async def answer_question(
     # --- Normal LLM4 answer ---
     clean, action = _extract_action(reply)
     clean, links = _extract_links(clean)
-    auto = await _maybe_autoexecute(db, user, action, attachments)
+    auto = await _maybe_autoexecute(db, user, action, attachments, page=page)
     return {
         "reply": clean,
         "links": links,

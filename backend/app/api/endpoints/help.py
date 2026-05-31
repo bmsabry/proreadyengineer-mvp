@@ -58,6 +58,8 @@ class ActionRequest(BaseModel):
     rfq_id: Optional[str] = Field(None, max_length=64)
     attachments: List["ChatAttachment"] = Field(default_factory=list)
     project_description: Optional[str] = Field(None, max_length=10000)
+    ticket_id: Optional[str] = Field(None, max_length=64)
+    page: Optional[str] = Field(None, max_length=200)
 
 
 class ActionResponse(BaseModel):
@@ -398,11 +400,17 @@ async def help_action(
     from app.services.help_actions import execute_action
     # Autonomous flag is read FRESH from the DB row so a hard-stop takes effect immediately.
     autonomous = bool(getattr(current_user, "agent_autonomous_enabled", False))
+    _ticket_id = data.ticket_id
+    if not _ticket_id and data.page:
+        import re as _re
+        _m = _re.search(r"/admin/support/([0-9a-fA-F-]{8,})", data.page)
+        _ticket_id = _m.group(1) if _m else None
     params = {
         "quote_id": data.quote_id,
         "rfq_id": data.rfq_id,
         "attachments": [a.model_dump() for a in (data.attachments or [])],
         "project_description": data.project_description,
+        "ticket_id": _ticket_id,
     }
     result = await execute_action(db, current_user, (data.type or "").strip(), params, autonomous)
     return ActionResponse(ok=bool(result.get("ok")), message=result.get("message") or "Done.", link=result.get("link"))

@@ -167,7 +167,8 @@ export default function HelpChatWidget() {
     if (!m || !m.action || m.actionStatus === 'working' || m.actionStatus === 'done') return;
     setMessages((prev) => prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'working' } : x)));
     try {
-      const res = await helpApi.action(m.action.type, { quote_id: m.action.quote_id, rfq_id: m.action.quote_id, attachments });
+      const curPage = typeof window !== 'undefined' ? window.location.pathname : undefined;
+      const res = await helpApi.action(m.action.type, { quote_id: m.action.quote_id, rfq_id: m.action.quote_id, attachments, page: curPage });
       setMessages((prev) => {
         const upd = prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'done' as const } : x));
         const lk = res.link && typeof res.link.href === 'string' && res.link.href.startsWith('/') ? [res.link] : undefined;

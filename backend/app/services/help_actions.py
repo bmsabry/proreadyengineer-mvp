@@ -31,7 +31,10 @@ logger = logging.getLogger(__name__)
 SAFE_ACTIONS = {"mark_contacted", "undo_mark_contacted"}
 AUTONOMOUS_ACTIONS = {"accept_quote", "cancel_rfq", "withdraw_quote",
                       "create_rfq_from_docs", "submit_quote_from_docs"}
-ALL_ACTIONS = SAFE_ACTIONS | AUTONOMOUS_ACTIONS
+# Admin-only support-ticket actions. Gated on the admin role (admins are already
+# privileged operators); they do NOT require the consumer autonomous-consent flag.
+ADMIN_ACTIONS = {"resolve_ticket", "escalate_ticket", "archive_ticket", "mark_ticket_spam"}
+ALL_ACTIONS = SAFE_ACTIONS | AUTONOMOUS_ACTIONS | ADMIN_ACTIONS
 
 # Explicitly forbidden forever — payments and legal e-signature are never agent-executed.
 FORBIDDEN_ACTIONS = {
@@ -148,7 +151,10 @@ async def execute_action(
                             detail="That action must be completed by you directly; the assistant cannot do payments or NDA signing.")
     if action_type not in ALL_ACTIONS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Action not allowed: {action_type}")
-    if action_type in AUTONOMOUS_ACTIONS and not autonomous_enabled:
+    _is_admin = bool(user and "admin" in (user.roles or []))
+    if action_type in ADMIN_ACTIONS and not _is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required for this action.")
+    if action_type in AUTONOMOUS_ACTIONS and not autonomous_enabled and not _is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="This action requires Autonomous mode, which is off. Enable it (with consent) or do it yourself.")
 
@@ -315,5 +321,52 @@ async def execute_action(
         return {"ok": True, "quote_id": str(quote.id),
                 "message": "I submitted your quote from the document, with the file attached." + note,
                 "link": {"href": f"/provider/rfq/{rfq_id}", "label": "Review the submitted quote"}}
+
+    # ---- ADMIN: support-ticket actions (admin role only) ----
+    if action_type in ("resolve_ticket", "escalate_ticket", "archive_ticket", "mark_ticket_spam"):
+        from sqlalchemy import select
+        from datetime import datetime, timezone
+        from app.models.support import SupportTicket
+        from app.models.enums import SupportTicketStatus
+        from app.services.support_service import _emit_event, escalate_ticket as _escalate
+        ticket_id = params.get("ticket_id")
+        if not ticket_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing ticket_id (open the ticket page).")
+        try:
+            tid = _uuid.UUID(str(ticket_id))
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid ticket id.")
+        ticket = (await db.execute(select(SupportTicket).where(SupportTicket.id == tid))).scalar_one_or_none()
+        if not ticket:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found.")
+        old_status = ticket.status
+
+        if action_type == "resolve_ticket":
+            ticket.status = SupportTicketStatus.RESOLVED.value
+            ticket.resolved_at = datetime.now(timezone.utc)
+            await _emit_event(ticket, "status_change", db, actor_user_id=user.id,
+                              payload={"from": old_status, "to": ticket.status, "via": "ai_assistant"})
+            await db.commit()
+            msg = "Ticket resolved."
+        elif action_type == "archive_ticket":
+            ticket.status = SupportTicketStatus.ARCHIVED.value
+            await _emit_event(ticket, "status_change", db, actor_user_id=user.id,
+                              payload={"from": old_status, "to": ticket.status, "via": "ai_assistant"})
+            await db.commit()
+            msg = "Ticket archived."
+        elif action_type == "mark_ticket_spam":
+            ticket.is_spam = True
+            ticket.status = SupportTicketStatus.SPAM.value
+            await _emit_event(ticket, "spam_flagged", db, actor_user_id=user.id,
+                              payload={"from": old_status, "via": "ai_assistant"})
+            await db.commit()
+            msg = "Ticket marked as spam and closed."
+        else:  # escalate_ticket
+            await _escalate(ticket, (params.get("reason") or "Escalated via AI assistant"), db, actor_user_id=user.id)
+            await db.commit()
+            msg = "Ticket escalated."
+
+        await _audit(db, user, "support_ticket", str(tid), action_type, autonomous_enabled)
+        return {"ok": True, "message": msg, "link": {"href": f"/admin/support/{tid}", "label": "View the ticket"}}
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported action.")

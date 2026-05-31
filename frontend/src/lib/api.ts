@@ -866,7 +866,7 @@ export const helpApi = {
     const r = await apiClient.get<{ markdown: string }>('/help/manual');
     return r.data;
   },
-  action: async (type: string, opts?: { quote_id?: string; rfq_id?: string; attachments?: HelpUpload[]; project_description?: string }): Promise<{ ok: boolean; message: string; link?: { href: string; label: string } | null }> => {
+  action: async (type: string, opts?: { quote_id?: string; rfq_id?: string; attachments?: HelpUpload[]; project_description?: string; ticket_id?: string; page?: string }): Promise<{ ok: boolean; message: string; link?: { href: string; label: string } | null }> => {
     const r = await apiClient.post<{ ok: boolean; message: string; link?: { href: string; label: string } | null }>('/help/action', { type, ...(opts || {}) });
     return r.data;
   },

@@ -30,6 +30,10 @@ proposable_actions:
   - withdraw_quote
   - create_rfq_from_docs
   - submit_quote_from_docs
+  - resolve_ticket
+  - escalate_ticket
+  - archive_ticket
+  - mark_ticket_spam
 
 # Action types that must NEVER be executable, even with autonomous mode + consent.
 forbidden_actions:

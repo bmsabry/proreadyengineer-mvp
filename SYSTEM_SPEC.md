@@ -295,7 +295,8 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    turn and at the executor, so the stop takes effect immediately. **Payments and NDA e-signing are
    NEVER autonomous** — they live in `help_actions.FORBIDDEN_ACTIONS` and are rejected (403) even
    with the flag on; the assistant instead gives full step-by-step guidance (manual §15b/§15c) and
-   the user clicks. See §19 invariant 17.
+   the user clicks. See §19 invariant 17. 
+   **Admin actions (2026-05-31):** when the signed-in user is an ADMIN, the assistant can act on support tickets directly — `resolve_ticket` / `escalate_ticket` / `archive_ticket` / `mark_ticket_spam` (in `help_actions.ADMIN_ACTIONS`). These are gated on the admin ROLE (admins don't need the consumer autonomous-consent flag) and run for admins via `_maybe_autoexecute`. The ticket id comes from the current page path (`/admin/support/<id>`), parsed server-side — the LLM never supplies it. The admin prompt block names the exact on-screen buttons (Resolve/Escalate/Archive/Mark Spam) so guidance is accurate. Payments and NDA signing remain in FORBIDDEN_ACTIONS even for admins.
 
    **Phase 4c DOCUMENT-DRIVEN WORKFLOWS (2026-05-30):** the chat widget has an upload button
    (paperclip). `POST /help/upload` stages a PDF/DOCX/TXT (<=10MB) to S3 under
