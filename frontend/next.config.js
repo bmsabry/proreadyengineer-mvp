@@ -8,6 +8,7 @@ const path = require('path');
 // frame-ancestors 'none' blocks clickjacking.
 const API_ORIGINS = [
   'https://proreadyengineer-api.onrender.com',
+  'https://proreadyengineer-api-staging.onrender.com',
   'https://api.promechdirectory.com',
 ];
 
