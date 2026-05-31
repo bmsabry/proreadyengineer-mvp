@@ -28,6 +28,55 @@ from app.models.support import SupportTicket, SupportTicketEvent, SupportTicketM
 
 logger = logging.getLogger(__name__)
 
+import re as _re
+
+# Patterns that mark the start of QUOTED prior-thread content in an inbound email reply.
+# Everything from the first match onward is the email client re-quoting earlier messages,
+# which we already store as separate thread messages — so we strip it to avoid duplication.
+_QUOTE_MARKERS = [
+    # Gmail / Apple Mail: "On <date>, <name> <email> wrote:"  (allow it to wrap across lines)
+    _re.compile(r"(?is)\n\s*On .{0,400}?\bwrote:\s*\n"),
+    # Outlook / generic original-message separators
+    _re.compile(r"(?im)^\s*-{2,}\s*Original Message\s*-{2,}\s*$"),
+    _re.compile(r"(?im)^\s*_{5,}\s*$"),
+    # Outlook header block start
+    _re.compile(r"(?im)^\s*From:\s.+$\n^\s*Sent:\s.+$"),
+    # "<name> <email> wrote:" on its own (no leading 'On')
+    _re.compile(r"(?im)^\s*.{0,200}?<[^>]+@[^>]+>\s*wrote:\s*$"),
+]
+
+
+def strip_quoted_reply(body: str) -> str:
+    """Return only the NEW text a sender typed, stripping quoted prior-thread content.
+
+    Cuts from the earliest recognized quote marker, and also drops a trailing run of
+    '>'-quoted lines. Conservative: if the result would be empty or far shorter-than-
+    expected (i.e. we likely cut real content), the ORIGINAL body is returned unchanged
+    so a message is never lost.
+    """
+    if not body or not body.strip():
+        return body or ""
+    text = body.replace("\r\n", "\n").replace("\r", "\n")
+
+    cut = len(text)
+    for pat in _QUOTE_MARKERS:
+        m = pat.search(text)
+        if m and m.start() < cut:
+            cut = m.start()
+    candidate = text[:cut]
+
+    # Also trim a trailing block of '>'-prefixed quote lines.
+    lines = candidate.split("\n")
+    while lines and lines[-1].lstrip().startswith(">"):
+        lines.pop()
+    candidate = "\n".join(lines).strip()
+
+    # Safety net: never return empty (or near-empty when the original had real content).
+    if not candidate:
+        return body.strip()
+    return candidate
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -726,6 +775,10 @@ async def find_or_create_ticket_from_inbound(
                 logger.info("[find_or_create_ticket] threaded via subject fallback norm=%r from=%s", norm, from_email)
 
 
+    # Strip quoted prior-thread history from the inbound body so the stored message
+    # contains ONLY the sender's new text (the thread already tracks each message).
+    clean_body_text = strip_quoted_reply(body_text or "")
+
     is_new = ticket is None
     if is_new:
         # Create new ticket
@@ -737,7 +790,7 @@ async def find_or_create_ticket_from_inbound(
             submitter_email=from_email.lower().strip(),
             submitter_name=from_name or None,
             subject=clean_subject or "(no subject)",
-            body=body_text or body_html or "",
+            body=clean_body_text or body_html or "",
             status=SupportTicketStatus.NEW.value,
             source="inbound_email",
             email_message_id=message_id,
@@ -752,7 +805,7 @@ async def find_or_create_ticket_from_inbound(
         ticket_id=ticket.id,
         sender_type="customer",
         sender_name=from_name or from_email,
-        body_text=body_text or "",
+        body_text=clean_body_text or "",
         body_html=body_html or "",
         email_message_id=message_id,
         direction="inbound",

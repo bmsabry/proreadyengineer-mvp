@@ -547,7 +547,7 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   verification, ad approved/rejected, campaign invite.
 - **Failure tracking:** send failures and inbound bounce/complaint webhooks are recorded
   as `EmailFailure` rows and surface in Admin → Debugging (the nav row turns red).
-- All referenced email templates now exist in `app/templates/emails/` (several were
+- **Inbound reply de-duplication (2026-05-31):** `support_service.strip_quoted_reply()` removes quoted prior-thread content (Gmail "On … wrote:", Outlook "-----Original Message-----", `>`-quoted blocks) from an inbound email body at ingest in `find_or_create_ticket_from_inbound`, so each stored `SupportTicketMessage` holds ONLY the sender's new text — the thread already tracks history separately. Safety net: if stripping would empty the message, the original body is kept. Going-forward only (existing rows unchanged). All referenced email templates now exist in `app/templates/emails/` (several were
   historically missing → empty body → Resend 422; all created 2026-05-29). NDA workflow
   notifications in §9 rely on SignWell's own emails, not these.
 
