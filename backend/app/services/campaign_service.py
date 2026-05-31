@@ -38,6 +38,15 @@ def _build_invite_link(token: str) -> str:
     return f"{base}/register?invite={token}&role=provider"
 
 
+def _build_unsubscribe_url(token: str) -> str:
+    """One-click unsubscribe URL handled by the backend (no login required)."""
+    import os
+    api_base = (os.environ.get("API_PUBLIC_URL")
+                or getattr(settings, "API_PUBLIC_URL", None)
+                or "https://proreadyengineer-api.onrender.com")
+    return f"{api_base.rstrip('/')}/api/v1/campaigns/unsubscribe/{token}"
+
+
 def _render_email_body(html_template: str, context: Dict[str, Any]) -> str:
     """Simple template variable substitution for {{variable}} placeholders."""
     result = html_template
@@ -255,6 +264,14 @@ async def send_next_batch(db: AsyncSession, campaign_id: uuid.UUID) -> Dict[str,
         logger.info("Campaign %s completed — all invites processed", campaign_id)
         return {"sent": 0, "failed": 0, "completed": True}
 
+    # Suppression list: any provider who unsubscribed in ANY campaign is never emailed again.
+    suppressed_result = await db.execute(
+        select(ProviderCampaignInvite.provider_id)
+        .where(ProviderCampaignInvite.status == InviteStatus.UNSUBSCRIBED)
+        .distinct()
+    )
+    suppressed_provider_ids = {r[0] for r in suppressed_result.all()}
+
     api_key, from_addr = await _get_resend_config()
     slots_remaining = max(0, campaign.founding_slots_total - campaign.founding_slots_claimed)
 
@@ -268,6 +285,10 @@ async def send_next_batch(db: AsyncSession, campaign_id: uuid.UUID) -> Dict[str,
             if not target_email:
                 invite.status = InviteStatus.BOUNCED
                 failed_count += 1
+                continue
+
+            if invite.provider_id in suppressed_provider_ids:
+                invite.status = InviteStatus.UNSUBSCRIBED
                 continue
 
             invite_link = _build_invite_link(invite.invite_token)
@@ -302,6 +323,20 @@ async def send_next_batch(db: AsyncSession, campaign_id: uuid.UUID) -> Dict[str,
 
             subject = campaign.email_subject or "You're invited to join ProReadyEngineer"
 
+            # Wrap the authored body in the deliverability-safe shell (CAN-SPAM footer +
+            # physical address + unsubscribe) and attach a plain-text alternative.
+            from app.services.campaign_email import (
+                body_to_html, wrap_campaign_email, html_to_text, build_unsubscribe_headers,
+            )
+            unsub_url = _build_unsubscribe_url(invite.invite_token)
+            wrapped_html = wrap_campaign_email(
+                body_to_html(html_body),
+                unsubscribe_url=unsub_url,
+                preheader=subject,
+            )
+            text_body = html_to_text(wrapped_html)
+            unsub_headers = build_unsubscribe_headers(unsub_url, mailto="unsubscribe@promechdirectory.com")
+
             message_id = None
             try:
                 if api_key:
@@ -312,7 +347,9 @@ async def send_next_batch(db: AsyncSession, campaign_id: uuid.UUID) -> Dict[str,
                             "from": from_addr,
                             "to": [target_email],
                             "subject": subject,
-                            "html": html_body,
+                            "html": wrapped_html,
+                            "text": text_body,
+                            "headers": unsub_headers,
                         }
                     )
                     if resp.status_code in (200, 201):

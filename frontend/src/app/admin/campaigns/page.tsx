@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Mail, Play, Pause, BarChart2, Users, Search,
   Download, Eye, RefreshCw, CheckCircle,
-  Loader2, Plus, Zap, ChevronDown, ChevronUp, XCircle, X
+  Loader2, Plus, Zap, ChevronDown, ChevronUp, XCircle, X, Sparkles
 } from 'lucide-react';
 
 type CampaignStatus = 'draft' | 'active' | 'paused' | 'completed' | 'cancelled';
@@ -151,6 +151,8 @@ export default function CampaignsPage() {
   const [fName, setFName] = useState('Provider Founding Member Campaign 2026');
   const [fSubj, setFSubj] = useState('You are invited to join ProMechDirectory - Founding Member Offer');
   const [fBody, setFBody] = useState('');
+  const [aiBrief, setAiBrief] = useState('');
+  const [showAiDraft, setShowAiDraft] = useState(false);
   const [fSlots, setFSlots] = useState(250);
   const [fDays, setFDays] = useState(90);
   const [fBatch, setFBatch] = useState(150);
@@ -286,6 +288,24 @@ export default function CampaignsPage() {
     }
   };
 
+  const doDraftWithAI = async () => {
+    if (!aiBrief.trim()) { flash('Describe what the email should say first.', 'err'); return; }
+    setBusy('draft');
+    try {
+      const d = await apiFetch('/api/v1/admin/campaigns/draft-email', {
+        method: 'POST',
+        body: JSON.stringify({ brief: aiBrief.trim() }),
+      });
+      if (d.subject) setFSubj(d.subject);
+      if (d.body) setFBody(d.body);
+      flash('Draft generated - review and edit before sending.', 'ok');
+    } catch (e) {
+      flash((e as Error).message, 'err');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const doPreview = async () => {
     if (!cam) return;
     setBusy('preview');
@@ -395,6 +415,41 @@ export default function CampaignsPage() {
         {/* Section 1: Email Composer */}
         <SectionCard title="Email Composer" icon={Mail} collapsible defaultOpen>
           <div className="space-y-4">
+            {/* Draft with AI */}
+            <div className="rounded-lg border border-[#0F2B54]/15 bg-[#0F2B54]/[0.03] p-3">
+              <button
+                type="button"
+                onClick={() => setShowAiDraft((v) => !v)}
+                className="flex items-center gap-2 text-sm font-semibold text-[#0F2B54]"
+              >
+                <Sparkles className="h-4 w-4" />
+                Draft with AI
+                {showAiDraft ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+              {showAiDraft && (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-slate-500">
+                    Describe the email in plain language. The AI writes the subject and body;
+                    the system adds the branded shell, footer, physical address and unsubscribe link automatically.
+                  </p>
+                  <textarea
+                    value={aiBrief}
+                    onChange={(e) => setAiBrief(e.target.value)}
+                    rows={3}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20 resize-y"
+                    placeholder="e.g. Invite mechanical-engineering firms to claim a free founding-member profile; emphasize no upfront cost and early-access to RFQs; friendly but professional."
+                  />
+                  <button
+                    onClick={doDraftWithAI}
+                    disabled={busy === 'draft'}
+                    className="flex items-center gap-2 px-4 py-2 bg-[#0F2B54] hover:bg-[#0F2B54]/90 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
+                  >
+                    {busy === 'draft' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    Generate draft
+                  </button>
+                </div>
+              )}
+            </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Subject Line</label>
               <input

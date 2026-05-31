@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -468,3 +468,153 @@ async def preview_email(
         "html_preview": html_body,
         "variables_used": list(context.keys()),
     }
+
+
+# ---------------------------------------------------------------------------
+# AI "Draft with AI" — LLM4 writes the campaign subject + body from a brief.
+# ---------------------------------------------------------------------------
+
+class DraftEmailRequest(BaseModel):
+    brief: str = Field(..., min_length=3, max_length=2000,
+                       description="Plain-language description of what the email should say.")
+    tone: Optional[str] = Field(default="professional and warm")
+
+
+_DRAFT_SYSTEM_PROMPT = (
+    "You are an expert B2B email copywriter for ProMechDirectory, a marketplace that "
+    "connects companies with vetted mechanical-engineering and manufacturing service "
+    "providers (firms). You write SHORT recruitment-invitation emails inviting a "
+    "provider firm to claim a free founding-member profile.\n\n"
+    "Rules:\n"
+    "- Write in plain text (no HTML, no markdown). The system wraps it in branded HTML "
+    "and adds the header, footer, physical address and unsubscribe link automatically — "
+    "so DO NOT write a signature, footer, unsubscribe text, or physical address.\n"
+    "- You MAY use these placeholders, which get filled per recipient: {{firm_name}}, "
+    "{{city}}, {{state}}, {{specialty}}, {{invite_link}}, {{founding_slots_remaining}}.\n"
+    "- Always include a single clear call to action linking to {{invite_link}}.\n"
+    "- Keep the body under ~150 words. Be specific and credible, never spammy. "
+    "Avoid spam-trigger phrasing (ALL CAPS, excessive punctuation!!!, 'act now', '$$$').\n"
+    "- Return STRICT JSON only, no prose around it, shaped exactly as: "
+    '{\"subject\": \"...\", \"body\": \"...\"}. '
+    "Subject under 65 characters, no emoji."
+)
+
+
+@router.post("/admin/campaigns/draft-email")
+async def draft_campaign_email(
+    body: DraftEmailRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+) -> Dict[str, Any]:
+    """Generate a campaign subject + body from a natural-language brief using LLM4."""
+    import json as _json
+    from app.services.help_service import _get_chat_llm_config, _call_llm
+
+    cfg = await _get_chat_llm_config(db)
+    if not cfg.get("api_key"):
+        raise HTTPException(status_code=503,
+                            detail="No chatbot LLM is configured. Set CHAT_LLM_* in Admin → Settings.")
+
+    user_prompt = (
+        f"Tone: {body.tone or 'professional and warm'}.\n"
+        f"Write the invitation email based on this brief:\n{body.brief.strip()}"
+    )
+    result = await _call_llm(
+        cfg,
+        [
+            {"role": "system", "content": _DRAFT_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ],
+        max_tokens=700,
+        temperature=0.6,
+    )
+    if result.get("error"):
+        raise HTTPException(status_code=502, detail=f"Draft failed: {result['error']}")
+
+    reply = (result.get("reply") or "").strip()
+    # Tolerate code-fence wrapping.
+    if reply.startswith("```"):
+        reply = reply.strip("`")
+        if reply.lower().startswith("json"):
+            reply = reply[4:]
+        reply = reply.strip()
+    subject, draft_body = None, None
+    try:
+        parsed = _json.loads(reply)
+        subject = (parsed.get("subject") or "").strip()
+        draft_body = (parsed.get("body") or "").strip()
+    except Exception:
+        # Fallback: treat first line as subject, the rest as body.
+        lines = [ln for ln in reply.splitlines() if ln.strip()]
+        if lines:
+            subject = lines[0][:65]
+            draft_body = "\n".join(lines[1:]).strip() or reply
+    if not subject or not draft_body:
+        raise HTTPException(status_code=502, detail="The model did not return a usable subject and body.")
+
+    return {
+        "subject": subject,
+        "body": draft_body,
+        "model": result.get("model"),
+        "tokens": result.get("total_tokens"),
+    }
+
+
+
+# ---------------------------------------------------------------------------
+# Public unsubscribe (NO auth) — RFC 8058 one-click + browser link.
+# Mounted at /api/v1/campaigns/unsubscribe/{token}.
+# ---------------------------------------------------------------------------
+
+_UNSUB_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Unsubscribed</title></head>
+<body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4f6f9;margin:0;padding:48px 16px;">
+<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:10px;padding:32px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.08)">
+<h1 style="color:#0F2B54;font-size:20px;margin:0 0 12px">{heading}</h1>
+<p style="color:#444;font-size:15px;line-height:1.5;margin:0">{message}</p>
+</div></body></html>"""
+
+
+async def _do_unsubscribe(token: str, db: AsyncSession) -> bool:
+    """Mark the invite (and the provider) as unsubscribed. Idempotent."""
+    result = await db.execute(
+        select(ProviderCampaignInvite).where(ProviderCampaignInvite.invite_token == token)
+    )
+    invite = result.scalar_one_or_none()
+    if invite is None:
+        return False
+    if invite.status != InviteStatus.UNSUBSCRIBED:
+        invite.status = InviteStatus.UNSUBSCRIBED
+        await db.commit()
+    return True
+
+
+@router.post("/campaigns/unsubscribe/{token}")
+async def unsubscribe_one_click(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """RFC 8058 one-click unsubscribe target (called by Gmail/Yahoo via POST). No auth."""
+    found = await _do_unsubscribe(token, db)
+    return {"unsubscribed": found}
+
+
+@router.get("/campaigns/unsubscribe/{token}", response_class=HTMLResponse)
+async def unsubscribe_browser(
+    token: str,
+    db: AsyncSession = Depends(get_db),
+) -> HTMLResponse:
+    """Friendly browser page when a recipient clicks the unsubscribe link. No auth."""
+    found = await _do_unsubscribe(token, db)
+    if found:
+        html = _UNSUB_PAGE.format(
+            heading="You're unsubscribed",
+            message="You won't receive any more invitation emails from ProMechDirectory. You can close this page.",
+        )
+    else:
+        html = _UNSUB_PAGE.format(
+            heading="Link not recognized",
+            message="We couldn't find this subscription. It may have already been removed.",
+        )
+    return HTMLResponse(content=html)

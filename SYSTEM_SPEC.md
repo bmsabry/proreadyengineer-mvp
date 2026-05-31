@@ -550,6 +550,29 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 - **Inbound reply de-duplication (2026-05-31):** `support_service.strip_quoted_reply()` removes quoted prior-thread content (Gmail "On … wrote:", Outlook "-----Original Message-----", `>`-quoted blocks) from an inbound email body at ingest in `find_or_create_ticket_from_inbound`, so each stored `SupportTicketMessage` holds ONLY the sender's new text — the thread already tracks history separately. Safety net: if stripping would empty the message, the original body is kept. Going-forward only (existing rows unchanged). All referenced email templates now exist in `app/templates/emails/` (several were
   historically missing → empty body → Resend 422; all created 2026-05-29). NDA workflow
   notifications in §9 rely on SignWell's own emails, not these.
+- **Provider campaign deliverability (2026-05-31):** the founding-member invite campaign
+  (Admin -> Campaigns) sends bulk email that must clear the 2024->2026 Gmail/Yahoo
+  bulk-sender rules. `app/services/campaign_email.py` owns a deliverability-safe shell:
+  `body_to_html()` (plain text -> safe paragraphs/autolinks; passes existing HTML through),
+  `wrap_campaign_email()` (600px table-based branded shell with `#0F2B54` header + a
+  CAN-SPAM footer carrying the physical address and unsubscribe link),
+  `html_to_text()` (plain-text alternative part), and `build_unsubscribe_headers()`
+  (RFC 8058 `List-Unsubscribe` with both https + mailto, plus
+  `List-Unsubscribe-Post: List-Unsubscribe=One-Click`). `campaign_service.send_next_batch`
+  wraps every authored body in this shell and posts `from/to/subject/html/text/headers`
+  to Resend. **Suppression:** any provider with an `UNSUBSCRIBED` invite in ANY campaign is
+  excluded from future sends; `BOUNCED`/`UNSUBSCRIBED` are never re-emailed.
+- **Public unsubscribe (no auth):** `POST /api/v1/campaigns/unsubscribe/{token}` is the
+  one-click target Gmail/Yahoo call; `GET` returns a friendly HTML page when a recipient
+  clicks the link. Both are idempotent and flip the invite to `UNSUBSCRIBED`.
+- **AI "Draft with AI" (2026-05-31):** `POST /api/v1/admin/campaigns/draft-email` (admin
+  only) takes a plain-language brief and uses LLM4 (`_get_chat_llm_config`/`_call_llm` from
+  `help_service`) to return `{subject, body}` in plain text with `{{firm_name}}` /
+  `{{invite_link}}` etc. placeholders; the system adds the shell/footer/unsubscribe, so the
+  model is instructed NOT to write a signature, footer, or address. Frontend: a "Draft with
+  AI" panel in the Email Composer fills the subject + body fields. External DNS steps
+  (DMARC publish, Postmaster Tools) are the operator's, documented in
+  `EMAIL_DELIVERABILITY_SETUP.md`. Tests: `tests/unit/test_campaign_email.py` (9).
 
 ---
 
