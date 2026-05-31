@@ -788,6 +788,17 @@ as a bug, even if tests pass.
     extended by `invoice.paid` / `subscription.updated` webhooks before the grace window.
 ## 20. Known inconsistencies & landmines (current as of 2026-05-29)
 
+- **`updated_at` migration drift on campaign tables (fixed 2026-05-31):** every model
+  inherits `updated_at` from `Base`, but the hand-written migration that created
+  `provider_campaign_invites` and `founding_access_grants` omitted that column, so any ORM
+  INSERT raised `UndefinedColumnError: column "updated_at" does not exist` — which silently
+  broke **all campaign creation** (the invite-row INSERT). SQLite tests use
+  `Base.metadata.create_all` (always includes `updated_at`), so the drift never showed up in
+  CI. Fixed by migration `u1v2w3x4y5z6` (adds `updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
+  to both tables). **Rule: when adding a hand-written `create_table` migration, include
+  `created_at` AND `updated_at` to match `Base`; or assert model/DB parity against real
+  Postgres, not just create_all.**
+
 Things that look wrong/confusing but are intentional, or are real bugs not yet fixed.
 Documented so they stop costing time. **None of these should be "fixed" by making the
 live behaviour match the stale value** — the live behaviour is correct.
