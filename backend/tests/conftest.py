@@ -162,3 +162,22 @@ async def customer_user(db_session):
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+
+# ---------------------------------------------------------------------------
+# CI hang guard: pytest occasionally finishes the test session but the process
+# does not return because a non-daemon thread or an unclosed async engine keeps
+# the interpreter alive — which left GitHub Actions jobs "in progress" for ~an
+# hour after "N passed" was already printed. Once the session is done and the
+# exit status is known, flush output and hard-exit so the CI step returns
+# immediately. (Safe: this runs only after all tests + reporting are complete.)
+# ---------------------------------------------------------------------------
+def pytest_sessionfinish(session, exitstatus):  # noqa: D401
+    import os as _os
+    import sys as _sys
+    try:
+        _sys.stdout.flush()
+        _sys.stderr.flush()
+    except Exception:
+        pass
+    _os._exit(int(exitstatus))
