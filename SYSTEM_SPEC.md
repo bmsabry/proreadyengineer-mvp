@@ -228,7 +228,18 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    config (takes effect instantly) with a hardcoded STATIC fallback (so it still works mid-deploy
    or with no network); update `LLM_PRICING` in Settings when a vendor changes prices rather than
    web-scraping. Untracked-but-billing services (AWS/Resend/SignWell/DeepInfra) are listed as a
-   reminder to add via `OPERATING_COST_ITEMS`. The search/ranking LLM row is now ALSO
+   reminder to add via `OPERATING_COST_ITEMS`.
+
+   **Bandwidth panel (admin, 2026-05-30):** `/admin/bandwidth` (page) → `GET /admin/bandwidth`
+   pulls CPU, memory, HTTP request volume and latency from the Render Metrics API
+   (`/v1/metrics/{cpu,memory,http_requests,http_latency}`, Bearer `RENDER_API_KEY`,
+   time-series JSON) for the web+API services over a trailing window (6h/24h/3d/7d). Pure logic
+   in `app/services/capacity_advisor.py` (unit-tested): parse_series, summarize (avg/peak/p95 +
+   downsampled sparkline), trend_pct (recent-half vs earlier-half growth), and recommend()
+   which turns PEAK utilization % vs the instance's plan capacity (RENDER_PLANS ladder) + trend
+   into a healthy / watch / scale_now recommendation naming the next Render plan. Frontend draws
+   inline-SVG sparklines (no chart lib). Degrades cleanly when RENDER_API_KEY is unset or the
+   instance is free (Render metrics need a paid plan). The search/ranking LLM row is now ALSO
    actual: `search_service` accumulates `response.usage` tokens across the intent + pass1 +
    pass2 calls into `pipeline_info`, persisted on `search_requests.llm_prompt_tokens/
    llm_completion_tokens/llm_cost_usd` (migration `c9f2a7e54b33`); the panel sums them
@@ -581,7 +592,7 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 - Shared: `/nda/[id]/sign` (customer NDA pay/sign), `/rfqs/[id]/unlock`.
 - Admin (`/admin/*`): `dashboard`, `rfqs`(+`[id]`), `claims`, `providers`, `payments`, `operating-cost`,
   `webhooks`, `campaigns`, `support`(+`[id]`), `ads`, `users`, `data-extraction`,
-  `debugging`, `settings`.
+  `debugging`, `settings`, `operating-cost`, `bandwidth`.
 
 **API client:** `frontend/src/lib/api.ts` — axios instance, `Authorization: Bearer
 <localStorage access_token>` request interceptor, single-flight 401→refresh→retry response

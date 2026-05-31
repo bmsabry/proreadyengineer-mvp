@@ -4240,6 +4240,123 @@ async def admin_spend_render(
         return {'available': False, 'error': str(exc)}
 
 
+@router.get('/admin/bandwidth')
+async def admin_bandwidth(
+    window_hours: int = 24,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(['admin'])),
+) -> Dict[str, Any]:
+    """Performance & capacity panel ("Bandwidth").
+
+    Pulls CPU, memory, HTTP request volume and latency from the Render Metrics API for
+    the web + API services over a trailing window, summarizes/trends them, and emits a
+    plain-language scale recommendation grounded in utilization vs. the current plan.
+    """
+    import time as _time
+    from app.services.config_service import get_runtime_config as _grc
+    from app.services.capacity_advisor import (
+        parse_series, summarize, trend_pct, recommend, RENDER_PLANS, _plan_index,
+    )
+
+    cfg = await _grc(db)
+    render_key = cfg.get('RENDER_API_KEY')
+    if not render_key:
+        return {'available': False, 'error': 'No RENDER_API_KEY configured. Add it in Settings to enable performance monitoring.'}
+
+    try:
+        window_hours = max(1, min(int(window_hours or 24), 168))  # clamp 1h..7d
+    except (ValueError, TypeError):
+        window_hours = 24
+    end_t = int(_time.time())
+    start_t = end_t - window_hours * 3600
+    resolution = 300 if window_hours <= 24 else 900  # 5m for <=1d, 15m otherwise
+    headers = {'Authorization': f'Bearer {render_key}', 'Accept': 'application/json'}
+    base = 'https://api.render.com/v1'
+
+    async def _metric(client, path, resource):
+        params = {'resource': resource, 'startTime': start_t, 'endTime': end_t,
+                  'resolutionSeconds': resolution, 'aggregationMethod': 'AVG'}
+        try:
+            r = await client.get(f'{base}/metrics/{path}', headers=headers, params=params)
+            if r.status_code == 200:
+                return parse_series(r.json())
+        except Exception as exc:
+            logger.info('[bandwidth] metric %s failed for %s: %s', path, resource, exc)
+        return []
+
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            # 1) Discover the web + API services and their plans.
+            svc_resp = await client.get(f'{base}/services?limit=50', headers=headers)
+            if svc_resp.status_code != 200:
+                return {'available': False, 'error': f'Render API returned {svc_resp.status_code} for services list'}
+            services = []
+            for item in svc_resp.json():
+                svc = item.get('service', item)
+                if svc.get('type') not in ('web_service', 'web', 'private_service'):
+                    continue
+                services.append({
+                    'id': svc.get('id'),
+                    'name': svc.get('name'),
+                    'plan': (svc.get('serviceDetails', {}) or {}).get('plan'),
+                })
+
+            results = []
+            for svc in services:
+                rid = svc['id']
+                cpu = await _metric(client, 'cpu', rid)
+                mem = await _metric(client, 'memory', rid)
+                reqs = await _metric(client, 'http_requests', rid)
+                lat = await _metric(client, 'http_latency', rid)
+
+                plan_entry = RENDER_PLANS[_plan_index(svc.get('plan'))]
+                cpu_cap = plan_entry['cpu']            # vCPU
+                ram_cap_bytes = plan_entry['ram_gb'] * (1024 ** 3)
+
+                cpu_sum = summarize(cpu)        # values are vCPU-seconds/sec ~ cores used
+                mem_sum = summarize(mem)        # bytes
+                req_sum = summarize(reqs)       # requests in each bucket
+                lat_sum = summarize(lat)        # ms (or s) latency
+
+                # Utilization % of the instance's capacity (peak-based for headroom).
+                cpu_peak_pct = round((cpu_sum['peak'] / cpu_cap) * 100, 1) if cpu_sum['peak'] is not None and cpu_cap else None
+                mem_peak_pct = round((mem_sum['peak'] / ram_cap_bytes) * 100, 1) if mem_sum['peak'] is not None and ram_cap_bytes else None
+                cpu_tr = trend_pct(cpu)
+
+                rec = recommend(cpu_peak_pct, mem_peak_pct, cpu_tr, svc.get('plan'))
+
+                results.append({
+                    'service': svc['name'],
+                    'plan': svc.get('plan'),
+                    'plan_cpu': cpu_cap,
+                    'plan_ram_gb': plan_entry['ram_gb'],
+                    'cpu': {**cpu_sum, 'peak_pct': cpu_peak_pct, 'trend_pct': cpu_tr},
+                    'memory': {**mem_sum, 'peak_pct': mem_peak_pct,
+                               'peak_gb': round(mem_sum['peak'] / (1024 ** 3), 3) if mem_sum['peak'] is not None else None},
+                    'http_requests': req_sum,
+                    'latency_ms': lat_sum,
+                    'recommendation': rec,
+                })
+
+        # Roll up a single worst-case headline recommendation across services.
+        order = {'scale_now': 3, 'watch': 2, 'healthy': 1, 'unknown': 0}
+        overall = max((r['recommendation'] for r in results),
+                      key=lambda rec: order.get(rec.get('status'), 0), default=None)
+        return {
+            'available': True,
+            'window_hours': window_hours,
+            'resolution_seconds': resolution,
+            'services': results,
+            'overall': overall,
+            'plans': RENDER_PLANS,
+            'notes': ('CPU/memory utilization is peak-based (worst case in the window) to preserve '
+                      'headroom for spikes. Recommendations consider current plan capacity and the '
+                      'load trend. Render metrics require a paid instance.'),
+        }
+    except Exception as exc:
+        return {'available': False, 'error': str(exc)}
+
+
 @router.get('/admin/operating-cost')
 async def admin_operating_cost(
     db: AsyncSession = Depends(get_db),
