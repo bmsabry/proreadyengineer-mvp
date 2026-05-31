@@ -503,9 +503,11 @@ async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSessi
 
 
 async def _s3_upload_bytes(data: bytes, s3_key: str, content_type: str, db: AsyncSession) -> None:
-    """Upload bytes to S3 using the file_service."""
-    from app.services.file_service import upload_file_bytes
-    await upload_file_bytes(data, s3_key, content_type)
+    """Upload bytes to S3 using runtime-config credentials (same path as help uploads)."""
+    from app.services.config_service import get_runtime_config
+    from app.services.file_service import upload_bytes_to_s3_from_config
+    cfg = await get_runtime_config(db)
+    upload_bytes_to_s3_from_config(s3_key, data, cfg, content_type=content_type)
 
 
 async def _sync_nda_signatures(nda: RFQNDA, db: AsyncSession) -> RFQNDA:

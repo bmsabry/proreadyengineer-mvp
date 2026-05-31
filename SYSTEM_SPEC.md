@@ -609,6 +609,9 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 - Uploads via presigned POST (25 MB cap); downloads via presigned GET. RFQ files, quote
   documents (`quote-documents/...`), and signed NDA PDFs (`ndas/{rfq_id}/...`) live in the
   S3 bucket (`promechdirectory-uploads` per `render.yaml`).
+- The fully-signed NDA PDF is downloaded from SignWell on `document_completed` and stored via
+  `nda_service._s3_upload_bytes` → `upload_bytes_to_s3_from_config` (runtime-config creds),
+  written to `nda.signed_pdf_s3_key`. (This path was broken until 2026-06-01 — see §20.)
 - Text extraction supports PDF (PyPDF2), DOCX (python-docx), and plain text.
 
 ---
@@ -879,10 +882,11 @@ live behaviour match the stale value** — the live behaviour is correct.
   Render cron + the in-process asyncio loop; emails send inline. The beat schedule also
   references a nonexistent `app.tasks.maintenance` module. Don't rely on `.delay()`.
 - **In-process dispatch loop** runs ~every 5 min despite a "15 min" comment.
-- **Signed-NDA-PDF S3 upload is broken:** `nda_service._s3_upload_bytes` imports
-  `upload_file_bytes` from `file_service`, which doesn't exist (the real function is
-  `upload_bytes_to_s3`). The error is caught and only logged, so signed PDFs silently fail
-  to store. (Real bug — fix when prioritized.)
+- **Signed-NDA-PDF S3 upload (FIXED 2026-06-01):** `nda_service._s3_upload_bytes` used to
+  import a nonexistent `upload_file_bytes`, so every fully-signed NDA's PDF + audit trail
+  silently failed to store (the error was caught and only logged). Now it uses
+  `get_runtime_config(db)` + `file_service.upload_bytes_to_s3_from_config(s3_key, data, cfg,
+  content_type=...)` — the same runtime-config S3 path as the help-assistant uploads. See §14.
 - **`create_post_acceptance_nda` still pre-fills `template_fields` and uses customer-first
   signer order** (opposite of `add_provider_to_nda`). If that path is exercised, it may hit
   the same "thanks for filling out" issue that was fixed in the provider-first path.
