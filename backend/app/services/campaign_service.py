@@ -100,7 +100,7 @@ async def create_campaign(
                 and_(
                     Provider.id.in_(target_provider_ids),
                     Provider.email_addresses.isnot(None),
-                    func.array_length(Provider.email_addresses, 1) > 0,
+                    func.json_array_length(Provider.email_addresses) > 0,
                 )
             )
         )
@@ -109,7 +109,7 @@ async def create_campaign(
             select(Provider).where(
                 and_(
                     Provider.email_addresses.isnot(None),
-                    func.array_length(Provider.email_addresses, 1) > 0,
+                    func.json_array_length(Provider.email_addresses) > 0,
                 )
             )
         )

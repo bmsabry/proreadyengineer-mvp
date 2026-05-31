@@ -161,3 +161,33 @@ async def test_expire_due_subscriptions(db_session):
     assert s_future.subscription_status == SubscriptionStatus.ACTIVE
     assert s_grace.subscription_status == SubscriptionStatus.ACTIVE
     assert s_null.subscription_status == SubscriptionStatus.ACTIVE
+
+
+@pytest.mark.asyncio
+async def test_create_campaign_all_mode_filters_by_email(db_session):
+    """Regression: 'All Firms' eligibility uses json_array_length (email_addresses is
+    a JSON column, not a PG array). Must not raise and must skip emailless providers."""
+    from app.services.campaign_service import create_campaign
+    from app.models.provider import Provider
+    from app.models.user import User
+    from app.models.campaign import ProviderCampaignInvite
+
+    admin = User(id=uuid.uuid4(), email=f"adm_{uuid.uuid4().hex[:6]}@t.com",
+                 password_hash="x", first_name="A", last_name="D", roles=["admin"])
+    p_with = Provider(name="Has Email", firm_name="Has Email", email_addresses=["a@x.com"])
+    p_without = Provider(name="No Email", firm_name="No Email", email_addresses=[])
+    p_null = Provider(name="Null Email", firm_name="Null Email", email_addresses=None)
+    db_session.add_all([admin, p_with, p_without, p_null])
+    await db_session.commit()
+
+    campaign = await create_campaign(
+        db_session, name="C", email_subject="S", email_body_html="",
+        admin_user=admin, target_provider_ids=[],
+    )
+    invites = (await db_session.execute(
+        select(ProviderCampaignInvite).where(ProviderCampaignInvite.campaign_id == campaign.id)
+    )).scalars().all()
+    targeted = {i.provider_id for i in invites}
+    assert p_with.id in targeted
+    assert p_without.id not in targeted
+    assert p_null.id not in targeted
