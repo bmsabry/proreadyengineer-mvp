@@ -92,7 +92,7 @@ function SearchPageContent() {
     if (!authLoading && !isAuthenticated) {
       const q = searchParams.get('q') || '';
       const next = '/search' + (q ? ('?q=' + encodeURIComponent(q)) : '');
-      router.replace('/auth/login?next=' + encodeURIComponent(next));
+      router.replace('/login?next=' + encodeURIComponent(next));
     }
   }, [authLoading, isAuthenticated, router, searchParams]);
 
@@ -169,7 +169,7 @@ function SearchPageContent() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const handleSearch = async (searchQuery: string) => {
     if (!searchQuery.trim()) return;
-    if (!isAuthenticated) { router.replace('/auth/login?next=' + encodeURIComponent('/search')); return; }
+    if (!isAuthenticated) { router.replace('/login?next=' + encodeURIComponent('/search')); return; }
     setIsLoading(true); setHasSearched(true); setSearchStatus("loading");
     setSearchError(null); setPipelineInfo(null); setShowResults(false);
     startLoadingAnimation();
@@ -230,7 +230,7 @@ function SearchPageContent() {
                 <LogOut className="h-3 w-3" />Sign out
               </Button></>
             ) : (
-              <Link href="/auth/login"><Button variant="outline" size="sm" className="h-8 text-xs border-slate-200">Sign in</Button></Link>
+              <Link href="/login"><Button variant="outline" size="sm" className="h-8 text-xs border-slate-200">Sign in</Button></Link>
             )}
           </div>
         </div>
