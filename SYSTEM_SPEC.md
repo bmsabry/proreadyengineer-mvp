@@ -535,6 +535,26 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   'search_tier_2'])` quota lookup, but it cannot be purchased.
 - **Provider full-profile-edit** — one-time unlock (or included with annual).
 - **Advertisement** — featured-firm / software-provider listings.
+- **Founding-member promo (2026-05-31)** — when a provider accepts a campaign invite at
+  registration, `campaign_service.redeem_campaign_invite` grants a REAL `provider_annual`
+  ($1,000 tier) subscription whose `current_period_end = now + founding_duration_days`
+  (default 90 = 3 months), tagged `provider_name="founding_campaign"` /
+  `external_subscription_id="founding:{campaign_id}"`. It is the full annual tier (free RFQ
+  unlocks + customer-contact visibility), just time-boxed. Wired in the registration
+  endpoint's campaign-invite branch (the campaign token is a RANDOM string, not the JWT
+  invite the RFQ-dispatch flow uses, so it is matched separately). Idempotent; consumes one
+  founding slot; marks the invite `REGISTERED`.
+- **Subscription expiry enforcement (2026-05-31) — CRITICAL, see §19 invariant.** Access
+  gates check ONLY `subscription_status=='active'`; nothing else ends a subscription when
+  its paid period lapses. The daily Celery beat task `maintenance.expire_subscriptions`
+  (`expire-subscriptions`, 24h) is the SOLE enforcement point: it cancels any ACTIVE sub
+  whose `current_period_end < now - 1 day` (grace absorbs recurring-renewal webhook
+  timing), setting status `CANCELLED` + `cancelled_at`. Recurring Stripe subs keep their
+  end date pushed forward by `invoice.paid` / `subscription.updated` webhooks, so only
+  genuinely-lapsed ones are caught; one-time annual ($1,000) and founding promos (which
+  never renew) end exactly on schedule. NULL end dates are skipped. Testable helper:
+  `maintenance.expire_due_subscriptions(db, now=, grace=)`. Tests:
+  `tests/unit/test_subscription_timing.py`.
 
 ---
 
@@ -756,6 +776,16 @@ as a bug, even if tests pass.
     the human clicks. All autonomous actions re-check ownership and audit-log. The autonomous
     allowlist (`accept_quote`/`cancel_rfq`/`withdraw_quote` + safe mark/undo) is a deliberate
     security decision; do not add money or signature actions to it.
+18. **Every paid subscription must END as advertised, and the daily `expire_subscriptions`
+    job is the ONLY thing that enforces it.** Access gates check ONLY
+    `subscription_status=='active'` — they never look at `current_period_end`. So a sub left
+    ACTIVE past its period would grant access forever (this was a real latent leak: one-time
+    `provider_annual` and the founding promo never renew, so nothing else ends them). The
+    `maintenance.expire_subscriptions` beat task (daily) cancels ACTIVE subs whose
+    `current_period_end < now - 1 day`. Do NOT remove this job, do NOT make gates ignore the
+    cancel, and when creating any non-Stripe (free/promo) subscription you MUST set a real
+    `current_period_end` so it expires. Recurring Stripe subs are safe — their end date is
+    extended by `invoice.paid` / `subscription.updated` webhooks before the grace window.
 ## 20. Known inconsistencies & landmines (current as of 2026-05-29)
 
 Things that look wrong/confusing but are intentional, or are real bugs not yet fixed.

@@ -161,6 +161,67 @@ async def register(
 
 
     # ---------------------------------------------------------------
+    # Campaign founding-invite path. The campaign emails carry a RANDOM
+    # per-invite token (not a JWT), so the JWT logic above won't match it.
+    # Redeem it here: this grants the provider the $1000 PROVIDER_ANNUAL tier
+    # for the campaign's founding_duration_days (the 3-month promo) and links
+    # the account. Safe + idempotent.
+    # ---------------------------------------------------------------
+    if not has_valid_invite and getattr(data, "invite_token", None):
+        import logging as _logc
+        _clog = _logc.getLogger(__name__)
+        try:
+            from app.services.campaign_service import redeem_campaign_invite
+            from app.models.provider import (
+                ProviderMembership as _CMbr,
+                MembershipRole as _CRole,
+                MembershipStatus as _CMStat,
+            )
+            from sqlalchemy import select as _csel
+
+            camp_provider_id = await redeem_campaign_invite(
+                db, token=data.invite_token, user_id=user.id
+            )
+            if camp_provider_id is not None:
+                has_valid_invite = True
+                try:
+                    user.linked_provider_id = camp_provider_id
+                except Exception as _col_err:
+                    _clog.warning("campaign invite: could not set linked_provider_id: %s", _col_err)
+                existing_m = (
+                    await db.execute(
+                        _csel(_CMbr).where(
+                            _CMbr.user_id == user.id,
+                            _CMbr.provider_id == camp_provider_id,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if not existing_m:
+                    db.add(_CMbr(
+                        provider_id=camp_provider_id,
+                        user_id=user.id,
+                        membership_role=_CRole.OWNER,
+                        status=_CMStat.ACTIVE,
+                        created_by=user.id,
+                        invite_email=user.email,
+                    ))
+                if "provider" not in (user.roles or []):
+                    user.roles = list(user.roles or []) + ["provider"]
+                # Came from an invite email → auto-verify.
+                user.email_verified = True
+                user.email_verify_token_hash = None
+                user.email_verify_token_expires_at = None
+                await db.commit()
+                await db.refresh(user)
+                _clog.info(
+                    "Campaign founding invite redeemed: user=%s provider=%s ($1000 tier promo)",
+                    user.email, camp_provider_id,
+                )
+        except Exception as _camp_err:
+            _clog.error("CAMPAIGN INVITE redemption failed for %s: %s", user.email, _camp_err, exc_info=True)
+            # Non-fatal: registration still succeeds.
+
+    # ---------------------------------------------------------------
     # Directory self-claim path (no invite_token, but provider_id was
     # sent from the register form after the user searched-and-selected
     # their firm). Link the user to that provider ONLY if the register

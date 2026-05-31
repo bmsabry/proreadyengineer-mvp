@@ -16,7 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.campaign import FoundingAccessGrant, ProviderCampaign, ProviderCampaignInvite
-from app.models.enums import CampaignStatus, InviteStatus
+from app.models.enums import CampaignStatus, InviteStatus, SubscriptionStatus, SubscriptionType
+from app.models.payment import Subscription
 from app.models.provider import Provider
 from app.models.user import User
 
@@ -489,6 +490,101 @@ async def grant_founding_access(
         campaign.founding_slots_claimed, campaign.founding_slots_total,
     )
     return grant
+
+
+FOUNDING_SUBSCRIPTION_MARKER = "founding_campaign"
+
+
+async def redeem_campaign_invite(
+    db: AsyncSession,
+    *,
+    token: str,
+    user_id: uuid.UUID,
+) -> Optional[int]:
+    """Redeem a campaign invite token at registration time.
+
+    Looks the random per-invite token up in ``provider_campaign_invites``. If it
+    belongs to a real campaign invite, this atomically:
+      * locks the campaign row, checks founding-slot availability,
+      * grants the provider a REAL PROVIDER_ANNUAL ($1000 tier) subscription whose
+        ``current_period_end`` is ``now + founding_duration_days`` (the 3-month promo),
+        tagged with provider_name = FOUNDING_SUBSCRIPTION_MARKER so the daily expiry
+        job cancels it exactly at the end date,
+      * marks the invite REGISTERED and increments the slot counter.
+
+    Idempotent: re-redeeming an already-REGISTERED invite (or a provider who already
+    has an active founding subscription) does not double-grant or double-count.
+
+    Returns the linked provider_id, or ``None`` if the token is not a campaign invite.
+    """
+    invite_result = await db.execute(
+        select(ProviderCampaignInvite).where(
+            ProviderCampaignInvite.invite_token == token
+        )
+    )
+    invite = invite_result.scalar_one_or_none()
+    if invite is None:
+        return None  # not a campaign token (caller falls back to other paths)
+
+    provider_id = invite.provider_id
+    campaign_id = invite.campaign_id
+
+    # Idempotency: already redeemed → just return the provider link.
+    if invite.status == InviteStatus.REGISTERED:
+        return provider_id
+
+    # Lock the campaign row for an atomic slot check + increment.
+    camp_result = await db.execute(
+        select(ProviderCampaign)
+        .where(ProviderCampaign.id == campaign_id)
+        .with_for_update()
+    )
+    campaign = camp_result.scalar_one_or_none()
+    if campaign is None:
+        return provider_id  # invite orphaned; still link the provider
+
+    # Only consume a slot if one is available; if exhausted, still link the
+    # account but do not grant the promo subscription.
+    slots_available = campaign.founding_slots_claimed < campaign.founding_slots_total
+
+    # Create the promo PROVIDER_ANNUAL subscription (idempotent).
+    existing_sub = await db.execute(
+        select(Subscription).where(
+            Subscription.provider_id == provider_id,
+            Subscription.subscription_type == SubscriptionType.PROVIDER_ANNUAL,
+            Subscription.subscription_status == SubscriptionStatus.ACTIVE,
+        )
+    )
+    has_active_annual = existing_sub.scalar_one_or_none() is not None
+
+    if slots_available and not has_active_annual:
+        now = datetime.now(timezone.utc)
+        period_days = campaign.founding_duration_days or 90
+        db.add(Subscription(
+            provider_id=provider_id,
+            user_id=user_id,
+            provider_name=FOUNDING_SUBSCRIPTION_MARKER,
+            external_subscription_id=f"founding:{campaign_id}",
+            subscription_type=SubscriptionType.PROVIDER_ANNUAL,
+            subscription_status=SubscriptionStatus.ACTIVE,
+            current_period_start=now,
+            current_period_end=now + timedelta(days=period_days),
+        ))
+        campaign.founding_slots_claimed += 1
+        campaign.total_registered = (campaign.total_registered or 0) + 1
+        campaign.updated_at = now
+        logger.info(
+            "Founding promo: provider=%s user=%s campaign=%s tier=PROVIDER_ANNUAL days=%d slot=%d/%d",
+            provider_id, user_id, campaign_id, period_days,
+            campaign.founding_slots_claimed, campaign.founding_slots_total,
+        )
+
+    # Mark the invite redeemed regardless (links the account to the campaign).
+    invite.status = InviteStatus.REGISTERED
+    invite.registered_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    return provider_id
 
 
 async def check_founding_access(db: AsyncSession, *, provider_id: int) -> bool:

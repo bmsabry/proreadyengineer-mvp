@@ -12,6 +12,7 @@ celery_app = Celery(
         "app.tasks.email_tasks",
         "app.tasks.search_tasks",
         "app.tasks.rfq_tasks",
+        "app.tasks.maintenance",
     ],
 )
 
@@ -58,6 +59,10 @@ celery_app.conf.beat_schedule = {
     "check-and-dispatch-rfqs": {
         "task": "app.tasks.rfq_tasks.check_and_dispatch_rfqs_task",
         "schedule": 900.0,  # Poll every 15 minutes; interval logic is inside the task
+    },
+    "expire-subscriptions": {
+        "task": "app.tasks.maintenance.expire_subscriptions",
+        "schedule": 86400.0,  # Daily: end every tier as advertised (annual/monthly/ad/founding)
     },
 }
 
