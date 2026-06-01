@@ -94,6 +94,9 @@ _DELEGATE_PREFIX = "DELEGATE:"
 
 _PROVIDER_PROFILE_COACH = (
     "PROVIDER PROFILE \u2014 HELP THEM GET MATCHED:\n"
+    "- If the account section above includes the user's FIRM PROFILE snapshot, assess completeness "
+    "SPECIFICALLY from it: say roughly how complete it is and name the exact empty/thin fields and "
+    "what to add \u2014 do not say you cannot see their fields, and do not give only generic guidance.\n"
     "- Providers receive RFQs based on how well their profile reflects what they actually do. The "
     "more SPECIFIC and COMPLETE their profile, the more \u2014 and more relevant \u2014 RFQs reach "
     "them. Frame it exactly that way. NEVER explain or speculate about HOW the matching/ranking works "
