@@ -502,26 +502,119 @@ async def cancel_subscription(
     sub = result.scalar_one_or_none()
     if not sub:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active subscription found")
-    if not sub.external_subscription_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Subscription has no Stripe ID")
 
+    from datetime import timedelta as _td
+    from app.models.payment import PaymentAttempt as _PA
+    from app.models.enums import PaymentStatus as _PS, SubscriptionStatus as _SS, PaymentPurpose as _PP
+
+    def _aware(dt):
+        if dt is None:
+            return None
+        return dt if getattr(dt, "tzinfo", None) else dt.replace(tzinfo=timezone.utc)
+
+    now_utc = datetime.now(timezone.utc)
+    p_start = _aware(sub.current_period_start)
+    p_end = _aware(sub.current_period_end)
+
+    # Latest completed subscription charge for this user — used to refund + as a fallback
+    # for the period start / interval when the Subscription period fields are not populated.
+    ref_pa = (await db.execute(
+        _sel(_PA)
+        .where(
+            _PA.initiated_by_user_id == current_user.id,
+            _PA.payment_status == _PS.COMPLETED,
+            _PA.purpose.in_([_PP.SEARCH_SUBSCRIPTION, _PP.PROVIDER_ANNUAL_SUBSCRIPTION]),
+        )
+        .order_by(_PA.confirmed_at.desc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    # Refund window: 5 days for monthly, 14 for yearly. Prefer the period length; fall back
+    # to the charge amount (cents): <= $60 => monthly. Default 14 if nothing is known.
+    window_days = None
+    if p_start and p_end:
+        window_days = 5 if (p_end - p_start).days <= 60 else 14
+    if window_days is None and ref_pa is not None:
+        try:
+            window_days = 5 if float(ref_pa.amount) <= 6000 else 14
+        except (TypeError, ValueError):
+            window_days = None
+    if p_start is None and ref_pa is not None and ref_pa.confirmed_at:
+        p_start = _aware(ref_pa.confirmed_at)
+    if window_days is None:
+        window_days = 14
+    within_window = bool(p_start and now_utc <= p_start + _td(days=window_days))
+
+    is_stripe_sub = bool(sub.external_subscription_id and str(sub.external_subscription_id).startswith("sub_"))
+
+    # Free / promo subscription (e.g. founding) — no money to move; downgrade immediately.
+    if not is_stripe_sub:
+        sub.subscription_status = _SS.CANCELLED
+        sub.cancelled_at = datetime.utcnow()
+        await db.commit()
+        return {"success": True, "refunded": False, "immediate": True,
+                "message": "Your subscription was cancelled."}
+
+    # Within the refund window -> refund the latest charge + cancel immediately + downgrade now.
+    if within_window:
+        refunded = False
+        refund_error = None
+        try:
+            stripe_sub = await asyncio.to_thread(
+                _stripe.Subscription.retrieve, sub.external_subscription_id,
+                expand=["latest_invoice.payment_intent"],
+            )
+            li = getattr(stripe_sub, "latest_invoice", None)
+            pi_obj = getattr(li, "payment_intent", None) if li else None
+            pi = (pi_obj.id if hasattr(pi_obj, "id") else pi_obj) if pi_obj else None
+            if not pi and ref_pa is not None:
+                pi = ref_pa.external_payment_id
+            if pi:
+                await asyncio.to_thread(
+                    _stripe.Refund.create, payment_intent=pi, reason="requested_by_customer",
+                    metadata={"reason": "in_app_cancel_within_window", "user_id": str(current_user.id)},
+                )
+                refunded = True
+                _pa = (await db.execute(_sel(_PA).where(_PA.external_payment_id == pi))).scalar_one_or_none()
+                if _pa is not None and _pa.payment_status != _PS.REFUNDED:
+                    _pa.payment_status = _PS.REFUNDED
+            else:
+                refund_error = "No charge found to refund."
+        except Exception as exc:
+            refund_error = str(exc)
+            logger.error("cancel within-window refund failed (user=%s sub=%s): %s",
+                         current_user.id, sub.external_subscription_id, exc)
+        # Cancel the Stripe subscription immediately (prefer .cancel, fall back to .delete).
+        try:
+            _cancel_fn = getattr(_stripe.Subscription, "cancel", None) or _stripe.Subscription.delete
+            await asyncio.to_thread(_cancel_fn, sub.external_subscription_id)
+        except Exception as exc:
+            logger.warning("immediate Stripe cancel failed (sub=%s): %s", sub.external_subscription_id, exc)
+        sub.subscription_status = _SS.CANCELLED
+        sub.cancelled_at = datetime.utcnow()
+        await db.commit()
+        msg = ("Your subscription was cancelled and your payment refunded. Access has ended."
+               if refunded else
+               "Your subscription was cancelled. The automatic refund didn't go through; our team will review it.")
+        return {"success": True, "refunded": refunded, "immediate": True,
+                "refund_error": refund_error, "message": msg}
+
+    # Outside the window -> cancel at period end (keep access to period end, no refund).
     stripe_sub = await asyncio.to_thread(
         _stripe.Subscription.modify,
         sub.external_subscription_id,
         cancel_at_period_end=True,
     )
-
     cancel_at_ts = getattr(stripe_sub, "cancel_at", None)
-    cancel_at_dt = (
-        datetime.fromtimestamp(cancel_at_ts, tz=timezone.utc) if cancel_at_ts else None
-    )
-
+    cancel_at_dt = datetime.fromtimestamp(cancel_at_ts, tz=timezone.utc) if cancel_at_ts else p_end
     sub.cancel_at = cancel_at_dt
     await db.commit()
-
     return {
         "success": True,
+        "refunded": False,
+        "immediate": False,
         "cancel_at": cancel_at_dt.isoformat() if cancel_at_dt else None,
+        "message": "Your subscription won't renew. You keep full access until the end of your paid period.",
     }
 
 

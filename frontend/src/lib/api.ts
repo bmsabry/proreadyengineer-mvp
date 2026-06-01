@@ -499,7 +499,7 @@ const billing = {
       count: number;
     }>('/billing/user-subscriptions'),
   cancelSubscription: (subscriptionType: string) =>
-    apiClient.post<{ success: boolean; cancel_at: string | null }>('/billing/cancel-subscription', { subscription_type: subscriptionType }),
+    apiClient.post<{ success: boolean; cancel_at: string | null; refunded?: boolean; immediate?: boolean; message?: string; refund_error?: string | null }>('/billing/cancel-subscription', { subscription_type: subscriptionType }),
   reactivateSubscription: (subscriptionType: string) =>
     apiClient.post<{ success: boolean }>('/billing/reactivate-subscription', { subscription_type: subscriptionType }),
   cancelUserSubscriptionById: (id: string) =>
