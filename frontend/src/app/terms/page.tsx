@@ -54,6 +54,18 @@ export default function TermsPage() {
             </p>
           </Section>
 
+          <Section title="Payments, Subscriptions, and Refunds">
+            <p className="leading-relaxed">
+              Paid plans are billed through Stripe. <strong>Annual</strong> subscriptions are refundable within <strong>14 days</strong> of the payment date; after 14 days they are non-refundable and your subscription remains active until the end of the paid annual period. <strong>Monthly</strong> subscriptions are refundable within <strong>5 days</strong> of the payment date; after 5 days they are non-refundable and your subscription remains active until the end of the paid monthly period.
+            </p>
+            <p className="leading-relaxed">
+              One-time fees — including RFQ unlock fees, NDA handling fees, and the provider profile-edit unlock — are <strong>non-refundable</strong> once paid, as they pay for a service delivered immediately.
+            </p>
+            <p className="leading-relaxed">
+              You may cancel a subscription at any time to stop future renewals; outside the refund windows above, your access continues until the end of the period you have already paid for. By completing a payment you acknowledge and agree to this refund policy.
+            </p>
+          </Section>
+
           <Section title="2. Description of Services">
             <p className="leading-relaxed">
               ProMechDirectory is a B2B engineering services marketplace connecting customers
