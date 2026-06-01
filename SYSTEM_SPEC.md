@@ -7,7 +7,7 @@
 > `HANDOFF.md`, `DEVELOPMENT_HISTORY.md`, `api_contract_v1.md`, or older notes, **this
 > file wins.**
 >
-> Last verified against the code on **2026-05-29** (branch `main`). Section §20 lists
+> Last verified against the code on **2026-06-01** (branch `main`). Section §20 lists
 > known inconsistencies between the live behaviour and stale constants/comments — read
 > it before trusting any number you find inline in the code.
 
@@ -23,10 +23,12 @@
 3. **One source of truth per concept.** This project has been burned by duplicated /
    half-migrated logic. Don't add a second NDA model, a second dispatch trigger, or a
    parallel "notifications" mechanism. Extend the existing one.
-4. **Deploy flow:** push to `main` on `github.com/bmsabry/proreadyengineer-mvp` → Render
-   auto-deploys the `proreadyengineer-api` and `proreadyengineer-web` services. There is
-   no separate staging. CI (`.github/workflows/ci.yml`) runs the backend unit tests on
-   every push/PR; a red run is a real regression.
+4. **Two environments + protected `main` (since 2026-05-31).** There are now TWO long-lived
+   environments: **production** (branch `main`, served at **https://www.promechdirectory.com**,
+   LIVE Stripe) and **staging** (branch `staging`, the `*-staging` Render services, TEST
+   Stripe, its own DB). `main` is **branch-protected** — never push directly; land every
+   change via a PR that passes the `backend-tests` check, then Render auto-deploys production.
+   Push to `staging` to deploy the staging copy. **Never test on production.** Full detail in §18.
 5. **Secrets** live in the Render dashboard (write-only) and in `system_config` (DB,
    editable via Admin → Settings). They are NOT in the repo. See §17.
 
@@ -59,13 +61,19 @@ subscriptions, customer search subscriptions, and advertising. See §3.
   `sonner` toasts, axios API client.
 - **DB:** PostgreSQL 15 + **pgvector** (provider embeddings). SQLite is used only for the
   unit-test suite.
-- **Hosting:** Render, defined in `render.yaml`. Services: `proreadyengineer-api`
-  (backend), `proreadyengineer-web` (frontend), `proreadyengineer-redis`,
-  `proreadyengineer-db`, and the `proreadyengineer-rfq-cron` cron job.
-- **External services:** DeepInfra (AI, via the `OPENAI_*` settings), Stripe (live payment
-  processor), PayPal (sandbox, **not configured** — effectively unused), SignWell (NDA
-  e-signature — the API-key env var is named `SIGNREQUEST_API_KEY`/`SIGNWELL_API_KEY` for
-  historical reasons), Resend (email), AWS S3 (file storage).
+- **Hosting:** Render (Oregon/US-West), defined in `render.yaml`. **TWO environments**, each
+  with its own services + Postgres + Git branch (§18): **production** (`proreadyengineer-api`,
+  `proreadyengineer-web`, `proreadyengineer-db`, branch `main`) and **staging**
+  (`proreadyengineer-api-staging`, `proreadyengineer-web-staging`, `proreadyengineer-db-staging`,
+  branch `staging`). Plus `proreadyengineer-redis` and the `proreadyengineer-rfq-cron` cron job.
+- **Live (production):** **https://www.promechdirectory.com** (custom domain via Cloudflare DNS
+  → Render; TLS auto-issued). API at `proreadyengineer-api.onrender.com`. Staging web:
+  `proreadyengineer-web-staging.onrender.com` (TEST Stripe; meant to be password-walled).
+- **External services:** DeepInfra (AI, via the `OPENAI_*` settings), **Stripe — LIVE in
+  production since 2026-06-01** (test keys in staging; hosted Checkout, PCI SAQ-A), PayPal
+  (sandbox, **not configured** — effectively unused), SignWell (NDA e-signature — the API-key
+  env var is named `SIGNREQUEST_API_KEY`/`SIGNWELL_API_KEY` for historical reasons), Resend
+  (email), AWS S3 (file storage).
 
 Brand naming is mixed in the code ("ProReadyEngineer", "ProMechDirectory",
 `@promechdirectory.com` email). They refer to the same product.
@@ -601,6 +609,9 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 - Uploads via presigned POST (25 MB cap); downloads via presigned GET. RFQ files, quote
   documents (`quote-documents/...`), and signed NDA PDFs (`ndas/{rfq_id}/...`) live in the
   S3 bucket (`promechdirectory-uploads` per `render.yaml`).
+- The fully-signed NDA PDF is downloaded from SignWell on `document_completed` and stored via
+  `nda_service._s3_upload_bytes` → `upload_bytes_to_s3_from_config` (runtime-config creds),
+  written to `nda.signed_pdf_s3_key`. (This path was broken until 2026-06-01 — see §20.)
 - Text extraction supports PDF (PyPDF2), DOCX (python-docx), and plain text.
 
 ---
@@ -637,6 +648,10 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 - Admin (`/admin/*`): `dashboard`, `rfqs`(+`[id]`), `claims`, `providers`, `payments`, `operating-cost`,
   `webhooks`, `campaigns`, `support`(+`[id]`), `ads`, `users`, `data-extraction`,
   `debugging`, `settings`, `operating-cost`, `bandwidth`.
+  The **Debugging** page also hosts an **Email Authentication** panel
+  (`GET /admin/debug/email-auth`): a live SPF/DKIM/DMARC posture check over DNS-over-HTTPS
+  (`app/services/email_auth.py`, pure evaluators unit-tested in `tests/unit/test_email_auth.py`),
+  showing the current DMARC policy + guidance. Read-only; needs no DMARC-report mailbox access.
 
 **API client:** `frontend/src/lib/api.ts` — axios instance, `Authorization: Bearer
 <localStorage access_token>` request interceptor, single-flight 401→refresh→retry response
@@ -697,16 +712,49 @@ refresh-retry) — see §20.
 
 ## 18. Deploy & CI
 
-- `render.yaml`: `proreadyengineer-api` (build `pip install -r requirements.txt`; start
-  `alembic upgrade head && uvicorn main:app`), `proreadyengineer-web`,
-  `proreadyengineer-redis`, `proreadyengineer-db`, and `proreadyengineer-rfq-cron`
-  (`*/15 * * * *` → POST the dispatch endpoint).
-- **Deploy:** push to `main` → Render auto-deploys api + web.
-- **CI:** `.github/workflows/ci.yml` runs `pytest tests/unit` on push/PR (SQLite-backed,
-  no DB service). Covers NDA dispatch (incl. the stuck-RFQ regression + mutual-NDA webhook),
-  auth, payment idempotency keys, and search-quota constants. Legacy suites
-  (`test_payment_service`, `test_file_service`, `test_search_service`, `test_rfq_service`,
-  `test_auth_service`) are **quarantined** (skipped) pending rewrite against the current API.
+**Two environments, two branches.** Each has its own Render services and its own Postgres DB:
+
+| Environment | Branch | Web URL | API service | DB | Stripe |
+|---|---|---|---|---|---|
+| **Production** | `main` (protected) | https://www.promechdirectory.com | `proreadyengineer-api` | `proreadyengineer-db` | **LIVE** |
+| **Staging** | `staging` | `proreadyengineer-web-staging.onrender.com` (password-walled) | `proreadyengineer-api-staging` | `proreadyengineer-db-staging` (isolated; seeded copy of the ~4,759 provider rows incl. embeddings, with `claimed_by_user_id`/`claimed_at` nulled) | test |
+
+- `render.yaml` (production): `proreadyengineer-api` (build `pip install -r requirements.txt`;
+  start `alembic upgrade head && uvicorn main:app`), `proreadyengineer-web`,
+  `proreadyengineer-redis`, `proreadyengineer-db`, `proreadyengineer-rfq-cron`
+  (`*/15 * * * *` → POST the dispatch endpoint). Prod API + web are on the **Starter**
+  (always-on) tier.
+- **Change flow:** branch from `main` → commit → **open a PR into `main`**. Merge →
+  Render auto-deploys the affected production service(s). Pushing to `staging` auto-deploys
+  the `-staging` services. **`main` is branch-protected**: PR required, force-push/delete
+  blocked, the `backend-tests` check must be green (§19.16).
+- **CI:** `.github/workflows/ci.yml` runs on push/PR to **both `main` and `staging`**. The
+  required check is **`backend-tests`** — `pytest tests/unit` (SQLite-backed, no DB service)
+  — plus the AI golden evals. Covers NDA dispatch (incl. the stuck-RFQ regression +
+  mutual-NDA webhook), auth, payment idempotency keys, and search-quota constants. Legacy
+  suites (`test_payment_service`, `test_file_service`, `test_search_service`,
+  `test_rfq_service`, `test_auth_service`) are **quarantined** (skipped) pending rewrite.
+
+**Build pins / gotchas (also §20):**
+- **`PYTHON_VERSION=3.11.0`** is required on every Python service — Render otherwise defaults
+  to 3.14, which fails the `pydantic-core` build (`metadata-generation-failed`).
+- `NEXT_PUBLIC_*` (incl. the API URL + Stripe publishable key) are **baked at frontend build
+  time** → a frontend env change needs a rebuild. Backend integration keys are read at
+  runtime via `config_service`, so changing them in admin Settings only needs a redeploy/restart.
+- The frontend **CSP `connect-src` is a hard-coded `API_ORIGINS` array** in
+  `frontend/next.config.js` (NOT an env var). Any API origin the browser calls (prod API,
+  staging API, a future `api.promechdirectory.com`) MUST be listed there, or the fetch is
+  CSP-blocked and surfaces as a generic "Network Error."
+- Staging web build/start: `npm install --legacy-peer-deps && npm run build` /
+  `npx next start -p $PORT`.
+
+**DNS / domains / TLS:** `promechdirectory.com` DNS is in **Cloudflare** (DNS-only / grey
+cloud so Render can issue+serve TLS): `www` → CNAME → `proreadyengineer-web.onrender.com`;
+apex `@` → A → `216.24.57.1` (redirects to `www`). `www.promechdirectory.com` is a custom
+domain on the prod web service (Render auto-issues TLS). Email DNS (MX/SPF/DKIM/DMARC) is
+separate and unaffected. **Optional next step:** move the API to `api.promechdirectory.com`
+(same-site cookies → `SameSite=Lax`, closes the §22 medium findings) — needs a frontend
+rebuild (`NEXT_PUBLIC_API_URL`) + an added CSP origin.
 
 ---
 
@@ -786,7 +834,19 @@ as a bug, even if tests pass.
     cancel, and when creating any non-Stripe (free/promo) subscription you MUST set a real
     `current_period_end` so it expires. Recurring Stripe subs are safe — their end date is
     extended by `invoice.paid` / `subscription.updated` webhooks before the grace window.
-## 20. Known inconsistencies & landmines (current as of 2026-05-29)
+19. **`main` is branch-protected; staging is isolated.** Never push directly to `main` (PR +
+    `backend-tests` green only). Staging has its OWN DB and TEST keys — never point staging at
+    the production DB and never put LIVE keys in staging. (§18, §22)
+20. **Production = LIVE Stripe; staging = TEST Stripe — don't cross them.** Live charges are
+    gated by the live secret key + live webhook signing secret, NOT the publishable key
+    (hosted Checkout → the publishable key is vestigial here). If the production API host
+    changes, re-register the live Stripe webhook and update its signing secret in admin
+    Settings, or fulfillment silently stops. (§11, §22)
+21. **Frontend security headers must stay.** `frontend/next.config.js` sends CSP (incl.
+    `frame-ancestors 'none'`), HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy.
+    Removing them re-opens the gap closed at go-live. (§22)
+
+## 20. Known inconsistencies & landmines (current as of 2026-06-01)
 
 - **`updated_at` migration drift on campaign tables (fixed 2026-05-31):** every model
   inherits `updated_at` from `Base`, but the hand-written migration that created
@@ -826,10 +886,11 @@ live behaviour match the stale value** — the live behaviour is correct.
   Render cron + the in-process asyncio loop; emails send inline. The beat schedule also
   references a nonexistent `app.tasks.maintenance` module. Don't rely on `.delay()`.
 - **In-process dispatch loop** runs ~every 5 min despite a "15 min" comment.
-- **Signed-NDA-PDF S3 upload is broken:** `nda_service._s3_upload_bytes` imports
-  `upload_file_bytes` from `file_service`, which doesn't exist (the real function is
-  `upload_bytes_to_s3`). The error is caught and only logged, so signed PDFs silently fail
-  to store. (Real bug — fix when prioritized.)
+- **Signed-NDA-PDF S3 upload (FIXED 2026-06-01):** `nda_service._s3_upload_bytes` used to
+  import a nonexistent `upload_file_bytes`, so every fully-signed NDA's PDF + audit trail
+  silently failed to store (the error was caught and only logged). Now it uses
+  `get_runtime_config(db)` + `file_service.upload_bytes_to_s3_from_config(s3_key, data, cfg,
+  content_type=...)` — the same runtime-config S3 path as the help-assistant uploads. See §14.
 - **`create_post_acceptance_nda` still pre-fills `template_fields` and uses customer-first
   signer order** (opposite of `add_provider_to_nda`). If that path is exercised, it may hit
   the same "thanks for filling out" issue that was fixed in the provider-first path.
@@ -839,6 +900,20 @@ live behaviour match the stale value** — the live behaviour is correct.
 - **Frontend:** two near-duplicate API modules (`providerRFQ` vs `providerRfqAccess`);
   several pages use raw `fetch` and bypass the 401→refresh interceptor; auth tokens are in
   `localStorage` (httpOnly-cookie migration is tracked backlog).
+- **`/auth/login` is NOT a frontend route — `/login` is.** The real Next.js route is `/login`.
+  `frontend/src/lib/api.ts` calls the *backend* endpoint `/auth/login` (correct — leave it),
+  but any frontend `router.push`/`<Link href>` must use `/login`. A historical bug pointed the
+  Search CTA + customer-quotes link at `/auth/login` → 404 dead-end (fixed 2026-05-31).
+- **Render defaults to Python 3.14, which breaks `pydantic-core`.** Pin `PYTHON_VERSION=3.11.0`
+  on every Python service (§18).
+- **CSP `connect-src` blocks un-listed API origins.** Add any new API host to the `API_ORIGINS`
+  array in `frontend/next.config.js` and rebuild, or browser calls fail as "Network Error" (§18).
+- **Render Datastore "URL" picker can inject a second `DATABASE_URL`.** When wiring a DB into a
+  service it may add a key literally named `DATABASE_URL` that clobbers the intended one (e.g.
+  pointing staging at prod). Rename copies (e.g. `PROD_DB_URL`) before saving.
+- **Stripe publishable key is vestigial** (hosted Checkout). It's stored in admin Settings but
+  unused client-side; setting it does NOT "turn on" live payments — the secret key + webhook
+  signing secret do (§11, §22).
 - **Render free-tier Web Shell** frequently fails to attach ("instance not found"),
   especially during deploys; retry until an instance id appears. The shell is the only
   place secrets (e.g. the SignWell key) are readable for live diagnostics.
@@ -868,3 +943,41 @@ described here:
 _Companion docs:_ `ARCHITECTURE.md` (short pointer to this file), `HANDOFF.md` /
 `DEVELOPMENT_HISTORY.md` (historical), `api_contract_v1.md` (route contract, may lag),
 `DEPLOYMENT_GUIDE.md` (ops). Where any of them conflicts with this file, this file wins.
+
+
+---
+
+## 22. Security Posture & Go-Live Hardening
+
+A 7-pass pre-launch security review was completed before going live (2026-05-31). Summary of the posture a future agent should preserve:
+
+### 22.1 What is in place
+- **No critical/high findings** at launch. Money + PII foundations are sound: card data never touches our servers (Stripe hosted Checkout = PCI **SAQ-A**), amounts are server-computed (§19.1), all webhooks are signature-verified (§19.2), passwords use bcrypt (cost 12), auth endpoints are rate-limited, and ownership/authorization checks are applied consistently.
+- **Frontend security headers** were added to `frontend/next.config.js` (the user-facing Next.js app previously sent none): CSP (incl. `frame-ancestors 'none'`), HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy. The backend API already sent its own header set. **Keep both** (§19.18).
+- **CORS** is an explicit credentialed allow-list (§19.11) scoped to the production web origin (+ onrender fallback during transition).
+- **`SECRET_KEY` production guard** aborts startup if the default key is used in prod (§19.9).
+- **Secrets** live only in Render env (`sync:false`) + admin Settings (`system_config`); none in git; `.gitignore` covers `.env` (§15.3).
+
+### 22.2 Known medium items (accepted at launch / backlog)
+- **JWT is also returned in the body and held in browser `localStorage`** (JS-readable) in addition to the httpOnly cookie — an XSS could exfiltrate a session. The new CSP reduces XSS risk; the clean fix is cookie-only auth.
+- **Cookies are `SameSite=None`** (needed while the API is on a different site than the web app) → some CSRF exposure on cookie-auth'd state changes. The intended fix is moving the API to `api.promechdirectory.com` (same-site → `SameSite=Lax`); see §16.5. Until then, consider CSRF tokens.
+- Both are tracked, not blockers. A third-party penetration test is recommended within the first few months.
+
+### 22.3 Operational hardening backlog
+- Cookie-only auth (drop localStorage token); parameterize raw-SQL search; remove API-key-prefix log lines; rate-limit search endpoints; Sentry alerting + written incident runbook; tighten DMARC `p=none` → `quarantine` after reviewing reports; verify AWS S3 **Block Public Access = ON**; run `pip-audit` + `npm audit` at each release.
+
+> The consolidated review + cutover runbook was produced as `GoLive_Security_Report_and_Runbook.md` (operator's working folder), not committed to the repo.
+
+---
+
+## 23. Legal & Compliance Pages
+
+Public legal pages are Next.js routes under `frontend/src/app/` and are linked from the site footer, the registration page, and the RFQ form. Legal entity: **ProReadyEngineer LLC** (d/b/a ProMechDirectory), 5325 Deerfield Blvd #148, Mason, OH 45040; contact **info@promechdirectory.com**; governing law **Ohio**.
+
+| Route | File | Notes |
+|---|---|---|
+| `/privacy` | `app/privacy/page.tsx` | what we collect, processors (Stripe, AWS, Resend, SignWell, LLMs), "we do not sell," CCPA/CPRA + GDPR rights, links to `/data-deletion` |
+| `/terms` | `app/terms/page.tsx` | marketplace role, fees (RFQ unlock, subscriptions, ads), disclaimers, limitation of liability, **Ohio** governing law |
+| `/data-deletion` | `app/data-deletion/page.tsx` | how to request deletion (email from account address), verification, 30-day timeline, what is retained (added 2026-06-01) |
+
+> If you change the entity name, address, contact email, or governing law, update all three pages **and** this section in the same commit.
