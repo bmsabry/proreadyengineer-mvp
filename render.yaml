@@ -108,10 +108,14 @@ services:
     plan: starter
     schedule: "*/15 * * * *"
     buildCommand: pip install requests
-    startCommand: python -c "import requests,os; r=requests.post(os.environ.get('API_URL','https://proreadyengineer-api.onrender.com')+'/api/v1/internal/cron/dispatch-rfq-batches',timeout=120); print('status:',r.status_code,'body:',r.text[:500])"
+    startCommand: python -c "import requests,os; r=requests.post(os.environ.get('API_URL','https://proreadyengineer-api.onrender.com')+'/api/v1/internal/cron/dispatch-rfq-batches',headers={'X-Cron-Secret':os.environ.get('CRON_SECRET','')},timeout=120); print('status:',r.status_code,'body:',r.text[:500])"
     envVars:
       - key: API_URL
         value: https://proreadyengineer-api.onrender.com
+      # Shared secret that authenticates the cron to /internal/* (PRE-004).
+      # MUST match CRON_SECRET on the API service. sync:false = set in dashboard/API.
+      - key: CRON_SECRET
+        sync: false
 
 databases:
   - name: proreadyengineer-db
