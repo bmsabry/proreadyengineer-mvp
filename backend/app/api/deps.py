@@ -57,6 +57,15 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid authentication credentials",
             )
+        # SECURITY (PRE-008): only access tokens may authenticate API calls. Refresh
+        # tokens (type == "refresh") are accepted ONLY at /auth/refresh, never as a
+        # bearer credential here. Tokens minted before the type claim existed are absent
+        # and also rejected.
+        if payload.get("type") != "access":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+            )
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -81,10 +90,19 @@ async def get_current_user(
 async def get_current_active_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
-    """Get current user and verify account is not locked."""
-    # Check if account is locked
-    # TODO: Implement lock check with timestamps
-
+    """Get current user and verify the account is not locked/suspended."""
+    # SECURITY (PRE-011): enforce account lockout. A valid (unexpired) access token
+    # must still be rejected once the account is locked.
+    locked_until = getattr(current_user, "locked_until", None)
+    if locked_until is not None:
+        from datetime import datetime as _dt, timezone as _tz
+        _now = _dt.now(_tz.utc)
+        _lu = locked_until if locked_until.tzinfo else locked_until.replace(tzinfo=_tz.utc)
+        if _lu > _now:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account is temporarily locked. Please try again later or contact support.",
+            )
     return current_user
 
 
