@@ -122,9 +122,17 @@ function LockedCard({ status, onUnlock, checkingOut }: { status: UnlockStatus; o
       </CardContent>
       <CardFooter className="flex flex-col gap-3">
         <Button onClick={onUnlock} disabled={checkingOut} size="lg" className="w-full bg-blue-600 hover:bg-blue-700 text-white">
-          {checkingOut ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Processing...</> : <><CreditCard className="h-4 w-4 mr-2"/>Unlock for $50 - One-time fee</>}
+          {checkingOut
+            ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Processing...</>
+            : status.is_annual_subscriber
+              ? <><CheckCircle className="h-4 w-4 mr-2"/>Unlock — free with your membership</>
+              : <><CreditCard className="h-4 w-4 mr-2"/>Unlock for $50 - One-time fee</>}
         </Button>
-        <p className="text-xs text-gray-500 text-center">Secure payment via Stripe. Only the first 5 quotes are shown to the customer.</p>
+        <p className="text-xs text-gray-500 text-center">
+          {status.is_annual_subscriber
+            ? 'Included in your Annual Professional membership — no per-RFQ fee. Only the first 5 quotes are shown to the customer.'
+            : 'Secure payment via Stripe. Only the first 5 quotes are shown to the customer.'}
+        </p>
       </CardFooter>
     </Card>
   );

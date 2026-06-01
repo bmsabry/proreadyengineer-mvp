@@ -1242,8 +1242,14 @@ async def get_unlock_status(
     )).scalar_one_or_none()
     _nda_status_val = (_nda_row.value if hasattr(_nda_row, "value") else str(_nda_row)) if _nda_row else ("not_required" if not rfq.nda_required else "payment_pending")
 
+    # Annual subscribers unlock RFQs for free (no $50 fee). Compute once here so the
+    # flag is present in BOTH the locked and unlocked responses — the LockedCard needs
+    # it to show "free with your membership" instead of the $50 fee.
+    _is_annual = await _provider_has_annual_subscription(membership.provider_id, db)
+
     base_info = {
         "has_membership": True,
+        "is_annual_subscriber": _is_annual,
         "has_dispatch": dispatch is not None,
         "urgency": rfq.urgency,
         "tollgate_phases": rfq.tollgate_phases or [],
@@ -1318,7 +1324,6 @@ async def get_unlock_status(
         # name/company/email/state on record (no phone/street address in the data model).
         customer_contact = None
         contact_locked_reason = None
-        _is_annual = await _provider_has_annual_subscription(membership.provider_id, db)
         if _is_annual:
             if rfq.nda_required and not provider_nda_signed:
                 contact_locked_reason = "nda_required"  # sign the NDA first, then contact is shown
@@ -1347,7 +1352,6 @@ async def get_unlock_status(
             "provider_nda_signed": provider_nda_signed,
             "provider_has_signed": provider_has_signed,
             "quote_accepted": quote_accepted,
-            "is_annual_subscriber": _is_annual,
             "customer_contact": customer_contact,
             "contact_locked_reason": contact_locked_reason,
             **base_info
