@@ -153,18 +153,30 @@ async def admin_status_alias(
 @router.get("/admin/rfqs", response_model=PagedResponse[RFQResponse])
 async def admin_list_rfqs(
     status: Optional[str] = None,
+    since: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
     db: AsyncSession = Depends(get_db),
     current_user = Depends(require_role(["admin"])),
 ):
-    """Admin: List all RFQs."""
+    """Admin: List all RFQs.
+
+    When `since` (ISO timestamp) is provided (the 'Production' view), only RFQs
+    created at/after it are returned, so pre-launch / sandbox test RFQs are hidden.
+    The cutoff is the shared go-live marker (PAYMENTS_PRODUCTION_SINCE).
+    """
     from sqlalchemy import select, func
     from app.models.rfq import RFQ
 
     query = select(RFQ).options(selectinload(RFQ.files))
     if status:
         query = query.where(RFQ.rfq_status == status)
+    if since:
+        try:
+            _since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")).replace(tzinfo=None)
+            query = query.where(RFQ.created_at >= _since_dt)
+        except (ValueError, AttributeError):
+            pass
 
     # Get total count
     count_result = await db.execute(select(func.count()).select_from(query.subquery()))
