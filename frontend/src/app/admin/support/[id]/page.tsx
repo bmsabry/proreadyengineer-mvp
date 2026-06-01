@@ -1,5 +1,7 @@
 'use client';
 
+import DOMPurify from 'isomorphic-dompurify';
+
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
@@ -249,7 +251,7 @@ export default function AdminSupportDetailPage() {
                   <span className="text-xs text-gray-400">{formatDt(m.created_at)}</span>
                 </div>
                 {bodyHtml ? (
-                  <div className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+                  <div className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(bodyHtml) }} />
                 ) : bodyText ? (
                   <p className="text-sm text-gray-800 whitespace-pre-wrap">{bodyText}</p>
                 ) : (

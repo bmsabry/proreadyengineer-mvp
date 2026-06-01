@@ -3569,7 +3569,7 @@ async def _admin_fetch_website_text(url: str) -> str:
         headers=BROWSER_HEADERS,
         timeout=15.0,
         follow_redirects=True,
-        verify=False,
+        verify=True,  # SECURITY (PRE-006): keep TLS verification enabled
     ) as client:
         while to_visit and len(visited) < MAX_PAGES:
             page_url = _norm(to_visit.pop(0), url)

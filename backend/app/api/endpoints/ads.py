@@ -507,6 +507,14 @@ async def submit_ad(
             detail="Please provide a website URL or a description to generate your ad.",
         )
 
+    # SECURITY (PRE-006): block SSRF — a crawled ad website must be a public http(s) URL.
+    if source_url:
+        from app.core.url_guard import assert_public_http_url, UnsafeURLError
+        try:
+            assert_public_http_url(source_url)
+        except UnsafeURLError as _u:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(_u))
+
     # Create the ad record immediately with PROCESSING status
     ad_id = uuid.uuid4()
     ad = Advertisement(
