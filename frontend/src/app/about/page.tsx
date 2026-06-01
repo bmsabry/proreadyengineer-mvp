@@ -126,16 +126,26 @@ export default function AboutPage() {
 
         {/* Founder signature */}
         <div className="mt-10 border-t border-slate-200 pt-6">
-          <p className="text-slate-800 font-semibold">— Bassam Abdelnabi</p>
-          <p className="text-slate-500 text-sm">Founder, ProMechDirectory</p>
-          <a
-            href="https://www.linkedin.com/in/bassam-abdelnabi-4a055a20/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 mt-1"
-          >
-            <Linkedin className="h-4 w-4" /> linkedin.com/in/bassam-abdelnabi
-          </a>
+          <div className="flex items-center gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/Bassam.png"
+              alt="Bassam Abdelnabi, Founder of ProMechDirectory"
+              className="h-16 w-16 rounded-full object-cover border border-slate-200 flex-shrink-0"
+            />
+            <div>
+              <p className="text-slate-800 font-semibold">— Bassam Abdelnabi</p>
+              <p className="text-slate-500 text-sm">Founder, ProMechDirectory</p>
+              <a
+                href="https://www.linkedin.com/in/bassam-abdelnabi-4a055a20/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 mt-1"
+              >
+                <Linkedin className="h-4 w-4" /> linkedin.com/in/bassam-abdelnabi
+              </a>
+            </div>
+          </div>
           <p className="text-slate-600 leading-relaxed text-sm mt-4">
             <span className="font-semibold">P.S.</span> {SIGNATURE_PS}
           </p>
