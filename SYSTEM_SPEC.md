@@ -652,6 +652,9 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   (`GET /admin/debug/email-auth`): a live SPF/DKIM/DMARC posture check over DNS-over-HTTPS
   (`app/services/email_auth.py`, pure evaluators unit-tested in `tests/unit/test_email_auth.py`),
   showing the current DMARC policy + guidance. Read-only; needs no DMARC-report mailbox access.
+  The **Users** page (`GET /admin/users?status=active|removed`) defaults to **Active Users**
+  and has a **Removed Users** toggle; removed accounts are the ones anonymized to
+  `removed_<id>@deleted.invalid` by the remove action (`email LIKE 'removed_%'`).
 
 **API client:** `frontend/src/lib/api.ts` — axios instance, `Authorization: Bearer
 <localStorage access_token>` request interceptor, single-flight 401→refresh→retry response

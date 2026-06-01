@@ -782,6 +782,7 @@ async def admin_list_users(
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=200),
     search: Optional[str] = Query(None),
+    status: str = Query("active"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role(["admin"])),
 ):
@@ -792,6 +793,12 @@ async def admin_list_users(
 
     query = select(User)
     count_query = select(func.count()).select_from(User)
+
+    # Active vs Removed split: removed accounts are anonymized to removed_<id>@deleted.invalid
+    removed_clause = User.email.like("removed_%")
+    status_clause = removed_clause if status == "removed" else ~removed_clause
+    query = query.where(status_clause)
+    count_query = count_query.where(status_clause)
 
     if search:
         filter_clause = or_(
