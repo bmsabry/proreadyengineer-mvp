@@ -539,9 +539,12 @@ const admin = {
   // backward compat alias
   getStatus: () =>
     apiClient.get<any>('/admin/stats'),
-  listRFQs: (params?: { page?: number; page_size?: number; status?: string }) => 
+  listRFQs: (params?: { page?: number; page_size?: number; status?: string; since?: string }) => 
     apiClient.get<PaginatedResponse<RFQ>>('/admin/rfqs', { params }),
   
+  getPaymentsProductionWindow: () =>
+    apiClient.get<{ since: string | null }>('/admin/payments/production-window'),
+
   getRFQ: (id: string) => 
     apiClient.get<RFQ>(`/admin/rfqs/${id}`),
   
