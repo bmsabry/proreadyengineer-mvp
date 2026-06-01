@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
@@ -13,7 +13,7 @@ import {
   TableHeader, TableRow,
 } from '@/components/ui/table';
 import { formatDate, getRFQStatusBadgeColor } from '@/lib/utils';
-import { AlertTriangle, Eye, RefreshCw, Wrench, XCircle } from 'lucide-react';
+import { AlertTriangle, Eye, RefreshCw, Wrench, XCircle, FlaskConical, Rocket } from 'lucide-react';
 
 export default function AdminRFQsPage() {
   const { isLoading: authLoading } = useRequireAuth(['admin']);
@@ -24,12 +24,21 @@ export default function AdminRFQsPage() {
   const [terminateMessage, setTerminateMessage] = useState<{ id: string; text: string; ok: boolean } | null>(null);
   const [repairing, setRepairing] = useState(false);
   const [repairResult, setRepairResult] = useState<{ message: string; repaired_count: number; details: any[] } | null>(null);
+  // Production vs Sandbox view. Default = Production (hide pre-go-live test RFQs).
+  // Cutoff is the shared go-live marker (PAYMENTS_PRODUCTION_SINCE).
+  const [viewMode, setViewMode] = useState<'production' | 'sandbox'>('production');
+  const [productionSince, setProductionSince] = useState<string | null>(null);
+  const viewRef = useRef<{ mode: 'production' | 'sandbox'; since: string | null }>({ mode: 'production', since: null });
+  useEffect(() => { viewRef.current = { mode: viewMode, since: productionSince }; }, [viewMode, productionSince]);
 
   const fetchRFQs = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.admin.listRFQs({ page: 1, page_size: 100 });
+      const _v = viewRef.current;
+      const params: { page: number; page_size: number; since?: string } = { page: 1, page_size: 100 };
+      if (_v.mode === 'production' && _v.since) params.since = _v.since;
+      const response = await api.admin.listRFQs(params);
       setRfqs(response.data.items ?? []);
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Failed to fetch RFQs.');
@@ -41,6 +50,31 @@ export default function AdminRFQsPage() {
   useEffect(() => {
     if (!authLoading) fetchRFQs();
   }, [authLoading, fetchRFQs]);
+
+  // Load the go-live cutoff; default view is Production so re-fetch once it's known.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.admin.getPaymentsProductionWindow();
+        const since = res.data?.since ?? null;
+        if (since) {
+          setProductionSince(since);
+          if (viewRef.current.mode === 'production') {
+            viewRef.current = { mode: 'production', since };
+            fetchRFQs();
+          }
+        }
+      } catch { /* ignore */ }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleView = () => {
+    const next = viewMode === 'production' ? 'sandbox' : 'production';
+    viewRef.current = { mode: next, since: productionSince };
+    setViewMode(next);
+    fetchRFQs();
+  };
 
   const handleTerminate = async (rfqId: string) => {
     if (!confirm('Terminate dispatch for this RFQ? No more provider emails will be sent.')) return;
@@ -103,16 +137,30 @@ export default function AdminRFQsPage() {
             Track, manage, and terminate active RFQ dispatch flows
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={fetchRFQs}
-          disabled={isLoading}
-          className="flex items-center gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleView}
+            title={viewMode === 'production'
+              ? 'Showing production RFQs only (from go-live). Click to see all (Sandbox).'
+              : 'Showing all RFQs incl. pre-launch test data. Click to show production only.'}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm ${
+              viewMode === 'production' ? 'bg-slate-200 text-slate-800 hover:bg-slate-300' : 'bg-slate-800 text-white hover:bg-slate-900'
+            }`}
+          >
+            {viewMode === 'production' ? <FlaskConical className="h-4 w-4" /> : <Rocket className="h-4 w-4" />}
+            {viewMode === 'production' ? 'Sandbox' : 'Production'}
+          </button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchRFQs}
+            disabled={isLoading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
         <Button
           onClick={handleRepairQuoteCounts}
           disabled={repairing}

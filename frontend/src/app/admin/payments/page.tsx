@@ -529,17 +529,30 @@ export default function AdminPaymentsPage() {
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundResult, setRefundResult] = useState(null as { status: string; stripe_refund_id?: string; stripe_error?: string; reversal?: string; reversal_error?: string; amount_usd?: number } | null);
 
-  const [viewMode, setViewMode] = useState('sandbox' as 'sandbox' | 'production');
+  const [viewMode, setViewMode] = useState('production' as 'sandbox' | 'production');
   const [productionSince, setProductionSince] = useState(null as string | null);
-  const viewRef = useRef({ mode: 'sandbox' as 'sandbox' | 'production', since: null as string | null });
+  const viewRef = useRef({ mode: 'production' as 'sandbox' | 'production', since: null as string | null });
   useEffect(() => { viewRef.current = { mode: viewMode, since: productionSince }; }, [viewMode, productionSince]);
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch(API_BASE + '/api/v1/admin/payments/production-window', { headers: getAuthHeader() });
-        if (res.ok) { const d = await res.json(); if (d.since) setProductionSince(d.since); }
+        if (res.ok) {
+          const d = await res.json();
+          if (d.since) {
+            setProductionSince(d.since);
+            // Default view is Production: apply the go-live cutoff to the initial
+            // analytics + transactions fetch (which may have run before `since` loaded).
+            if (viewRef.current.mode === 'production') {
+              viewRef.current = { mode: 'production', since: d.since };
+              fetchAnalytics();
+              fetchTransactions(1, activeTab, filterPurpose, filterDateFrom, filterDateTo);
+            }
+          }
+        }
       } catch (e) { /* ignore */ }
     })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchAnalytics = useCallback(() => {
