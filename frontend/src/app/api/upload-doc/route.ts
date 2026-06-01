@@ -6,8 +6,10 @@ export async function POST(req: NextRequest) {
     const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const backendUrl = `${apiBase}/api/v1/search/extract-and-describe`;
 
+    const auth = req.headers.get('authorization');
     const backendRes = await fetch(backendUrl, {
       method: 'POST',
+      headers: auth ? { authorization: auth } : {},
       body: formData,
     });
 

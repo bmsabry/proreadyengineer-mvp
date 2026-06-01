@@ -148,8 +148,10 @@ export default function UploadPage() {
       for (const file of selectedFiles) {
         formData.append('files', file);
       }
+      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
       const response = await fetch('/api/upload-doc', {
         method: 'POST',
+        headers: token ? { Authorization: 'Bearer ' + token } : {},
         body: formData,
       });
       if (!response.ok) {
