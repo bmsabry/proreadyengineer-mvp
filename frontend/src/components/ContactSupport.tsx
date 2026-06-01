@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { LifeBuoy, X, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -60,8 +61,8 @@ export default function ContactSupport({ variant = 'light' }: { variant?: 'light
         </Button>
       )}
 
-      {showContact && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      {showContact && typeof document !== 'undefined' && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 px-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -134,7 +135,8 @@ export default function ContactSupport({ variant = 'light' }: { variant?: 'light
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
