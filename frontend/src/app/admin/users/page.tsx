@@ -51,6 +51,8 @@ export default function AdminUsersPage() {
   const [resetingId, setResetingId] = useState<string | null>(null);
   const [suspendingId, setSuspendingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [viewStatus, setViewStatus] = useState<'active' | 'removed'>('active');
+  const viewStatusRef = useRef(viewStatus);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const searchQueryRef = useRef(searchQuery);
 
@@ -58,12 +60,17 @@ export default function AdminUsersPage() {
     searchQueryRef.current = searchQuery;
   }, [searchQuery]);
 
-  const fetchUsers = useCallback(async (q?: string) => {
+  useEffect(() => {
+    viewStatusRef.current = viewStatus;
+  }, [viewStatus]);
+
+  const fetchUsers = useCallback(async (q?: string, status?: 'active' | 'removed') => {
     setIsLoading(true);
     try {
       const params = new URLSearchParams();
       if (q) params.set('search', q);
       params.set('size', '200');
+      params.set('status', status ?? viewStatusRef.current);
       const res = await api.admin.listUsers(params.toString());
       const data = res.data;
       setUsers(data.items ?? []);
@@ -157,6 +164,12 @@ export default function AdminUsersPage() {
     }
   };
 
+  const switchView = (next: 'active' | 'removed') => {
+    if (next === viewStatus) return;
+    setViewStatus(next);
+    fetchUsers(searchQuery || undefined, next);
+  };
+
   const handleExportCSV = () => {
     const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000') + '/api/v1';
     window.open(`${apiBase}/admin/users/export.csv`, '_blank');
@@ -178,7 +191,7 @@ export default function AdminUsersPage() {
         <div>
           <h1 className="text-3xl font-bold">User Management</h1>
           <p className="text-muted-foreground">
-            {total} total users
+            {total} {viewStatus === 'removed' ? 'removed' : 'active'} users
             {lastRefreshed && (
               <span className="ml-3 text-xs text-green-600">
                 &bull; Updated {formatTime(lastRefreshed)}
@@ -196,6 +209,27 @@ export default function AdminUsersPage() {
             Export CSV
           </Button>
         </div>
+      </div>
+
+      {/* Active / Removed toggle */}
+      <div className="flex gap-2 mb-4">
+        <Button
+          variant={viewStatus === 'active' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => switchView('active')}
+          disabled={isLoading}
+        >
+          Active Users
+        </Button>
+        <Button
+          variant={viewStatus === 'removed' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => switchView('removed')}
+          disabled={isLoading}
+        >
+          <Trash2 className="h-4 w-4 mr-2" />
+          Removed Users
+        </Button>
       </div>
 
       {/* Search bar */}
@@ -227,7 +261,7 @@ export default function AdminUsersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>All Users ({isLoading ? '...' : users.length})</CardTitle>
+          <CardTitle>{viewStatus === 'removed' ? 'Removed Users' : 'Active Users'} ({isLoading ? '...' : users.length})</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
