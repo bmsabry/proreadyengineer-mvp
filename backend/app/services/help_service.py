@@ -112,7 +112,7 @@ _PROVIDER_PROFILE_COACH = (
     "- OFFER THE UPLOAD: tell them they can attach a capability statement, brochure, line card, or "
     "past-project write-ups (the paperclip in this chat) and you will pull the details into their "
     "profile. If they have staged such documents and ask you to update/improve their profile, end your "
-    "reply with: " + _ACTION_PREFIX + " update_profile_from_docs|<any>|Update your firm profile from the "
+    "reply with: PROPOSE_ACTION: update_profile_from_docs|<any>|Update your firm profile from the "
     "uploaded document(s)  (no file keys \u2014 the server uses the staged uploads; it MERGES with their "
     "existing profile and removes nothing; they review afterward). Saving requires Professional / founding "
     "membership \u2014 if they cannot edit yet, point them to /provider/upgrade.\n\n"
