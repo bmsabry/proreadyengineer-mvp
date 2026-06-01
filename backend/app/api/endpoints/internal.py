@@ -1,6 +1,7 @@
 """Internal endpoints for cron jobs and system operations."""
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 import logging
@@ -11,6 +12,56 @@ from app.db.session import get_db
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def verify_cron_or_admin(
+    request: Request,
+    x_cron_secret: Optional[str] = Header(None),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Authenticate callers of the /internal cron endpoints (PRE-004).
+
+    Accepts EITHER a valid X-Cron-Secret header (the Render cron service) OR an
+    authenticated admin user (the admin panel calls these same endpoints).
+
+    Fail-SAFE rollout: enforcement only activates once CRON_SECRET is configured.
+    While it is unset the endpoints stay open, so shipping this can never break the
+    live RFQ-dispatch cron; once CRON_SECRET is set on BOTH the API and the cron
+    service, anonymous callers are rejected. In-process callers (the startup
+    asyncio backup) invoke the function directly and bypass this HTTP dependency.
+    """
+    import hmac
+    from app.core.config import settings as _settings
+    from app.api.deps import security as _security, get_current_user as _gcu
+
+    secret = (getattr(_settings, "CRON_SECRET", None) or "").strip()
+
+    # 1) Valid shared cron secret
+    if secret and x_cron_secret and hmac.compare_digest(x_cron_secret, secret):
+        return
+
+    # 2) Authenticated admin (the admin panel uses these endpoints)
+    try:
+        creds: Optional[HTTPAuthorizationCredentials] = await _security(request)
+    except Exception:
+        creds = None
+    if creds and getattr(creds, "credentials", None):
+        try:
+            user = await _gcu(request, creds, db)
+            if user and "admin" in (user.roles or []):
+                return
+        except Exception:
+            pass
+
+    # 3) Fail-safe: secret not configured yet -> stay open (do not break the cron)
+    if not secret:
+        logger.warning(
+            "CRON_SECRET not configured - /internal cron endpoints are UNAUTHENTICATED. "
+            "Set CRON_SECRET on the API and cron services to enable enforcement."
+        )
+        return
+
+    raise HTTPException(status_code=401, detail="Cron secret or admin authentication required.")
 
 
 # NOTE: CRON_SECRET auth intentionally removed.
@@ -80,6 +131,7 @@ async def _log_cron_run(db: AsyncSession, result: dict, trigger_source: str = "h
 async def cron_dispatch_rfq_batches(
     db: AsyncSession = Depends(get_db),
     trigger_source: str = "http_cron",
+    _auth: None = Depends(verify_cron_or_admin),
 ):
     """
     Cron endpoint: check all open RFQs and dispatch next batch if interval elapsed.
@@ -205,6 +257,7 @@ async def cron_dispatch_rfq_batches(
 async def cron_dispatch_single_rfq(
     rfq_id: str,
     db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(verify_cron_or_admin),
 ):
     """Force dispatch next batch for a specific RFQ. Used by admin manual dispatch."""
     import uuid
@@ -244,6 +297,7 @@ async def cron_dispatch_single_rfq(
 @router.get("/internal/cron/status")
 async def cron_status(
     db: AsyncSession = Depends(get_db),
+    _auth: None = Depends(verify_cron_or_admin),
 ):
     """Return last cron execution info. Used by admin panel to verify cron is firing."""
     try:

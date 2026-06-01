@@ -240,43 +240,30 @@ async def register(
                     if e
                 ]
                 if reg_email and reg_email in directory_emails:
-                    # Link the user to the provider
+                    # SECURITY (PRE-002): record the intended provider link ONLY.
+                    # Do NOT create an active OWNER membership, grant the 'provider'
+                    # role, or auto-verify the email here. The old behaviour treated a
+                    # plain email-string match as proof of ownership, letting anyone who
+                    # knew a firm's publicly-listed email take over that provider account
+                    # without ever controlling the inbox.
+                    #
+                    # Ownership is materialised later by get_provider_profile's secure
+                    # directory-email fallback, which only runs for a logged-in user —
+                    # i.e. AFTER they verify the matching email (proving inbox control).
+                    # So onboarding still works; it just now requires email verification.
                     try:
                         user.linked_provider_id = prov_row.id
+                        await db.commit()
+                        await db.refresh(user)
                     except Exception as _col_err:
+                        await db.rollback()
                         _logger.warning(
                             "Could not set linked_provider_id during self-claim: %s",
                             _col_err,
                         )
-                    existing = (
-                        await db.execute(
-                            _sel(_Mbr).where(
-                                _Mbr.user_id == user.id,
-                                _Mbr.provider_id == prov_row.id,
-                            )
-                        )
-                    ).scalar_one_or_none()
-                    if not existing:
-                        db.add(
-                            _Mbr(
-                                provider_id=prov_row.id,
-                                user_id=user.id,
-                                membership_role=_Role.OWNER,
-                                status=_MStat.ACTIVE,
-                                created_by=user.id,
-                                invite_email=user.email,
-                            )
-                        )
-                    if "provider" not in (user.roles or []):
-                        user.roles = list(user.roles or []) + ["provider"]
-                    # Directory-email match is a strong signal — auto-verify
-                    user.email_verified = True
-                    user.email_verify_token_hash = None
-                    user.email_verify_token_expires_at = None
-                    await db.commit()
-                    await db.refresh(user)
                     _logger.info(
-                        "Self-claim link succeeded: user=%s provider=%s",
+                        "Self-claim link recorded (pending email verification): "
+                        "user=%s provider=%s",
                         user.email, prov_row.id,
                     )
                 else:
