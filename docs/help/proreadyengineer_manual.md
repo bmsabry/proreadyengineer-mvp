@@ -213,7 +213,7 @@ The chat widget (lower-right) is the AI Help Assistant. It answers questions abo
 - **What it won't do:** take consequential actions on your behalf (it will point you to the exact page and button), discuss other users' data, or give professional advice.
 - **Document/image analysis:** for questions that require reading a document or image, the assistant routes the request to a more capable model behind the scenes.
 - **Do the work from your files:** click the paperclip to upload a document (PDF/DOCX/TXT) and ask the assistant to create an RFQ from it (customers) or draft and submit a quote from it (providers). It attaches your file to the right place. It creates RFQs as a draft for you to submit, and never pays a fee or signs an NDA for you.
-- **Usage limits:** there is a per-user daily message limit and a monthly usage budget; if you hit a limit, it resets (daily, or monthly on the 1st), and you can always read this manual at `/help`.
+- **Usage limits:** usage is governed by a per-user **monthly budget** (there is no daily message cap). If you reach the monthly budget it resets on the 1st of the month, and you can always read this manual at `/help`. Admins are exempt from the budget.
 
 ## 12. Account and security
 
@@ -247,6 +247,24 @@ Admins operate the platform from the `/admin` area: dashboard, RFQs, provider cl
 
 **How do I change my password / delete my account?** Password: "Forgot password" on the login page. Deletion: request via the Contact page (completed within 30 days).
 
+**Can I edit an RFQ after I submit it?** No — once submitted, an RFQ's content is locked (this keeps it consistent with the teasers already sent and any quotes received). If you need to change it, cancel it and submit a new one.
+
+**Can a provider take back a quote?** Yes. A provider can **withdraw** a submitted quote from their dashboard; a withdrawn quote is no longer shown to the customer and frees a slot under the 5-quote limit.
+
+**Why was my firm matched to a particular RFQ?** The platform's AI compares the RFQ's requirements to your firm profile and ranks the closest fits. The more specific and complete your profile (capabilities, specialties, software, standards, notable projects), the better and more relevant your matches.
+
+**What happens when an RFQ already has 5 quotes?** It reaches its quote limit and closes to new quotes. The customer can still review and accept any of the quotes already submitted.
+
+**Do customers have to sign the NDA too?** Yes — the NDA is mutual. The provider signs first (to gain read access), then the customer countersigns. Full project details unlock to that provider only after **both** signatures.
+
+**Can I use my own NDA?** Yes — when you mark an RFQ "NDA required," you can optionally upload your own NDA template; otherwise a standard mutual NDA is used.
+
+**Is my information public?** A provider's **Notable Projects** / project history is private and used only for matching — it is not shown on your public profile. A customer's identity and contact details are hidden from providers until a provider unlocks the RFQ (and, for NDA RFQs, after the mutual NDA is fully signed), or until the customer accepts that provider's quote.
+
+**I didn't get my verification email — how do I resend it?** Request a resend from the login page, check spam, and allowlist `@promechdirectory.com`.
+
+**Can I get a refund on an unlock I didn't mean to buy?** Refunds are reviewed case by case — contact support with your account email and the payment date.
+
 ## 15. Troubleshooting
 
 - **"This email is already registered."** You already have an account on this email; log in, or use a different email for a different role.
@@ -255,6 +273,11 @@ Admins operate the platform from the `/admin` area: dashboard, RFQs, provider cl
 - **My ad is still showing after I cancelled.** Correct — cancellation stops renewal; the placement runs through the end of the paid period.
 - **I didn't get my verification or NDA email.** Check spam, request a resend, and allowlist our sender domain (`@promechdirectory.com`). Corporate mail filters sometimes hold these.
 - **Sign NDA seems to hang.** It can take a few seconds to prepare the document — wait for the confirmation; don't click repeatedly.
+
+- **I need to change an RFQ I already submitted.** Submitted RFQs can't be edited. Cancel the RFQ and submit a new one with the corrected details.
+- **A provider signed the NDA but I wasn't asked to countersign.** Check your dashboard's Activity Summary and your email spam folder (SignWell sender). Countersign prompts only appear for **open** RFQs.
+- **"Search quota exceeded."** Free accounts get 5 searches/month; a Search subscription raises this to 100. The counter resets on the 1st of the month.
+- **I need both a customer and a provider account.** Each login's self-serve flow is single-sided (customer search/RFQ posting is customer-only). Use separate accounts for the two roles.
 
 ## 15b. Payments — full step-by-step (the assistant can walk you through every step)
 
@@ -293,6 +316,84 @@ The NDA is a single **mutual** agreement, signed **provider-first**, via our e-s
 4. Until both have signed, you see only the redacted teaser.
 
 **NDA notes the assistant can explain:** it's one document with both parties as signers; provider signs first to read; full access requires both signatures; signing requests come by email and in-app; a half-signed NDA on a cancelled/closed RFQ won't keep asking you to sign; if a signing email doesn't arrive, check spam and allowlist the sender, or use the in-app prompt.
+
+## 15d. Writing a strong RFQ (get better, faster quotes)
+
+A clear RFQ gets more providers to engage and produces tighter, more comparable quotes. The assistant can draft an RFQ for you from a spec document (use the paperclip) — but whether you write it yourself or with help, a strong RFQ usually states:
+
+- **The problem and the goal**, in plain terms: what the part/system is and what outcome you need (e.g. "verify a sheet-metal bracket survives 5 g vibration and a 1.5× proof load").
+- **Operating conditions and constraints**: loads, pressures, temperatures, flow rates, duty cycle, environment (corrosive, cryogenic, outdoor), envelope/space limits, weight targets.
+- **Materials** (if known or required) and any **codes/standards** the work must meet — ASME (e.g. VIII for pressure vessels, B31 piping), API, ISO, AWS D1.1 welding, ASHRAE, AGMA, etc.
+- **The analysis or deliverable you actually want**: FEA (static/fatigue/modal/thermal), CFD, hand calculations, CAD model, 2D manufacturing drawings with GD&T, BOM, a stamped report, etc.
+- **Acceptance criteria and units**: factor of safety, allowable stress/deflection, target efficiency; state SI or US units to avoid rework.
+- **Turnaround** (a realistic deadline) and a **budget range** if you have one — it helps providers scope appropriately.
+- **Files** (see §15f) and whether an **NDA** is required.
+
+Tip: if you mark the RFQ NDA-required, keep the **title and short description generic** — that teaser is visible to matched providers before they sign. Put the confidential specifics in the full description and attached files, which only unlock after the mutual NDA is signed.
+
+## 15e. Tollgates (TG0–TG6) with practical examples
+
+The tollgate tells providers how mature your project is, so they scope the right work. Pick the one that matches where you are:
+
+- **TG0 — Idea Generation:** you have a need or concept, no defined design yet. *"We want a lighter mounting bracket — explore options."*
+- **TG1 — Basic Engineering:** rough sizing and feasibility. *"Ballpark wall thickness and material for a tank at 150 psi."*
+- **TG2 — Concept Validation:** a chosen concept needs first-pass analysis. *"Confirm this weldment concept handles the load before we detail it."*
+- **TG3 — Intermediate Analysis:** detailed analysis on a defined design. *"Full FEA with fatigue life on this CAD model."*
+- **TG4 — Full Scale Modeling:** complete CAD/CAE of the production design. *"Model the full assembly and produce manufacturing drawings."*
+- **TG5 — Pre-Production Testing:** validating a near-final design. *"Correlate analysis to a prototype test and sign off."*
+- **TG6 — Full System Testing:** system-level verification of the finished design.
+
+If unsure, pick the closest lower gate and describe the gap in the RFQ — providers will tell you what they need.
+
+## 15f. File formats: what to send, and when
+
+You can attach up to **5 files, 25 MB each**. Choose by what you need done:
+
+- **STEP (.step/.stp) or IGES (.igs):** the safest, tool-neutral 3D geometry — send these when any provider should be able to open your model.
+- **Native CAD** (SolidWorks SLDPRT/SLDASM, CATIA CATPART/CATPRODUCT, NX PRT/ASM, Parasolid X_T/X_B): send when the work must be done in that specific tool, or to preserve features/parametrics.
+- **2D drawings (PDF or DWG/DXF):** include these for manufacturing, inspection, or anything dimension-/GD&T-driven — they carry tolerances the 3D model may not.
+- **STL:** good for visualization, meshing, or 3D printing, but it's faceted (no exact geometry) — don't rely on it for precise analysis or machining.
+- **Requirements/spec docs (PDF/DOC/DOCX/TXT):** attach the written requirements, standards, and test conditions so providers quote the real scope.
+
+When in doubt, send a STEP file **plus** a dimensioned PDF drawing and your requirements document.
+
+## 15g. Choosing a provider and comparing quotes
+
+Price is only one factor. When comparing the quotes on your RFQ, weigh:
+
+- **Relevant capability and domain fit** — do their stated capabilities, industries, and notable projects actually match your problem?
+- **Standards and credentials** — if the work is code-governed or must be stamped, confirm the right certifications/PE licensure. Safety-critical or code-stamped deliverables should always be signed off by a qualified, licensed engineer.
+- **Software/tools** appropriate to the deliverable (e.g. ANSYS/Abaqus for FEA, Fluent/STAR-CCM+ for CFD).
+- **Scope clarity** — a good quote spells out what's in, what's out, assumptions, and turnaround. Vague scope is the most common cause of disputes later.
+- **Turnaround realism** — the fastest quote isn't always credible for the work involved.
+
+It's reasonable to message a provider (after you accept, their contact details are shared) to clarify scope before committing. The assistant can help you draft questions to compare quotes objectively.
+
+## 15h. Providers: winning more work
+
+What tends to win business on the platform:
+
+- **A specific, complete profile.** Concrete capabilities ("ASME VIII pressure-vessel design," "transient thermal FEA"), the industries you serve, your software/equipment/certifications, and several factual **Notable Projects** (what you did, the method, the outcome). This is what the matcher reads — vague profiles get fewer and worse matches. The assistant can build this from a brochure or a few sentences (§6.2).
+- **Speed.** Unlock and quote promptly while the RFQ is fresh and before it hits the 5-quote limit.
+- **A clear quote.** Price or range, turnaround, scope in/out, and assumptions. Clarity beats a low number with no scope.
+- **NDA readiness.** For NDA RFQs you sign first to read; do it promptly (it can take a few seconds to prepare — don't double-click).
+- **The annual subscription math.** At $50/unlock, the $1,000/yr Annual plan breaks even around ~20 unlocks/year and then makes every unlock free, plus it reveals the customer's contact details on RFQs you've unlocked. If you pursue RFQs regularly, it usually pays for itself quickly.
+- **Withdraw gracefully.** If you can no longer deliver, withdraw your quote so the customer's slate stays accurate.
+
+## 15i. Quick engineering glossary
+
+Practical definitions the assistant can expand on:
+
+- **FEA** — Finite Element Analysis: simulating stress, deflection, vibration (modal), fatigue, or heat (thermal) in a structure.
+- **CFD** — Computational Fluid Dynamics: simulating fluid flow, pressure drop, and heat transfer.
+- **GD&T** — Geometric Dimensioning & Tolerancing: the symbolic language on drawings that defines allowable variation.
+- **DFM / DFMA** — Design for Manufacturing (and Assembly): designing so a part is practical and economical to make and assemble.
+- **FMEA** — Failure Mode and Effects Analysis: a structured review of how a design can fail and the impact.
+- **Tolerance stack-up** — analyzing how individual part tolerances accumulate across an assembly.
+- **BOM** — Bill of Materials: the structured parts list for a product.
+- **PE / "stamp"** — a Professional Engineer's license and seal, required to certify certain regulated or safety-critical work.
+- **Factor of safety** — the margin between a design's capacity and its expected load.
+- **Common standards** — ASME (mechanical/pressure), API (oil & gas), ISO (quality/general), AWS (welding), ASHRAE (HVAC), AGMA (gears).
 
 ## 16. Contacting support
 
