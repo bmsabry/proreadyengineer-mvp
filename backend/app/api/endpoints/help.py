@@ -60,6 +60,7 @@ class ActionRequest(BaseModel):
     project_description: Optional[str] = Field(None, max_length=10000)
     ticket_id: Optional[str] = Field(None, max_length=64)
     page: Optional[str] = Field(None, max_length=200)
+    profile_updates: Optional[Dict[str, Any]] = None  # structured additions for update_profile_from_chat
 
 
 class ActionResponse(BaseModel):
@@ -71,7 +72,7 @@ class ActionResponse(BaseModel):
 # The ONLY actions the assistant may execute. All are reversible, non-financial,
 # non-signature, non-destructive, and re-authorized server-side. Anything else is
 # navigation-only (Phase 3). Adding to this set is a deliberate security decision.
-_EXECUTABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted", "update_profile_from_docs"}
+_EXECUTABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted", "update_profile_from_docs", "update_profile_from_chat"}
 
 
 class StatusResponse(BaseModel):
@@ -411,6 +412,7 @@ async def help_action(
         "attachments": [a.model_dump() for a in (data.attachments or [])],
         "project_description": data.project_description,
         "ticket_id": _ticket_id,
+        "profile_updates": data.profile_updates,
     }
     result = await execute_action(db, current_user, (data.type or "").strip(), params, autonomous)
     return ActionResponse(ok=bool(result.get("ok")), message=result.get("message") or "Done.", link=result.get("link"))

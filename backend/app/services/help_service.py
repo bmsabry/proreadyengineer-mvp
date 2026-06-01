@@ -117,6 +117,7 @@ _PROVIDER_PROFILE_COACH = (
     "profile. If they have staged such documents and ask you to update/improve their profile, end your "
     "reply with: PROPOSE_ACTION: update_profile_from_docs|<any>|Update your firm profile from the "
     "uploaded document(s)  (no file keys \u2014 the server uses the staged uploads; it MERGES with their "
+    "- CONVERSATIONAL FILL: if the provider just TELLS you specific things to add (a capability, tool, certification, or a project), you may apply it directly. Confirm what you'll add, then end your reply with two lines: a PROPOSE_ACTION line 'update_profile_from_chat|<any>|<short summary>' AND a companion 'PROFILE_DATA: {json}' line whose JSON has ONLY these keys you are adding (lists for capabilities / specialties / software_tools / equipment / certifications / proven_experience_notable_projects; strings for team_summary / primary_specialty). Put ONLY their real, stated details \u2014 never invent. It merges additively and removes nothing; they confirm before it saves.\n"
     "existing profile and removes nothing; they review afterward). Saving requires Professional / founding "
     "membership \u2014 if they cannot edit yet, point them to /provider/upgrade.\n\n"
 )
@@ -468,22 +469,24 @@ def _extract_links(reply: str):
 # The backend returns it as an inert proposal; the user must click Confirm, which
 # is the only thing that triggers the hardened /help/action executor.
 _ACTION_PREFIX = "PROPOSE_ACTION:"
+_PROFILE_DATA_PREFIX = "PROFILE_DATA:"  # optional companion JSON line for update_profile_from_chat
 _PROPOSABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted",
                        "accept_quote", "cancel_rfq", "withdraw_quote",
                        "create_rfq_from_docs", "submit_quote_from_docs",
-                       "update_profile_from_docs",
+                       "update_profile_from_docs", "update_profile_from_chat",
                        "resolve_ticket", "escalate_ticket", "archive_ticket", "mark_ticket_spam"}
 # Actions that need an rfq_id rather than a quote_id.
 _RFQ_ID_ACTIONS = {"cancel_rfq"}
 
 
 def _extract_action(reply: str):
-    """Return (clean_reply, action_or_None). action = {type, quote_id, summary}."""
+    """Return (clean_reply, action_or_None). action = {type, quote_id, summary[, profile_updates]}."""
     if not reply or _ACTION_PREFIX not in reply:
         return reply, None
-    kept, action = [], None
+    kept, action, profile_data = [], None, None
     for ln in reply.splitlines():
-        if action is None and ln.strip().upper().startswith(_ACTION_PREFIX):
+        st = ln.strip()
+        if action is None and st.upper().startswith(_ACTION_PREFIX):
             payload = ln.split(":", 1)[1] if ":" in ln else ""
             parts = [p.strip() for p in payload.split("|")]
             atype = parts[0] if parts else ""
@@ -494,8 +497,20 @@ def _extract_action(reply: str):
                     "summary": (parts[2] if len(parts) >= 3 else atype)[:140],
                 }
             # whether valid or not, drop the control line from the visible reply
+        elif st.upper().startswith(_PROFILE_DATA_PREFIX):
+            try:
+                import json as _json
+                raw = ln.split(":", 1)[1] if ":" in ln else ""
+                pd = _json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
+                if isinstance(pd, dict):
+                    profile_data = pd
+            except Exception:
+                pass
+            # drop the control line from the visible reply
         else:
             kept.append(ln)
+    if action and profile_data and action.get("type") == "update_profile_from_chat":
+        action["profile_updates"] = profile_data
     return "\n".join(kept).strip(), action
 
 
@@ -680,7 +695,8 @@ async def _maybe_autoexecute(db, user, action, attachments=None, page=None):
     try:
         _id = action.get("quote_id")
         params = {"quote_id": _id, "rfq_id": _id, "attachments": attachments or [],
-                  "ticket_id": _ticket_id_from_page(page)}
+                  "ticket_id": _ticket_id_from_page(page),
+                  "profile_updates": action.get("profile_updates")}
         res = await execute_action(db, user, atype, params, autonomous)
         return {"executed": True, "type": atype, "message": res.get("message"), "link": res.get("link")}
     except Exception as exc:

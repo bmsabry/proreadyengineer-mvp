@@ -21,7 +21,7 @@ const HIDDEN_PREFIXES = [
 ];
 
 type ChatLink = { href: string; label: string };
-type ChatAction = { type: string; quote_id?: string; summary: string };
+type ChatAction = { type: string; quote_id?: string; summary: string; profile_updates?: Record<string, unknown> };
 type Msg = { role: 'user' | 'assistant'; content: string; links?: ChatLink[]; action?: ChatAction; actionStatus?: 'pending' | 'working' | 'done' | 'cancelled'; autoResult?: string; logId?: string; feedback?: number };
 
 export default function HelpChatWidget() {
@@ -168,7 +168,7 @@ export default function HelpChatWidget() {
     setMessages((prev) => prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'working' } : x)));
     try {
       const curPage = typeof window !== 'undefined' ? window.location.pathname : undefined;
-      const res = await helpApi.action(m.action.type, { quote_id: m.action.quote_id, rfq_id: m.action.quote_id, attachments, page: curPage });
+      const res = await helpApi.action(m.action.type, { quote_id: m.action.quote_id, rfq_id: m.action.quote_id, attachments, page: curPage, profile_updates: m.action.profile_updates });
       setMessages((prev) => {
         const upd = prev.map((x, i) => (i === idx ? { ...x, actionStatus: 'done' as const } : x));
         const lk = res.link && typeof res.link.href === 'string' && res.link.href.startsWith('/') ? [res.link] : undefined;
