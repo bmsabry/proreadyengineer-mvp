@@ -327,6 +327,13 @@ async def complete_file_upload(
     import uuid
     from datetime import datetime
 
+    # SECURITY (PRE-007): the key must be one issued for THIS rfq under the
+    # expected prefix, so a caller cannot attach an arbitrary S3 object (another
+    # RFQ's file, an NDA PDF, etc.) to this RFQ record.
+    _expected_prefix = f"rfqs/{rfq_id}/files/"
+    if not key or not key.startswith(_expected_prefix) or ".." in key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid upload key for this RFQ.")
+
     rfq_file = RFQFile(
         id=uuid.uuid4(),
         rfq_id=rfq_id,

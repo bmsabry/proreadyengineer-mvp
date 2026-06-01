@@ -735,6 +735,11 @@ async def upload_complete(
     db: AsyncSession = Depends(get_db),
 ):
     """Process uploaded document for search."""
+    # SECURITY (PRE-007): only process keys this endpoint issued under the
+    # search-uploads/ prefix. Rejecting arbitrary keys stops this endpoint from
+    # being used to read RFQ files, NDA PDFs, or any other S3 object by key.
+    if not key or not key.startswith("search-uploads/") or ".." in key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid upload key.")
     from app.services.file_service import extract_document_text
     try:
         text = await extract_document_text(key)
