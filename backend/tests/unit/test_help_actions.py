@@ -42,6 +42,6 @@ def test_no_prefix_returns_unchanged():
 
 def test_executable_allowlist_is_tiny_and_safe():
     # Only the two reversible toggles are executable server-side.
-    assert HELP._EXECUTABLE_ACTIONS == {"mark_contacted", "undo_mark_contacted"}
+    assert HELP._EXECUTABLE_ACTIONS == {"mark_contacted", "undo_mark_contacted", "update_profile_from_docs"}
     for forbidden in ["pay", "sign_nda", "submit_quote", "accept_quote", "cancel_rfq", "delete"]:
         assert forbidden not in HELP._EXECUTABLE_ACTIONS

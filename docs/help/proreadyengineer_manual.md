@@ -121,7 +121,16 @@ Providers register through a firm-lookup flow:
 You may need to verify ownership of the firm (via a company-domain email or admin approval) before you have full control.
 
 ### 6.2 Complete your profile
-From the provider dashboard's **Profile** area, fill in your services, industries served, certifications, portfolio / case studies, team size and locations, and contact details. A complete, detailed profile ranks higher in customer searches because the matching uses your profile text. Editing all profile fields requires the full-profile-edit unlock (a one-time fee, or free with the annual subscription); the page is at `/provider/profile/full-edit`.
+From the provider dashboard's **Profile** area (`/provider/profile`; full editing at `/provider/profile/full-edit`), fill in your firm's details. The more specific and complete your profile, the more — and more relevant — RFQs reach you. Be concrete and technical, not vague:
+
+- **Capabilities** — the engineering services you actually perform (e.g. "FEA structural analysis", "HVAC load calculations", "pressure-vessel design to ASME VIII").
+- **Specialties / industries served** — e.g. "oil & gas", "data-center cooling", "medical devices".
+- **Software & tools, equipment, certifications** — SolidWorks, ANSYS, in-house machining, ISO 9001, ASME stamps, PE licensure, etc.
+- **Notable Projects** — the most important. For each past project, write one clear sentence: what you did, the method/approach, and the outcome. Add several, specific and factual. Your project history is used to match you to work and is not shown publicly.
+
+Editing all profile fields requires the full-profile-edit unlock (a one-time fee, or free with the annual / founding membership).
+
+**Let the AI assistant help.** Open the chat assistant and ask it to help improve your profile — it will coach you on what to add and can draft your Notable Projects from a few details you give it. You can also attach a capability statement, brochure, line card, or past-project write-ups (the paperclip in the chat), and the assistant will extract the details and add them to your profile for you to review. It merges with what you already have and never removes anything (saving requires the full-profile-edit unlock or annual / founding membership).
 
 ### 6.3 Receive and review RFQs
 When the AI matches your firm to an RFQ, you receive a **teaser email** and the RFQ appears in your provider dashboard (`/provider/rfqs`). The teaser shows enough to decide whether to pursue it — title, short description, tollgate, deadline, and whether an NDA is required — but not the customer's identity, full details, or files.
