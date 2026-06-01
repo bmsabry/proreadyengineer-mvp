@@ -43,9 +43,14 @@ export default function CustomerProfilePage() {
     setShowCancelConfirm(false);
     try {
       const res = await api.billing.cancelSubscription('customer_monthly');
-      setSubscription((prev) =>
-        prev ? { ...prev, cancel_at: (res.data as any).cancel_at } : prev
-      );
+      const data = res.data as any;
+      if (data.immediate) {
+        alert(data.message || 'Subscription cancelled.');
+        window.location.reload();
+      } else {
+        setSubscription((prev) => (prev ? { ...prev, cancel_at: data.cancel_at } : prev));
+        alert(data.message || "Your subscription won't renew; you keep access until the period ends.");
+      }
     } catch (err: any) {
       alert(err?.response?.data?.detail || 'Failed to cancel subscription. Please try again.');
     } finally {
@@ -109,7 +114,7 @@ export default function CustomerProfilePage() {
 
   const cancelConfirmMessage = cancelAtDate
     ? 'Are you sure? You will keep access until ' + cancelAtDate + '.'
-    : 'Are you sure? You will keep access until the end of your current billing period.';
+    : 'Are you sure? If you are within the refund window (5 days for monthly, 14 days for annual) you will be refunded and access ends now; otherwise you keep access until the end of your current billing period and it will not renew.';
 
   return (
     <div className="min-h-screen bg-slate-50">
