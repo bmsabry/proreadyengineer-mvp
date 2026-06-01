@@ -448,3 +448,68 @@ async def admin_help_logs(
             for r in rows
         ],
     }
+
+
+# Phrases the assistant uses when it cannot answer from the manual — used to
+# surface "answer gaps" so admins can feed real misses back into the manual.
+_GAP_PHRASES = (
+    "manual doesn't", "manual does not", "don't have that", "do not have that",
+    "isn't covered", "is not covered", "couldn't find", "could not find",
+    "not able to help", "can't help with that", "cannot help with that",
+    "outside the platform", "i'm not sure", "i am not sure",
+)
+
+
+def _classify_gap(reply: Optional[str], error: Optional[str], feedback: Optional[int]) -> Optional[str]:
+    """Return a gap category for a logged turn, or None if it's a healthy answer."""
+    if error:
+        if error == "out_of_scope":
+            return "refused_scope"
+        if error == "budget_exceeded":
+            return None  # a budget block is not a knowledge gap
+        return "error"
+    if feedback == -1:
+        return "thumbs_down"
+    low = (reply or "").lower()
+    if any(p in low for p in _GAP_PHRASES):
+        return "manual_gap"
+    return None
+
+
+@router.get("/admin/help/gaps")
+async def admin_help_gaps(
+    limit: int = 200,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_role("admin")),
+):
+    """Surface assistant turns that look like answer gaps (refusals, errors,
+    thumbs-down, or 'I couldn't answer' replies) so the manual can be improved.
+    Scans the most recent `limit` turns."""
+    limit = max(1, min(int(limit or 200), 1000))
+    rows = (await db.execute(
+        select(HelpChatLog).order_by(HelpChatLog.created_at.desc()).limit(limit)
+    )).scalars().all()
+    summary = {"refused_scope": 0, "error": 0, "thumbs_down": 0, "manual_gap": 0}
+    items = []
+    for r in rows:
+        cat = _classify_gap(r.assistant_reply, r.error, getattr(r, "feedback", None))
+        if not cat:
+            continue
+        summary[cat] = summary.get(cat, 0) + 1
+        items.append({
+            "id": str(r.id),
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "category": cat,
+            "user_email": r.user_email,
+            "user_role": r.user_role,
+            "user_message": r.user_message,
+            "assistant_reply": r.assistant_reply,
+            "error": r.error,
+            "feedback": getattr(r, "feedback", None),
+        })
+    return {
+        "scanned": len(rows),
+        "gap_count": len(items),
+        "summary": summary,
+        "items": items,
+    }
