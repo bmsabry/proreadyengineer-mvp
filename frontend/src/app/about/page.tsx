@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import {
-  ArrowLeft, CheckCircle2, Search, Upload, X, Loader2, Sparkles, ShieldCheck,
+  ArrowLeft, CheckCircle2, Search, Upload, X, Loader2, Sparkles, ShieldCheck, Linkedin,
 } from 'lucide-react';
 
 // ── Content ──────────────────────────────────────────────────────────────────
@@ -70,6 +70,11 @@ const FOUNDING_BENEFITS = [
   'No platform commission on project revenue',
 ];
 
+const SIGNATURE_PS =
+  "I\u2019m a mechanical engineer myself, so I\u2019m building this around how serious engineering " +
+  "work actually moves: clear scope, relevant experience, protected project details, NDAs when " +
+  "needed, and less wasted back-and-forth. You can find me easily online.";
+
 // Client-side guards (mirror the server)
 const WEBSITE_RE = /^(https?:\/\/)?(www\.)?([a-z0-9](-?[a-z0-9])*\.)+[a-z]{2,}(\/[^\s]*)?$/i;
 const URLISH_RE = /(https?:\/\/|www\.|@|\.[a-z]{2,}(\/|$))/i;
@@ -118,6 +123,23 @@ export default function AboutPage() {
             )}
           </div>
         ))}
+
+        {/* Founder signature */}
+        <div className="mt-10 border-t border-slate-200 pt-6">
+          <p className="text-slate-800 font-semibold">— Bassam Abdelnabi</p>
+          <p className="text-slate-500 text-sm">Founder, ProMechDirectory</p>
+          <a
+            href="https://www.linkedin.com/in/bassam-abdelnabi-4a055a20/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 mt-1"
+          >
+            <Linkedin className="h-4 w-4" /> linkedin.com/in/bassam-abdelnabi
+          </a>
+          <p className="text-slate-600 leading-relaxed text-sm mt-4">
+            <span className="font-semibold">P.S.</span> {SIGNATURE_PS}
+          </p>
+        </div>
 
         {/* Founding Provider Offer */}
         <div className="mt-12 rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50 to-white p-6 sm:p-8">
