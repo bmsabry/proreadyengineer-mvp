@@ -557,6 +557,90 @@ function EmailFailuresSection() {
   );
 }
 
+interface EmailAuthCheck { status: string; record?: string | null; detail: string; policy?: string | null; rua?: string | null; selector?: string }
+interface EmailAuthResult { domain: string; from_address?: string; checks: { spf: EmailAuthCheck; dkim: EmailAuthCheck; dmarc: EmailAuthCheck }; summary: { overall: string; message: string } }
+
+function statusPill(status: string) {
+  const map: Record<string, string> = {
+    pass: "bg-green-100 text-green-800 border-green-200",
+    warn: "bg-amber-100 text-amber-800 border-amber-200",
+    fail: "bg-red-100 text-red-800 border-red-200",
+  };
+  const label: Record<string, string> = { pass: "OK", warn: "Review", fail: "Action needed" };
+  return <span className={`text-xs font-medium px-2 py-0.5 rounded border ${map[status] || "bg-slate-100 text-slate-700 border-slate-200"}`}>{label[status] || status}</span>;
+}
+
+function EmailAuthRow({ title, check }: { title: string; check: EmailAuthCheck }) {
+  return (
+    <div className="border rounded-md p-3 space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-sm">{title}</span>
+        {statusPill(check.status)}
+      </div>
+      <p className="text-sm text-muted-foreground">{check.detail}</p>
+      {check.record && <p className="text-xs font-mono text-slate-500 break-all">{check.record}</p>}
+    </div>
+  );
+}
+
+function EmailAuthSection() {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<EmailAuthResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const runCheck = async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await api.admin.emailAuth();
+      setResult(r.data as EmailAuthResult);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail ?? e?.message ?? "Check failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Mail className="h-5 w-5" />
+          Email Authentication
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          Live SPF, DKIM, and DMARC posture for your sending domain. DMARC tells inbox providers what to do with mail that fails authentication (forged/spoofed mail): <code>none</code> = monitor only, <code>quarantine</code> = send to spam, <code>reject</code> = block. Aggregate reports are emailed to the <code>rua</code> address.
+        </p>
+        <Button onClick={runCheck} disabled={loading}>
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+          {loading ? "Checking..." : "Check now"}
+        </Button>
+        {error && (
+          <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-md">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />{error}
+          </div>
+        )}
+        {result && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              {statusPill(result.summary.overall)}
+              <span>{result.summary.message}</span>
+              <span className="text-muted-foreground">({result.domain})</span>
+            </div>
+            <EmailAuthRow title="SPF (authorised senders)" check={result.checks.spf} />
+            <EmailAuthRow title="DKIM (resend selector)" check={result.checks.dkim} />
+            <EmailAuthRow title={`DMARC${result.checks.dmarc.policy ? ` — policy: ${result.checks.dmarc.policy}` : ""}`} check={result.checks.dmarc} />
+            {result.checks.dmarc.rua && (
+              <p className="text-xs text-muted-foreground">DMARC reports are sent to <code>{result.checks.dmarc.rua.replace("mailto:", "")}</code>.</p>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DebuggingPage() {
   const [testQuery, setTestQuery] = useState("gas turbine combustion analysis");
   const [searchLoading, setSearchLoading] = useState(false);
@@ -869,6 +953,8 @@ export default function DebuggingPage() {
       <CronHealthSection />
 
       <EmailFailuresSection />
+
+      <EmailAuthSection />
 
       <Card>
         <CardHeader>

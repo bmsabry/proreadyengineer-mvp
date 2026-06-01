@@ -648,6 +648,10 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 - Admin (`/admin/*`): `dashboard`, `rfqs`(+`[id]`), `claims`, `providers`, `payments`, `operating-cost`,
   `webhooks`, `campaigns`, `support`(+`[id]`), `ads`, `users`, `data-extraction`,
   `debugging`, `settings`, `operating-cost`, `bandwidth`.
+  The **Debugging** page also hosts an **Email Authentication** panel
+  (`GET /admin/debug/email-auth`): a live SPF/DKIM/DMARC posture check over DNS-over-HTTPS
+  (`app/services/email_auth.py`, pure evaluators unit-tested in `tests/unit/test_email_auth.py`),
+  showing the current DMARC policy + guidance. Read-only; needs no DMARC-report mailbox access.
 
 **API client:** `frontend/src/lib/api.ts` — axios instance, `Authorization: Bearer
 <localStorage access_token>` request interceptor, single-flight 401→refresh→retry response
