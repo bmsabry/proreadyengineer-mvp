@@ -224,10 +224,16 @@ export default function ProviderProfilePage() {
     setShowCancelConfirm(false);
     try {
       const res = await api.billing.cancelSubscription('provider_annual');
-      setProviderSub(function(prev) {
-        return prev ? { ...prev, cancel_at: (res.data as any).cancel_at } : prev;
-      });
-      toast.success('Subscription scheduled for cancellation at period end.');
+      const data = res.data as any;
+      if (data.immediate) {
+        toast.success(data.message || 'Subscription cancelled.');
+        setTimeout(function() { window.location.reload(); }, 1200);
+      } else {
+        setProviderSub(function(prev) {
+          return prev ? { ...prev, cancel_at: data.cancel_at } : prev;
+        });
+        toast.success(data.message || "Subscription won't renew; access continues to period end.");
+      }
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to cancel subscription. Please try again.');
     } finally {
