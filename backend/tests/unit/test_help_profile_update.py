@@ -49,3 +49,27 @@ def test_merge_never_removes_existing():
     merged, changed = ha._merge_profile_fields(existing, extracted)
     assert merged["software_tools"][:2] == ["SolidWorks", "ANSYS"]
     assert "Creo" in merged["software_tools"]
+
+
+def test_validate_profile_updates_sanitizes_to_known_fields():
+    raw = {
+        "capabilities": ["CFD analysis", "  ", 5],
+        "team_summary": "A 6-person FEA team.",
+        "evil_field": ["drop table"],
+        "primary_specialty": "   ",
+    }
+    out = ha._validate_profile_updates(raw)
+    assert out["capabilities"] == ["CFD analysis", "5"]
+    assert out["team_summary"] == "A 6-person FEA team."
+    assert "evil_field" not in out
+    assert "primary_specialty" not in out  # blank dropped
+
+
+def test_validate_profile_updates_rejects_non_dict():
+    assert ha._validate_profile_updates(None) == {}
+    assert ha._validate_profile_updates(["x"]) == {}
+
+
+def test_update_profile_from_chat_allowlisted():
+    assert "update_profile_from_chat" in ha.SAFE_ACTIONS
+    assert "update_profile_from_chat" not in ha.FORBIDDEN_ACTIONS

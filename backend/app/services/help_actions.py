@@ -28,7 +28,7 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
-SAFE_ACTIONS = {"mark_contacted", "undo_mark_contacted", "update_profile_from_docs"}
+SAFE_ACTIONS = {"mark_contacted", "undo_mark_contacted", "update_profile_from_docs", "update_profile_from_chat"}
 AUTONOMOUS_ACTIONS = {"accept_quote", "cancel_rfq", "withdraw_quote",
                       "create_rfq_from_docs", "submit_quote_from_docs"}
 # Admin-only support-ticket actions. Gated on the admin role (admins are already
@@ -231,6 +231,78 @@ async def _extract_profile_fields(db, doc_text: str) -> Dict[str, Any]:
     except Exception as exc:
         logger.info("[help_actions] profile extraction failed: %s", exc)
     return result
+
+
+def _validate_profile_updates(raw) -> Dict[str, Any]:
+    """Sanitize an LLM-proposed profile-update dict down to known fields + safe types.
+    List fields -> list[str] (trimmed, capped); scalar fields -> str. Drops everything else,
+    so the model can never set an arbitrary column or inject a non-profile value."""
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for fld in PROFILE_LIST_FIELDS:
+        v = raw.get(fld)
+        if isinstance(v, list):
+            vals = [str(x).strip() for x in v if str(x).strip()][:40]
+            if vals:
+                out[fld] = vals
+    for fld in PROFILE_SCALAR_FIELDS:
+        v = raw.get(fld)
+        if isinstance(v, str) and v.strip():
+            out[fld] = v.strip()[:2000]
+    return out
+
+
+async def _apply_profile_updates(db, user, extracted: Dict[str, Any], autonomous_enabled: bool, source: str) -> Dict[str, Any]:
+    """Shared, authorization-enforcing write of profile additions (used by the doc and chat paths).
+
+    Resolves the caller's OWN provider, enforces the full-profile-edit gate, ADDITIVELY merges
+    (never removes), re-embeds, and audit-logs. Raises HTTPException on bad/unauthorized input.
+    """
+    from sqlalchemy import select
+    from app.models.provider import ProviderMembership, Provider
+    from app.api.endpoints.providers import _provider_can_edit_profile, EMBEDDING_FIELDS
+    membership = (await db.execute(
+        select(ProviderMembership).where(ProviderMembership.user_id == user.id)
+    )).scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No provider firm is linked to your account.")
+    provider = (await db.execute(
+        select(Provider).where(Provider.id == membership.provider_id)
+    )).scalar_one_or_none()
+    if not provider:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider record not found.")
+    if not await _provider_can_edit_profile(provider, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Improving your full profile is part of Professional / founding membership. Upgrade at /provider/upgrade, then I can do this for you.")
+    existing = {fld: getattr(provider, fld, None) for fld in (PROFILE_LIST_FIELDS + PROFILE_SCALAR_FIELDS)}
+    merged, changed = _merge_profile_fields(existing, extracted)
+    if not changed:
+        return {"ok": True, "message": "Those details are already in your profile \u2014 nothing new to add.",
+                "link": {"href": "/provider/profile", "label": "Review your profile"}}
+    embedding_changed = False
+    for fld in changed:
+        setattr(provider, fld, merged[fld])
+        if fld in EMBEDDING_FIELDS:
+            embedding_changed = True
+    await db.commit()
+    if embedding_changed:
+        try:
+            from app.tasks.search_tasks import generate_provider_embedding_async
+            await generate_provider_embedding_async(str(provider.id))
+        except Exception as exc:
+            logger.warning("[help_actions] re-embed after profile update failed: %s", exc)
+    await _audit(db, user, "provider", str(provider.id), "update_profile", autonomous_enabled)
+    list_added = ", ".join(
+        "%d %s" % (len(extracted[fld]), fld.replace("proven_experience_", "").replace("_", " "))
+        for fld in changed if isinstance(extracted.get(fld), list) and extracted.get(fld)
+    )
+    scalar_added = ", ".join(fld.replace("_", " ") for fld in changed if fld in PROFILE_SCALAR_FIELDS)
+    added = "; ".join(p for p in (list_added, scalar_added) if p) or "new details"
+    return {"ok": True, "provider_id": str(provider.id),
+            "message": ("I updated your firm profile from " + source + " \u2014 added " + added +
+                        ". I merged it with what you already had (nothing removed), so please review and refine anything."),
+            "link": {"href": "/provider/profile", "label": "Review your updated profile"}}
 
 
 async def execute_action(
@@ -521,5 +593,12 @@ async def execute_action(
                 "message": ("I updated your firm profile from the document(s) \u2014 added " + (added or "new details") +
                             ". I merged it with what you already had (nothing removed), so please review and refine anything."),
                 "link": {"href": "/provider/profile", "label": "Review your updated profile"}}
+
+    # ---- SAFE: update the provider's firm profile from what they told the assistant in chat ----
+    if action_type == "update_profile_from_chat":
+        updates = _validate_profile_updates(params.get("profile_updates"))
+        if not updates:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="I did not capture specific profile details to add. Tell me exactly what to add (a capability, tool, certification, or a project).")
+        return await _apply_profile_updates(db, user, updates, autonomous_enabled, source="what you told me")
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported action.")

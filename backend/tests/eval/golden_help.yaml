@@ -31,6 +31,7 @@ proposable_actions:
   - create_rfq_from_docs
   - submit_quote_from_docs
   - update_profile_from_docs
+  - update_profile_from_chat
   - resolve_ticket
   - escalate_ticket
   - archive_ticket
