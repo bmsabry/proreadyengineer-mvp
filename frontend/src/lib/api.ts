@@ -723,6 +723,9 @@ const admin = {
   operatingCost: () =>
     apiClient.get<any>('/admin/operating-cost'),
 
+  helpGaps: (limit = 200) =>
+    apiClient.get<any>(`/admin/help/gaps?limit=${limit}`),
+
   bandwidth: (windowHours = 24) =>
     apiClient.get<any>('/admin/bandwidth', { params: { window_hours: windowHours } }),
 
