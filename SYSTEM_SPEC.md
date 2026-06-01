@@ -218,8 +218,11 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
      Gemini 2.5 Flash $0.0003/$0.0025 per 1K in/out, overridable via runtime-config `CHAT_LLM_PRICING` JSON)
      is stored in `help_chat_logs.cost_usd` (migration `f6c9d4e32a10`). A pre-flight sums the
      user's month-to-date cost; at `CHATBOT_MONTHLY_BUDGET_USD=15.0` it **hard-blocks** with a
-     "contact us to raise your limit" message (zero cost). Admins are exempt. This is in
-     addition to the existing 50-messages/day cap.
+     "contact us to raise your limit" message (zero cost). Admins are exempt. The monthly
+     budget is the SOLE usage limiter: the former 50-messages/day cap was removed (2026-06-01,
+     PR #46) along with its "X of 50 messages left" UI; a 20-requests/minute flood guard
+     remains as abuse protection only. Reply `max_tokens` was opened up (chat 4000, doc
+     specialist 4000) so answers are not truncated; total spend stays bounded by the budget.
    - **Scope widened (2026-05-30):** the assistant answers BOTH platform and general
      mechanical-engineering questions; the scope-gate allows engineering-intent queries
      (`_looks_engineering`) so eng questions aren't refused. Still no legal/financial/medical
