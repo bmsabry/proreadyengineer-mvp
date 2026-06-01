@@ -686,15 +686,14 @@ async def get_software_provider_ads(
 
 
 @router.get("/ads/_status_summary")
-async def ads_status_summary(db: AsyncSession = Depends(get_db)):
-    """PUBLIC diagnostic. Lists how many ads are in each status and each
-    page_type, plus the N most recently touched ads (title/status/
-    page_type only, no PII). Lets us debug 'my ad is active but not
-    showing' from a browser without admin access.
-
-    Includes an `endpoint_version` string so we can verify which build
-    of the backend is actually serving.
-    """
+async def ads_status_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """ADMIN-ONLY diagnostic. Lists how many ads are in each status and each
+    page_type, plus the N most recently touched ads (title/status/page_type
+    only, no PII). Used to debug 'my ad is active but not showing'. Gated to
+    admins so internal ad counts are never exposed to the public."""
     from app.models.advertising import Advertisement
     from app.models.enums import AdStatus
 
@@ -790,32 +789,11 @@ async def get_featured_firm_ads(
         )
         await db.commit()
 
-    # Always include a small diagnostics block so /featured-firms empty state
-    # can tell the user WHY there are no ads (deploy not live, no active ads
-    # yet, ads still in reserved_checkout_pending because Stripe webhook did
-    # not fire, etc.). This makes the empty state actionable instead of a
-    # dead end.
-    diag_status_counts: dict = {}
-    for st in AdStatus:
-        r = await db.execute(
-            select(func.count()).select_from(Advertisement).where(
-                Advertisement.ad_status == st.value
-            )
-        )
-        c = r.scalar() or 0
-        if c:
-            diag_status_counts[st.value] = c
-
     return {
         "advertisements": [_to_public_response(a) for a in ads],
         "total_count": total,
         "page": page,
         "page_size": page_size,
-        "diagnostics": {
-            "endpoint_version": "v3_2026_04_17_show_all_active",
-            "status_counts": diag_status_counts,
-            "total_in_db": sum(diag_status_counts.values()),
-        },
     }
 
 
