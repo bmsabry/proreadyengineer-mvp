@@ -693,6 +693,8 @@ async def handle_stripe_webhook(
             await _handle_payment_failed(db, event["data"]["object"])
         elif event["type"] == "checkout.session.completed":
             await _handle_checkout_session_completed(db, event["data"]["object"])
+        elif event["type"] in ("charge.refunded", "charge.refund.updated"):
+            await _handle_charge_refunded(db, event["data"]["object"])
 
         webhook_event.processing_status = "completed"
         webhook_event.processed_at = datetime.utcnow()
@@ -740,6 +742,34 @@ async def _handle_payment_intent_succeeded(
 
     # Fulfill the payment purpose
     await fulfill_payment_purpose(db, payment)
+
+
+async def _handle_charge_refunded(db: AsyncSession, charge: dict) -> None:
+    """Mark the matching PaymentAttempt refunded when a Stripe refund happens — including
+    refunds issued directly in the Stripe dashboard — so Payment Monitoring reflects every
+    refund. Only flips on a FULL refund; partial refunds leave the record. Idempotent."""
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+    pi = charge.get("payment_intent")
+    if not pi:
+        return
+    if not charge.get("refunded"):  # full-refund flag; skip partials
+        return
+    result = await db.execute(
+        select(PaymentAttempt).where(PaymentAttempt.external_payment_id == pi)
+    )
+    payment = result.scalar_one_or_none()
+    if not payment:
+        _log.info("charge.refunded: no PaymentAttempt for payment_intent=%s", pi)
+        return
+    if payment.payment_status == PaymentStatus.REFUNDED:
+        return
+    payment.payment_status = PaymentStatus.REFUNDED
+    for _attr in ("refunded_at", "confirmed_at"):
+        if hasattr(payment, _attr) and _attr == "refunded_at":
+            setattr(payment, _attr, datetime.utcnow())
+    await db.commit()
+    _log.info("charge.refunded: PaymentAttempt %s marked refunded (pi=%s)", payment.id, pi)
 
 
 async def _handle_invoice_paid(
