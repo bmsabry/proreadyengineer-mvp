@@ -796,6 +796,14 @@ as a bug, even if tests pass.
 12. **Production refuses to boot with the default `SECRET_KEY`** — keep that guard.
 13. **One dispatch mechanism in prod:** Render cron + the in-process backup loop. Do not
     add a third trigger or assume a Celery worker exists.
+
+    **Dispatch race fix (2026-06-01):** `submit_rfq` commits the OPEN_FOR_DISPATCH claim
+    BEFORE running the AI search, so a concurrent dispatcher (backup loop / cron) firing
+    during the search saw 0 matches and wrongly closed the RFQ as CLOSED_NO_SELECTION (then
+    submit_rfq stored the matches but found it closed and bailed — 28 matches, 0 dispatched).
+    `dispatch_next_batch` now only closes a 0-match RFQ when it has 0 TOTAL matches AND was
+    claimed > 5 min ago (search definitely finished); within the grace it defers, so
+    submit_rfq's own dispatch (after its matches commit) runs normally.
 14. **`is_closed` is a DATABASE-GENERATED column — unwritable, cannot drift.** As of migration
     `c3f8e1a90b21` (2026-05-30) `rfqs.is_closed` is `GENERATED ALWAYS AS (rfq_status IN
     ('quote_limit_reached','customer_selected_provider','closed_no_selection','cancelled'))
