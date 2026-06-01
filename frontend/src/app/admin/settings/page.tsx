@@ -308,6 +308,77 @@ function TextAreaRow({ label, fieldName, value, onChange, isSet, placeholder, hi
   )
 }
 
+function FoundingInvitesCard() {
+  const [data, setData] = useState<{ limit: number; sent: number; remaining: number; closed: boolean } | null>(null)
+  const [limitInput, setLimitInput] = useState('')
+  const [sentInput, setSentInput] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    api.admin.getFoundingInvites()
+      .then((r) => { setData(r.data); setLimitInput(String(r.data.limit)); setSentInput(String(r.data.sent)) })
+      .catch(() => {})
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const save = async (opts: { reset?: boolean } = {}) => {
+    setSaving(true); setMsg(null)
+    try {
+      const body: { limit?: number; sent?: number; reset?: boolean } = {}
+      if (opts.reset) { body.reset = true }
+      else { body.limit = Number(limitInput); body.sent = Number(sentInput) }
+      const r = await api.admin.setFoundingInvites(body)
+      setData(r.data); setLimitInput(String(r.data.limit)); setSentInput(String(r.data.sent))
+      setMsg('Saved.')
+    } catch (e: any) { setMsg(e?.response?.data?.detail || 'Failed to save.') }
+    finally { setSaving(false); setTimeout(() => setMsg(null), 4000) }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className='flex items-center gap-2'>
+          <LayoutDashboard className='w-5 h-5' />
+          Founding Provider Invitations
+        </CardTitle>
+        <CardDescription>
+          The free Professional-subscription invitations offered on the About page. Each submitted
+          application uses one invitation; when none remain, the offer closes automatically.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className='space-y-4'>
+        {data && (
+          <div className='flex items-center gap-4 text-sm'>
+            <span className='font-semibold text-slate-800'>{data.remaining}</span>
+            <span className='text-slate-500'>of {data.limit} remaining ({data.sent} used)</span>
+            {data.closed && <Badge className='bg-red-100 text-red-700'>Closed</Badge>}
+          </div>
+        )}
+        <div className='grid grid-cols-2 gap-3 max-w-sm'>
+          <div>
+            <Label className='text-xs'>Total invitations</Label>
+            <Input type='number' min={0} value={limitInput} onChange={(e) => setLimitInput(e.target.value)} />
+          </div>
+          <div>
+            <Label className='text-xs'>Used (sent)</Label>
+            <Input type='number' min={0} value={sentInput} onChange={(e) => setSentInput(e.target.value)} />
+          </div>
+        </div>
+        <div className='flex items-center gap-2'>
+          <Button onClick={() => save()} disabled={saving} size='sm'>
+            {saving ? <Loader2 className='w-4 h-4 animate-spin' /> : 'Save'}
+          </Button>
+          <Button onClick={() => save({ reset: true })} disabled={saving} size='sm' variant='outline'>
+            Reset used to 0 (re-open)
+          </Button>
+          {msg && <span className='text-sm text-slate-600'>{msg}</span>}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function AdminSettingsPage() {
   const { isLoading: authLoading } = useRequireAuth(['admin'])
   const [config, setConfig] = useState<ServerConfig | null>(null)
@@ -1154,7 +1225,8 @@ export default function AdminSettingsPage() {
         </TabsContent>
 
         {/* ── RFQ ── */}
-        <TabsContent value='rfq'>
+        <TabsContent value='rfq' className='space-y-4'>
+          <FoundingInvitesCard />
           <Card>
             <CardHeader>
               <CardTitle className='flex items-center gap-2'>
