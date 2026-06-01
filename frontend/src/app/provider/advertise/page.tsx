@@ -318,6 +318,7 @@ function AdvertiseInner() {
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-left mb-6 text-sm text-amber-800">
               <p className="font-semibold mb-1">Approved — one last step</p>
               <p className="text-amber-700 mb-3">Your ad has been approved by our review team. Complete the $50/month subscription to publish it to the public directory. The ad will go live within seconds of a successful payment.</p>
+              <p className="text-amber-700 text-xs mb-3"><span className="font-semibold">Founding rate:</span> $50/month is our introductory price (rising to $350/month after the introductory period). Subscribe now and you keep $50/month for your full first year.</p>
               {checkoutError && (
                 <p className="text-red-700 text-xs mt-2">{checkoutError}</p>
               )}
