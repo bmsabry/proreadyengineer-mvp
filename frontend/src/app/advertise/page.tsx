@@ -24,7 +24,7 @@ const featuredFeatures = [
 ];
 
 const faqs = [
-  { q: 'How does billing work?', a: 'You are billed $50/month per ad via Stripe. Your card is charged automatically each billing cycle. Manage your subscription at any time.' },
+  { q: 'How does billing work?', a: 'You are billed $50/month per ad via Stripe, charged automatically each billing cycle. The $50/month rate is our founding (introductory) price — after the introductory period it rises to $350/month, but advertisers who subscribe now keep $50/month for their full first year. Manage your subscription at any time.' },
   { q: 'Can I cancel?', a: 'Yes, cancel anytime from your dashboard. Your ad remains active until the end of the current billing period.' },
   { q: 'How does the ad creation work?', a: 'Just provide your website URL and/or upload a brochure. Our AI reads your materials and generates a professional ad card. Admin reviews it before it goes live.' },
   { q: 'How many ads can I place?', a: 'There is no limit. Each directory page expands to show all active ads, so your listing is always visible.' },
@@ -86,6 +86,9 @@ export default function AdvertisePage() {
                     $50<span className="text-base font-normal text-gray-500">/month</span>
                   </CardTitle>
                   <CardDescription>Promote your software tools to active engineering buyers</CardDescription>
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2 mt-2 leading-relaxed">
+                    <span className="font-semibold">Founding rate.</span> $50/month is our introductory founding price. After the introductory period the price rises to <span className="font-semibold">$350/month</span> — but subscribe now and you keep $50/month for your full first year.
+                  </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <ul className="space-y-2">
@@ -109,6 +112,9 @@ export default function AdvertisePage() {
                     $50<span className="text-base font-normal text-gray-500">/month</span>
                   </CardTitle>
                   <CardDescription>Direct access to engineering customers outside the RFQ flow</CardDescription>
+                  <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-2.5 py-2 mt-2 leading-relaxed">
+                    <span className="font-semibold">Founding rate.</span> $50/month is our introductory founding price. After the introductory period the price rises to <span className="font-semibold">$350/month</span> — but subscribe now and you keep $50/month for your full first year.
+                  </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <ul className="space-y-2">
