@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import ContactSupport from '@/components/ContactSupport';
 import { Building2, LayoutDashboard, FileText, Home, LogOut, Activity, CheckCircle, List, XCircle, MessageSquare, UserCircle } from 'lucide-react';
 
 const RFQ_DRAFT_KEY = 'rfq_draft';
@@ -67,6 +68,7 @@ export default function CustomerLayout({ children }: { children: React.ReactNode
             <span className="hidden md:inline">Customer Portal</span>
           </Link>
           <nav className="ml-auto flex gap-1 items-center shrink-0">
+            <ContactSupport variant="light" />
             {navItems.map(({ href, label, icon: Icon, tooltip }) => {
               const isActive = pathname === href;
               return (
