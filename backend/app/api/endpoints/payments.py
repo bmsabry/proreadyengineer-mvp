@@ -9,6 +9,10 @@ from app.services.payment_service import (
     handle_stripe_webhook, handle_paypal_webhook,
     create_billing_portal_session,
 )
+from app.core.config import settings
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -28,10 +32,26 @@ async def get_billing_portal(
     )
     subscription = result.scalar_one_or_none()
 
-    if not subscription:
+    if not subscription or not subscription.external_customer_id:
         return {"no_subscription": True}
 
-    portal_url = await create_billing_portal_session(subscription.external_customer_id)
+    try:
+        portal_url = await create_billing_portal_session(
+            subscription.external_customer_id,
+            return_url=f"{settings.FRONTEND_URL}/customer/dashboard",
+        )
+    except Exception as exc:
+        # Common causes: missing return_url (now passed), a legacy TEST-mode customer id
+        # under live keys ("No such customer"), or the live Customer Portal not yet
+        # configured in the Stripe dashboard. Fail cleanly instead of a 500/Network Error.
+        logger.error(
+            "Billing portal session failed (user=%s customer=%s): %s",
+            current_user.id, subscription.external_customer_id, exc,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="We couldn't open the billing portal right now. If your subscription predates our payment launch, please contact support to manage it.",
+        )
     return {"url": portal_url}
 
 
