@@ -122,8 +122,20 @@ class TestAdminRFQs:
                 "reason": "Customer request",
             },
         )
-        
-        assert response.status_code in [200, 404]
+
+        assert response.status_code == 200
+        body = response.json()
+        # is_closed is a DB-computed column; the handler must compute its post-commit
+        # value in Python (never touch the expired ORM attr). closed_no_selection is terminal.
+        assert body["is_closed"] is True
+
+        # Re-opening to a non-terminal status must report is_closed False.
+        reopen = client.post(
+            f"/api/v1/admin/rfqs/{rfq.id}/override-status",
+            json={"new_status": "open_for_dispatch", "reason": "Re-open"},
+        )
+        assert reopen.status_code == 200
+        assert reopen.json()["is_closed"] is False
 
 
 @pytest.mark.integration

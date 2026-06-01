@@ -244,6 +244,15 @@ async def admin_override_rfq_status(
     # Commit the status change FIRST so the override always persists; the audit log is
     # best-effort and must never roll back the actual status change.
     _new_status_val = data.new_status.value if hasattr(data.new_status, "value") else str(data.new_status)
+
+    # is_closed is a Postgres GENERATED ALWAYS (Computed) column. SQLAlchemy does NOT
+    # refresh it on the in-memory ORM object after commit, and accessing rfq.is_closed
+    # post-commit triggers a lazy reload that crashes the async session
+    # (sqlalchemy.exc.MissingGreenlet). Compute the value in Python instead.
+    new_is_closed = _new_status_str in {
+        "quote_limit_reached", "customer_selected_provider",
+        "closed_no_selection", "cancelled",
+    }
     await db.commit()
 
     try:
@@ -254,7 +263,7 @@ async def admin_override_rfq_status(
             entity_id=rfq_id,
             action="status_override",
             before_state={"status": old_status.value if hasattr(old_status, 'value') else str(old_status), "is_closed": old_is_closed},
-            after_state={"status": _new_status_val, "is_closed": rfq.is_closed},
+            after_state={"status": _new_status_val, "is_closed": new_is_closed},
             extra_data={"reason": data.reason},
             created_at=datetime.utcnow(),
         ))
@@ -262,7 +271,7 @@ async def admin_override_rfq_status(
     except Exception:
         await db.rollback()
 
-    return {"message": f"RFQ status changed to {_new_status_val}", "rfq_id": rfq_id, "is_closed": rfq.is_closed}
+    return {"message": f"RFQ status changed to {_new_status_val}", "rfq_id": rfq_id, "is_closed": new_is_closed}
 
 
 @router.get("/admin/rfqs/{rfq_id}/dispatch-tracking")
