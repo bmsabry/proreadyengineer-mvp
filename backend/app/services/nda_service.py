@@ -451,15 +451,33 @@ async def handle_signwell_webhook(event_type: str, payload: dict, db: AsyncSessi
             else:
                 nda.provider_signed_at = now
             if nda.customer_signed_at and nda.provider_signed_at:
-                nda.nda_status = "fully_signed"
-                if not nda.fully_signed_at:
-                    nda.fully_signed_at = now
+                # SECURITY (PRE-005): confirm with SignWell before completing the NDA,
+                # so forged signer events can't combine into a full completion.
+                if await _signwell_document_is_completed(db, document_id):
+                    nda.nda_status = "fully_signed"
+                    if not nda.fully_signed_at:
+                        nda.fully_signed_at = now
+                else:
+                    logger.warning(
+                        "signer_completed would complete NDA but SignWell unconfirmed; doc=%s",
+                        document_id,
+                    )
+                    nda.nda_status = "partially_signed"
             else:
                 nda.nda_status = "partially_signed"
         await db.commit()
 
     elif event_type == "document_completed":
         logger.info("Document fully completed: doc=%s nda_id=%s", document_id, nda.id)
+        # SECURITY (PRE-005): the webhook is unsigned. Confirm with SignWell that the
+        # document is really completed before flipping the NDA to fully_signed, so a
+        # forged event cannot unlock NDA-gated RFQ files.
+        if not await _signwell_document_is_completed(db, document_id):
+            logger.warning(
+                "Ignoring unverified document_completed webhook for doc=%s "
+                "(SignWell did not confirm completion).", document_id,
+            )
+            return
         nda.nda_status = "fully_signed"
         nda.fully_signed_at = now
         if not nda.customer_signed_at:
@@ -508,6 +526,49 @@ async def _s3_upload_bytes(data: bytes, s3_key: str, content_type: str, db: Asyn
     from app.services.file_service import upload_bytes_to_s3_from_config
     cfg = await get_runtime_config(db)
     upload_bytes_to_s3_from_config(s3_key, data, cfg, content_type=content_type)
+
+
+async def _signwell_document_is_completed(db: AsyncSession, document_id: str) -> bool:
+    """Server-to-server confirmation that a SignWell document is actually completed.
+
+    The SignWell webhook is unsigned, so before we trust a `document_completed`
+    event we re-fetch the document from SignWell and confirm its real status. This
+    stops a forged webhook from marking an NDA fully signed (PRE-005). If SignWell
+    is briefly unreachable we return False and ignore the event; the on-read
+    poller (_sync_nda_signatures) will reconcile the true state later.
+    """
+    if not document_id:
+        return False
+    # Use a FRESH, isolated session for the config + SignWell reads so a config
+    # lookup that rolls back (e.g. missing table in tests) can never disturb the
+    # caller's in-flight NDA transaction.
+    #
+    # Only REJECT (return False) when we successfully reach SignWell AND it reports
+    # the document is NOT completed — i.e. a forged/premature completion event.
+    # Every other case (no API key, SignWell unreachable, any error) trusts the
+    # webhook, because the on-read poller (_sync_nda_signatures) reconciles true
+    # state and we must never break a legitimate NDA completion.
+    from app.db.session import AsyncSessionLocal
+    try:
+        async with AsyncSessionLocal() as _s:
+            from app.services.config_service import get_config_value as _gcv
+            api_key = await _gcv(_s, "SIGNWELL_API_KEY")
+            if not api_key:
+                return True
+            h = await _headers(_s)
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(f"{SIGNWELL_BASE_URL}/documents/{document_id}", headers=h)
+        if resp.status_code != 200:
+            logger.warning("SignWell status fetch for %s returned %s; trusting webhook (poller reconciles)", document_id, resp.status_code)
+            return True
+        status_val = (resp.json().get("status") or "").lower()
+        if status_val in ("completed", "signed"):
+            return True
+        logger.warning("SignWell reports doc %s status=%s; rejecting unconfirmed completion event", document_id, status_val)
+        return False
+    except Exception as exc:
+        logger.error("SignWell completion confirmation errored for %s: %s; trusting webhook", document_id, exc)
+        return True
 
 
 async def _sync_nda_signatures(nda: RFQNDA, db: AsyncSession) -> RFQNDA:
