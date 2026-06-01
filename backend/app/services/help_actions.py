@@ -28,7 +28,7 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
-SAFE_ACTIONS = {"mark_contacted", "undo_mark_contacted"}
+SAFE_ACTIONS = {"mark_contacted", "undo_mark_contacted", "update_profile_from_docs"}
 AUTONOMOUS_ACTIONS = {"accept_quote", "cancel_rfq", "withdraw_quote",
                       "create_rfq_from_docs", "submit_quote_from_docs"}
 # Admin-only support-ticket actions. Gated on the admin role (admins are already
@@ -129,6 +129,107 @@ async def _extract_quote_fields(db, doc_text: str) -> Dict[str, Any]:
             result[k] = (str(v)[:1900] if v else None)
     except Exception as exc:
         logger.info("[help_actions] quote extraction failed: %s", exc)
+    return result
+
+
+PROFILE_LIST_FIELDS = (
+    "capabilities", "specialties", "software_tools", "equipment",
+    "certifications", "notable_clients", "proven_experience_notable_projects",
+)
+PROFILE_SCALAR_FIELDS = ("team_summary", "primary_specialty")
+
+
+def _merge_profile_fields(existing: Dict[str, Any], extracted: Dict[str, Any]):
+    """Additively merge extracted profile data into existing values.
+
+    List fields are unioned (case-insensitive dedup, existing entries kept first, capped);
+    scalar fields are filled ONLY when currently empty. Never removes or overwrites data.
+    Returns (merged_values, changed_field_set).
+    """
+    merged: Dict[str, Any] = {}
+    changed = set()
+    for fld in PROFILE_LIST_FIELDS:
+        cur = existing.get(fld) or []
+        cur = [str(x).strip() for x in cur if str(x).strip()] if isinstance(cur, list) else []
+        new = extracted.get(fld) or []
+        new = [str(x).strip() for x in new if str(x).strip()] if isinstance(new, list) else []
+        if not new:
+            continue
+        out = list(cur)
+        seen = {x.lower() for x in cur}
+        for x in new:
+            if x.lower() not in seen:
+                out.append(x)
+                seen.add(x.lower())
+        cap = 30 if fld == "proven_experience_notable_projects" else 40
+        out = out[:cap]
+        if out != cur:
+            merged[fld] = out
+            changed.add(fld)
+    for fld in PROFILE_SCALAR_FIELDS:
+        cur = existing.get(fld)
+        cur = cur.strip() if isinstance(cur, str) else ""
+        new = extracted.get(fld)
+        new = new.strip() if isinstance(new, str) else ""
+        if new and not cur:
+            merged[fld] = new[:2000]
+            changed.add(fld)
+    return merged, changed
+
+
+async def _extract_profile_fields(db, doc_text: str) -> Dict[str, Any]:
+    """Best-effort LLM extraction of a firm's profile from its own marketing/capability
+    documents. Returns a dict of the profile list/scalar fields. Never raises."""
+    result: Dict[str, Any] = {}
+    if not (doc_text or "").strip():
+        return result
+    try:
+        import json
+        from openai import AsyncOpenAI
+        from app.services.config_service import get_runtime_config
+        cfg = await get_runtime_config(db)
+        api_key = cfg.get("DOC_LLM_API_KEY") or cfg.get("CHAT_LLM_API_KEY") or cfg.get("OPENAI_API_KEY")
+        api_base = cfg.get("DOC_LLM_API_BASE") or cfg.get("CHAT_LLM_API_BASE") or cfg.get("OPENAI_API_BASE") or "https://api.openai.com/v1"
+        model = cfg.get("DOC_LLM_MODEL") or cfg.get("CHAT_LLM_MODEL") or cfg.get("OPENAI_LLM_MODEL") or "gpt-4o-mini"
+        if not api_key:
+            return result
+        client = AsyncOpenAI(api_key=api_key, base_url=api_base)
+        sys = (
+            "You extract a mechanical-engineering FIRM's profile from its own marketing / capability "
+            "documents (brochure, capability statement, line card, project write-ups). Return ONLY JSON "
+            "with these keys; use [] or null when the document does not support it; NEVER invent:\n"
+            "- capabilities: specific engineering services performed (e.g. \"FEA structural analysis\", \"HVAC load calculations\")\n"
+            "- specialties: focus areas / industries served (e.g. \"oil & gas\", \"data-center cooling\")\n"
+            "- software_tools: named CAD/CAE/PLM tools (e.g. \"SolidWorks\", \"ANSYS Fluent\")\n"
+            "- equipment: in-house equipment / machinery\n"
+            "- certifications: e.g. \"ISO 9001\", \"ASME U-stamp\", \"PE-licensed\"\n"
+            "- notable_clients: named clients, only if explicitly named\n"
+            "- proven_experience_notable_projects: for EACH project/case study write EXACTLY ONE factual sentence: "
+            "(1) what engineering service was performed (2) the method/approach used (3) the outcome/purpose. One item per project.\n"
+            "- team_summary: one short paragraph on the team/expertise, or null\n"
+            "- primary_specialty: a single one-line description of the firm's main specialty, or null\n"
+            "Be factual and technical; extract only what the document supports."
+        )
+        resp = await client.chat.completions.create(
+            model=model, temperature=0.1,
+            messages=[{"role": "system", "content": sys}, {"role": "user", "content": doc_text[:8000]}],
+        )
+        raw = (resp.choices[0].message.content or "").strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").split("\n", 1)[-1]
+        data = json.loads(raw[raw.find("{"): raw.rfind("}") + 1])
+        for fld in PROFILE_LIST_FIELDS:
+            v = data.get(fld)
+            if isinstance(v, list):
+                vals = [str(x).strip() for x in v if str(x).strip()]
+                if vals:
+                    result[fld] = vals[:40]
+        for fld in PROFILE_SCALAR_FIELDS:
+            v = data.get(fld)
+            if isinstance(v, str) and v.strip():
+                result[fld] = v.strip()
+    except Exception as exc:
+        logger.info("[help_actions] profile extraction failed: %s", exc)
     return result
 
 
@@ -368,5 +469,57 @@ async def execute_action(
 
         await _audit(db, user, "support_ticket", str(tid), action_type, autonomous_enabled)
         return {"ok": True, "message": msg, "link": {"href": f"/admin/support/{tid}", "label": "View the ticket"}}
+
+    # ---- SAFE: update the provider's firm profile from staged documents ----
+    if action_type == "update_profile_from_docs":
+        attachments = _validate_attachments(user, params.get("attachments"))
+        if not attachments:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No valid uploaded documents to use. Attach a brochure or capability statement first.")
+        from sqlalchemy import select
+        from app.models.provider import ProviderMembership, Provider
+        from app.api.endpoints.providers import _provider_can_edit_profile, EMBEDDING_FIELDS
+        membership = (await db.execute(
+            select(ProviderMembership).where(ProviderMembership.user_id == user.id)
+        )).scalar_one_or_none()
+        if not membership:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No provider firm is linked to your account.")
+        provider = (await db.execute(
+            select(Provider).where(Provider.id == membership.provider_id)
+        )).scalar_one_or_none()
+        if not provider:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Provider record not found.")
+        if not await _provider_can_edit_profile(provider, db):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                                detail="Improving your full profile is part of Professional / founding membership. Upgrade at /provider/upgrade, then I can do this for you.")
+        doc_text = "\n\n".join(a.get("excerpt", "") for a in attachments).strip()
+        extracted = await _extract_profile_fields(db, doc_text)
+        if not extracted:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="I could not read enough from the document(s) to update your profile. Try a clearer capability statement or brochure.")
+        existing = {fld: getattr(provider, fld, None) for fld in (PROFILE_LIST_FIELDS + PROFILE_SCALAR_FIELDS)}
+        merged, changed = _merge_profile_fields(existing, extracted)
+        if not changed:
+            return {"ok": True, "message": "Your profile already covers what was in those documents \u2014 nothing new to add.",
+                    "link": {"href": "/provider/profile", "label": "Review your profile"}}
+        embedding_changed = False
+        for fld in changed:
+            setattr(provider, fld, merged[fld])
+            if fld in EMBEDDING_FIELDS:
+                embedding_changed = True
+        await db.commit()
+        if embedding_changed:
+            try:
+                from app.tasks.search_tasks import generate_provider_embedding_async
+                await generate_provider_embedding_async(str(provider.id))
+            except Exception as exc:
+                logger.warning("[help_actions] re-embed after profile update failed: %s", exc)
+        await _audit(db, user, "provider", str(provider.id), "update_profile_from_docs", autonomous_enabled)
+        added = ", ".join(
+            "%d %s" % (len(extracted[fld]), fld.replace("proven_experience_", "").replace("_", " "))
+            for fld in changed if isinstance(extracted.get(fld), list) and extracted.get(fld)
+        )
+        return {"ok": True, "provider_id": str(provider.id),
+                "message": ("I updated your firm profile from the document(s) \u2014 added " + (added or "new details") +
+                            ". I merged it with what you already had (nothing removed), so please review and refine anything."),
+                "link": {"href": "/provider/profile", "label": "Review your updated profile"}}
 
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported action.")

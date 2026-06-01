@@ -71,7 +71,7 @@ class ActionResponse(BaseModel):
 # The ONLY actions the assistant may execute. All are reversible, non-financial,
 # non-signature, non-destructive, and re-authorized server-side. Anything else is
 # navigation-only (Phase 3). Adding to this set is a deliberate security decision.
-_EXECUTABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted"}
+_EXECUTABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted", "update_profile_from_docs"}
 
 
 class StatusResponse(BaseModel):

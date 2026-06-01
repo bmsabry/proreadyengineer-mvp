@@ -319,7 +319,9 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    malicious uploaded document is inert data and cannot attach a foreign file or escalate. These
    are gated exactly like other autonomous actions (confirm-then-execute, or auto with consent +
    hard-stop). Submitting the RFQ (which triggers the $10 NDA fee / dispatch) and all payments/NDA
-   signing remain human-clicked. See §19 invariant 17.
+   signing remain human-clicked. 
+
+   **Profile coaching + `update_profile_from_docs` (2026-06-01):** the assistant now coaches PROVIDERS to build a strong matching profile (capabilities, specialties, software/tools, equipment, certifications, and especially **Notable Projects** — one sentence each: service + method + outcome) WITHOUT disclosing the matching mechanism (prompt: never mention scores/weights/embeddings; frame as "more complete = more relevant RFQs for you"). It proactively offers document upload; on `update_profile_from_docs` (a SAFE / confirm-then-execute action in `help_actions`) it LLM-extracts profile fields from the staged brochure/capability-statement and **additively merges** them into the provider's profile (`_merge_profile_fields`: union list fields, fill scalars only if empty, never remove), then re-embeds via `generate_provider_embedding_async`. Ownership + the full-profile-edit gate (`_provider_can_edit_profile`: paid or annual/founding) are enforced; file keys come only from staged uploads; audit-logged. Manual §6.2 documents it; payments/NDA signing stay forbidden (§19 inv 16/17). See §19 invariant 17.
 
    **Phase 5 quality flywheel (2026-05-30):**
    - **Feedback loop:** each assistant turn returns its `log_id`; the widget shows 👍/👎 which
