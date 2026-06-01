@@ -70,6 +70,10 @@ function CreateRFQForm() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // NDA fee coverage: subscribed customers get free NDA credits/month, so we show
+  // "covered by your subscription" instead of the $10 handling fee on the NDA toggle.
+  const [ndaCoverage, setNdaCoverage] = useState<{ has_active: boolean; nda_credits_remaining: number } | null>(null);
+
   // Restore draft from localStorage on mount - ONLY project fields, NOT contact info
   // Contact info (email, name, company) always comes from user profile
   useEffect(() => {
@@ -99,6 +103,17 @@ function CreateRFQForm() {
     const draft = { query: prefilledQuery, formData, savedAt: new Date().toISOString() };
     localStorage.setItem(RFQ_DRAFT_KEY, JSON.stringify(draft));
   }, [formData, prefilledQuery]);
+
+  // Load NDA fee coverage from the user's subscription (free NDA credits).
+  useEffect(() => {
+    if (authLoading || !user) return;
+    api.billing.getSubscriptionStatus()
+      .then((res: any) => setNdaCoverage({
+        has_active: !!res.data?.has_active,
+        nda_credits_remaining: res.data?.nda_credits_remaining ?? 0,
+      }))
+      .catch(() => setNdaCoverage({ has_active: false, nda_credits_remaining: 0 }));
+  }, [authLoading, user]);
 
   useEffect(() => {
     if (user) {
@@ -381,7 +396,11 @@ function CreateRFQForm() {
                   <Lock className="w-4 h-4 text-slate-500 flex-shrink-0" />
                   <span className="text-sm font-semibold text-slate-800">Require NDA</span>
                   <HelpTip id="rfq.nda" />
-                  <span className="text-xs font-medium bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">+$10 handling fee</span>
+                  {ndaCoverage && ndaCoverage.has_active && ndaCoverage.nda_credits_remaining > 0 ? (
+                    <span className="text-xs font-medium bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Covered by your subscription</span>
+                  ) : (
+                    <span className="text-xs font-medium bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">+$10 handling fee</span>
+                  )}
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
                   Providers must sign a mutual NDA before accessing your project details. You will also sign digitally. Requires account login.

@@ -475,7 +475,7 @@ const billing = {
   getPortal: () => 
     apiClient.get<{ portal_url: string }>('/billing/portal'),
   getSubscriptionStatus: () =>
-    apiClient.get<{ has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null }>('/billing/subscription-status'),
+    apiClient.get<{ has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null; nda_credits_total?: number; nda_credits_used?: number; nda_credits_remaining?: number }>('/billing/subscription-status'),
   getProviderSubscriptionStatus: () =>
     apiClient.get<{ has_active: boolean; subscription_type: string | null; current_period_end: string | null; cancel_at: string | null }>('/billing/provider-subscription-status'),
   // Lists ALL active subscriptions (Annual Professional, Monthly Advertisement, etc.)
