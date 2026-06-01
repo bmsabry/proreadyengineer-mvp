@@ -7,7 +7,7 @@ import { useRequireAuth } from '@/hooks/useAuth';
 import {
   AlertCircle, RefreshCw, Plus, Activity, FileText,
   CheckCircle, XCircle, MessageSquare, Clock, Calendar,
-  TrendingUp, Shield, ArrowRight, CreditCard, Zap, LifeBuoy, Receipt, ChevronRight
+  TrendingUp, Shield, ArrowRight, CreditCard, Zap, Receipt, ChevronRight
 } from 'lucide-react';
 import {
   CustomerRFQ, ACTIVE_STATUSES, RfqCard, SkeletonCard,
@@ -45,12 +45,6 @@ interface AnalyticsPanelProps {
   rfqs: CustomerRFQ[];
   user: { created_at?: string; email: string } | null;
   subStatus: SubStatus | null;
-}
-
-interface ContactFormState {
-  category: string;
-  subject: string;
-  message: string;
 }
 
 // ─── Small UI helpers ─────────────────────────────────────────────────────────
@@ -342,12 +336,6 @@ function CustomerDashboardInner() {
   // Payment success banner
   const [paymentBanner, setPaymentBanner] = useState<string | null>(null);
 
-  // Contact support modal
-  const [showContactModal, setShowContactModal] = useState(false);
-  const [contactForm, setContactForm] = useState<ContactFormState>({ category: 'general', subject: '', message: '' });
-  const [contactSubmitting, setContactSubmitting] = useState(false);
-  const [contactSuccess, setContactSuccess] = useState(false);
-
   // ── Fetch live subscription status ──────────────────────────────────────────
   const fetchSubStatus = useCallback(async () => {
     try {
@@ -451,26 +439,6 @@ function CustomerDashboardInner() {
 
   const activeRfqs = rfqs.filter(r => ACTIVE_STATUSES.includes(r.rfq_status)).slice(0, 3);
 
-  const handleContactSubmit = async () => {
-    setContactSubmitting(true);
-    try {
-      const { apiClient } = await import('@/lib/api');
-      await apiClient.post('/support/contact-authenticated', contactForm);
-      setContactSuccess(true);
-      setTimeout(() => {
-        setShowContactModal(false);
-        setContactSuccess(false);
-        setContactForm({ category: 'general', subject: '', message: '' });
-      }, 2500);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { detail?: string } }; message?: string };
-      const detail = e?.response?.data?.detail || e?.message || String(err);
-      alert('Failed to submit (' + detail + '). Please email info@mail.promechdirectory.com directly.');
-    } finally {
-      setContactSubmitting(false);
-    }
-  };
-
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
@@ -502,9 +470,6 @@ function CustomerDashboardInner() {
               <p className="mt-1 text-sm text-slate-600">Your engineering RFQ activity at a glance</p>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setShowContactModal(true)} className="inline-flex items-center gap-2 px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 hover:border-slate-300 transition-colors">
-                <LifeBuoy className="h-4 w-4" /> Contact Support
-              </button>
               <Link href="/">
                 <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm hover:shadow-md">
                   <Plus className="h-4 w-4" /> New RFQ
@@ -595,80 +560,6 @@ function CustomerDashboardInner() {
         )}
       </div>
 
-      {/* Contact Support Modal */}
-      {showContactModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-            <div className="flex items-center justify-between p-6 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <LifeBuoy className="h-5 w-5 text-[#0F2B54]" />
-                <h2 className="text-lg font-bold text-slate-900">Contact Support</h2>
-              </div>
-              <button onClick={() => setShowContactModal(false)} className="text-slate-400 hover:text-slate-600 text-2xl leading-none">&times;</button>
-            </div>
-            {contactSuccess ? (
-              <div className="p-8 text-center">
-                <CheckCircle className="h-12 w-12 text-emerald-500 mx-auto mb-3" />
-                <p className="text-lg font-semibold text-slate-800">Message Sent!</p>
-                <p className="text-sm text-slate-500 mt-1">We will get back to you within 24 hours.</p>
-              </div>
-            ) : (
-              <div className="p-6 space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Issue Category</label>
-                  <select
-                    value={contactForm.category}
-                    onChange={e => setContactForm(f => ({ ...f, category: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20"
-                  >
-                    <option value="payment">Payment or billing issue</option>
-                    <option value="bug">Website problem or error</option>
-                    <option value="add_firm">Add or claim my firm</option>
-                    <option value="rfq_nda">RFQ or NDA question</option>
-                    <option value="general">General information</option>
-                    <option value="collaboration">Collaboration or partnership</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Subject</label>
-                  <input
-                    type="text"
-                    value={contactForm.subject}
-                    onChange={e => setContactForm(f => ({ ...f, subject: e.target.value }))}
-                    placeholder="Brief summary of your issue"
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">Description</label>
-                  <textarea
-                    value={contactForm.message}
-                    onChange={e => setContactForm(f => ({ ...f, message: e.target.value }))}
-                    rows={4}
-                    placeholder="Please describe your issue in detail..."
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20 resize-none"
-                  />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={() => setShowContactModal(false)}
-                    className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleContactSubmit}
-                    disabled={contactSubmitting || !contactForm.subject || !contactForm.message}
-                    className="flex-1 px-4 py-2 bg-[#0F2B54] text-white rounded-lg text-sm font-semibold hover:bg-[#1a3a6b] transition-colors disabled:opacity-60"
-                  >
-                    {contactSubmitting ? 'Sending...' : 'Send Message'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
