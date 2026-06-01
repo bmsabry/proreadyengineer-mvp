@@ -790,7 +790,7 @@ async def admin_pause_ad(
     if not ad:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ad not found")
 
-    ad.ad_status = AdStatusEnum.paused
+    ad.ad_status = AdStatusEnum.PAUSED
     await db.commit()
 
     return {"message": "Ad paused", "ad_id": ad_id}
