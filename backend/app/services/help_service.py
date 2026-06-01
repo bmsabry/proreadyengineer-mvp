@@ -809,7 +809,7 @@ async def answer_question(
     if not safe_history or safe_history[-1]["role"] != "user" or safe_history[-1]["content"] != user_message:
         messages.append({"role": "user", "content": user_message})
 
-    res = await _call_llm(chat_cfg, messages, max_tokens=1200, temperature=0.3)
+    res = await _call_llm(chat_cfg, messages, max_tokens=4000, temperature=0.3)
     if res.get("error"):
         return {"reply": "", "error": res["error"],
                 "model": res.get("model"), "latency_ms": res.get("latency_ms"), "cost_usd": 0.0}
@@ -843,7 +843,7 @@ async def answer_question(
             spec_messages.append({"role": "user", "content": user_message})
         if focus:
             spec_messages.append({"role": "system", "content": f"Specialist focus: {focus}"})
-        res3 = await _call_llm(doc_cfg, spec_messages, max_tokens=900, temperature=0.2)
+        res3 = await _call_llm(doc_cfg, spec_messages, max_tokens=4000, temperature=0.2)
         cost3 = _estimate_cost(res3.get("model"), res3.get("prompt_tokens"), res3.get("completion_tokens"), rt_cfg)
         if res3.get("error"):
             return {"reply": "", "error": res3["error"], "model": res3.get("model"),

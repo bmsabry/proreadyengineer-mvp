@@ -130,9 +130,6 @@ export default function HelpPage() {
             <div className="text-sm text-emerald-900">
               <span className="font-semibold">AI Help Assistant is active.</span>{' '}
               Click the chat bubble in the lower-right to ask anything.
-              {typeof status.remaining_today === 'number' && (
-                <span className="text-emerald-700"> ({status.remaining_today}/{status.daily_limit} messages left today)</span>
-              )}
             </div>
           </div>
         )}
