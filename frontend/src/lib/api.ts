@@ -545,6 +545,11 @@ const admin = {
   getPaymentsProductionWindow: () =>
     apiClient.get<{ since: string | null }>('/admin/payments/production-window'),
 
+  getFoundingInvites: () =>
+    apiClient.get<{ limit: number; sent: number; remaining: number; closed: boolean }>('/admin/founding-invites'),
+  setFoundingInvites: (body: { limit?: number; sent?: number; reset?: boolean }) =>
+    apiClient.post<{ limit: number; sent: number; remaining: number; closed: boolean }>('/admin/founding-invites', body),
+
   getRFQ: (id: string) => 
     apiClient.get<RFQ>(`/admin/rfqs/${id}`),
   
@@ -789,6 +794,36 @@ const support = {
     apiClient.post('/support/contact-authenticated', data),
 };
 
+const founding = {
+  getStatus: () =>
+    apiClient.get<{ limit: number; sent: number; remaining: number; closed: boolean }>('/founding/status'),
+  search: (query: string) =>
+    apiClient.get<{ results: Array<{ name: string; location: string | null; website: string | null }> }>(
+      '/founding/search', { params: { query } }
+    ),
+  apply: async (data: {
+    applicant_name: string;
+    business_name: string;
+    website: string;
+    already_listed?: boolean;
+    matched_firms?: string;
+    files: File[];
+  }): Promise<{ success: boolean; remaining: number; closed: boolean }> => {
+    const fd = new FormData();
+    fd.append('applicant_name', data.applicant_name);
+    fd.append('business_name', data.business_name);
+    fd.append('website', data.website);
+    fd.append('already_listed', String(!!data.already_listed));
+    if (data.matched_firms) fd.append('matched_firms', data.matched_firms);
+    data.files.forEach((file) => fd.append('files', file));
+    const token = getStoredToken();
+    const headers: Record<string, string | undefined> = { 'Content-Type': undefined };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await apiClient.post('/founding/apply', fd, { headers });
+    return res.data as { success: boolean; remaining: number; closed: boolean };
+  },
+};
+
 export const api = {
   auth,
   search,
@@ -806,6 +841,7 @@ export const api = {
   webhooks,
   internal,
   support,
+  founding,
 };
 
 export { apiClient };

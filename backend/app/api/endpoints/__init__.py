@@ -25,4 +25,5 @@ __all__ = [
     "campaigns_router",
 ]
 from app.api.endpoints.support import router as support_router  # noqa: F401
+from app.api.endpoints.founding import router as founding_router  # noqa: F401
 from app.api.endpoints.help import router as help_router  # noqa: F401

@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import HelpTip from '@/components/ui/HelpTip';
-import { Search, Users, Building2, Megaphone, LogOut, LayoutDashboard, Cpu, ChevronRight } from 'lucide-react';
+import { Search, Users, Building2, Megaphone, LogOut, LayoutDashboard, Cpu, ChevronRight, Info } from 'lucide-react';
 
 function Footer() {
   const { setShowSetup, missingServices } = useConfig();
@@ -34,6 +34,7 @@ function Footer() {
               ⚙️ Configure APIs
             </Button>
           )}
+          <Link href="/about" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">About Us</Link>
           <Link href="/software-providers" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">Software Providers</Link>
           <Link href="/featured-firms" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">Featured Firms</Link>
           <Link href="/contact" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">Contact Us</Link>
@@ -174,7 +175,20 @@ export default function LandingPage() {
             <h2 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.02em' }}>How can we help you?</h2>
             <p className="text-slate-500 mt-2 text-sm">Choose your path to get started</p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+
+            <Link href="/about" className="group block h-full">
+              <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 h-full flex flex-col">
+                <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mb-4 flex-shrink-0">
+                  <Info className="h-6 w-6 text-slate-600" />
+                </div>
+                <h3 className="font-semibold text-slate-900 text-base mb-1.5">About Us</h3>
+                <p className="text-sm text-slate-500 leading-relaxed flex-1">How ProMechDirectory works and our founding provider offer.</p>
+                <div className="flex items-center gap-1 mt-4 text-blue-600 text-sm font-medium group-hover:gap-2 transition-all duration-150">
+                  Learn more <ChevronRight className="h-4 w-4" />
+                </div>
+              </div>
+            </Link>
 
             <Link href="/for-customers" className="group block h-full">
               <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 h-full flex flex-col">

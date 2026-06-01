@@ -3742,6 +3742,72 @@ async def set_payments_production_window(
     return {"since": now_iso}
 
 
+@router.get('/admin/founding-invites')
+async def get_founding_invites(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(['admin'])),
+) -> Dict[str, Any]:
+    """Admin: current founding-provider invitation counter."""
+    from app.services.config_service import get_config_value
+    raw_limit = await get_config_value(db, 'FOUNDING_INVITE_LIMIT')
+    raw_sent = await get_config_value(db, 'FOUNDING_INVITE_SENT')
+    try:
+        limit = int(raw_limit) if raw_limit is not None else 50
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        sent = int(raw_sent) if raw_sent is not None else 0
+    except (TypeError, ValueError):
+        sent = 0
+    sent = max(0, sent)
+    remaining = max(0, limit - sent)
+    return {"limit": limit, "sent": sent, "remaining": remaining, "closed": remaining <= 0}
+
+
+@router.post('/admin/founding-invites')
+async def set_founding_invites(
+    body: Dict[str, Any],
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(['admin'])),
+) -> Dict[str, Any]:
+    """Admin: adjust the founding-provider invitation counter.
+
+    Body keys (all optional): limit (int total invitations), sent (int used),
+    reset (bool -> sent back to 0). Lets an admin raise the cap or re-open the
+    offer after all invitations have been used.
+    """
+    from app.services.config_service import save_config_values, get_config_value
+    updates: Dict[str, str] = {}
+    if 'limit' in body and body['limit'] is not None:
+        try:
+            updates['FOUNDING_INVITE_LIMIT'] = str(max(0, int(body['limit'])))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="limit must be an integer")
+    if body.get('reset'):
+        updates['FOUNDING_INVITE_SENT'] = '0'
+    elif 'sent' in body and body['sent'] is not None:
+        try:
+            updates['FOUNDING_INVITE_SENT'] = str(max(0, int(body['sent'])))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="sent must be an integer")
+    if updates:
+        await save_config_values(db, updates, current_user.id)
+    raw_limit = updates.get('FOUNDING_INVITE_LIMIT') or await get_config_value(db, 'FOUNDING_INVITE_LIMIT')
+    raw_sent = updates.get('FOUNDING_INVITE_SENT')
+    if raw_sent is None:
+        raw_sent = await get_config_value(db, 'FOUNDING_INVITE_SENT')
+    try:
+        limit = int(raw_limit) if raw_limit is not None else 50
+    except (TypeError, ValueError):
+        limit = 50
+    try:
+        sent = int(raw_sent) if raw_sent is not None else 0
+    except (TypeError, ValueError):
+        sent = 0
+    remaining = max(0, limit - sent)
+    return {"limit": limit, "sent": sent, "remaining": remaining, "closed": remaining <= 0}
+
+
 @router.get('/admin/payments/analytics')
 async def admin_payment_analytics(
     since: Optional[str] = Query(None),
