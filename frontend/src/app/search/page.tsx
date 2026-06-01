@@ -290,7 +290,7 @@ function SearchPageContent() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <p className="font-semibold text-slate-900 text-sm">
-                    Top {resultCount} match{resultCount !== 1 ? "es" : ""}{totalMatches > 0 ? ` from ${totalMatches.toLocaleString()} providers screened` : ""}
+                    Showing top {resultCount} provider{resultCount !== 1 ? "s" : ""}
                   </p>
                   {pipelineInfo?.fallback_reason && (
                     <p className="text-xs text-amber-600 mt-0.5">{pipelineInfo.fallback_reason}</p>
