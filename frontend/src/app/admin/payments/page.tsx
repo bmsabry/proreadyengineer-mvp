@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRequireAuth } from '../../../hooks/useAuth';
 import {
   DollarSign,
@@ -529,11 +529,26 @@ export default function AdminPaymentsPage() {
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundResult, setRefundResult] = useState(null as { status: string; stripe_refund_id?: string; stripe_error?: string; reversal?: string; reversal_error?: string; amount_usd?: number } | null);
 
+  const [viewMode, setViewMode] = useState('sandbox' as 'sandbox' | 'production');
+  const [productionSince, setProductionSince] = useState(null as string | null);
+  const viewRef = useRef({ mode: 'sandbox' as 'sandbox' | 'production', since: null as string | null });
+  useEffect(() => { viewRef.current = { mode: viewMode, since: productionSince }; }, [viewMode, productionSince]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(API_BASE + '/api/v1/admin/payments/production-window', { headers: getAuthHeader() });
+        if (res.ok) { const d = await res.json(); if (d.since) setProductionSince(d.since); }
+      } catch (e) { /* ignore */ }
+    })();
+  }, []);
+
   const fetchAnalytics = useCallback(() => {
     setAnalyticsLoading(true);
     const run = async () => {
       try {
-        const res = await fetch(API_BASE + '/api/v1/admin/payments/analytics', { headers: getAuthHeader() });
+        const _v = viewRef.current;
+        const _q = _v.mode === 'production' && _v.since ? '?since=' + encodeURIComponent(_v.since) : '';
+        const res = await fetch(API_BASE + '/api/v1/admin/payments/analytics' + _q, { headers: getAuthHeader() });
         if (res.ok) setAnalytics(await res.json());
       } catch (e) { console.error(e); } finally { setAnalyticsLoading(false); }
     };
@@ -553,6 +568,8 @@ export default function AdminPaymentsPage() {
           if (purpose) params.set('purpose', purpose);
           if (dateFrom) params.set('date_from', dateFrom);
           if (dateTo) params.set('date_to', dateTo);
+          const _v = viewRef.current;
+          if (_v.mode === 'production' && _v.since) params.set('since', _v.since);
           const res = await fetch(API_BASE + '/api/v1/admin/payments/transactions?' + params.toString(), { headers: getAuthHeader() });
           if (res.ok) setTxData(await res.json());
         } catch (e) { console.error(e); } finally { setTxLoading(false); }
@@ -593,6 +610,25 @@ export default function AdminPaymentsPage() {
     };
     run();
   }, []);
+
+  const toggleProductionView = async () => {
+    if (viewMode === 'sandbox') {
+      let since = productionSince;
+      if (!since) {
+        try {
+          const res = await fetch(API_BASE + '/api/v1/admin/payments/production-window', { method: 'POST', headers: getAuthHeader() });
+          if (res.ok) { since = (await res.json()).since; setProductionSince(since); }
+        } catch (e) { /* ignore */ }
+      }
+      viewRef.current = { mode: 'production', since: since || null };
+      setViewMode('production');
+    } else {
+      viewRef.current = { mode: 'sandbox', since: productionSince };
+      setViewMode('sandbox');
+    }
+    fetchAnalytics();
+    fetchTransactions(txPage, activeTab, filterPurpose, filterDateFrom, filterDateTo);
+  };
 
   useEffect(() => {
     fetchAnalytics();
@@ -678,6 +714,7 @@ export default function AdminPaymentsPage() {
     if (filterPurpose) params.set('purpose', filterPurpose);
     if (filterDateFrom) params.set('date_from', filterDateFrom);
     if (filterDateTo) params.set('date_to', filterDateTo);
+    if (viewRef.current.mode === 'production' && viewRef.current.since) params.set('since', viewRef.current.since);
     const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
     const url = API_BASE + '/api/v1/admin/payments/transactions?' + params.toString();
     if (token) {
@@ -797,6 +834,9 @@ export default function AdminPaymentsPage() {
           <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
             <Download className="h-4 w-4" />
             Export CSV
+          </button>
+          <button onClick={toggleProductionView} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm ${viewMode === 'production' ? 'bg-slate-200 text-slate-800 hover:bg-slate-300' : 'bg-slate-800 text-white hover:bg-slate-900'}`} title={viewMode === 'production' ? 'Showing production revenue only (from go-live). Click to see all (Sandbox).' : 'Showing all revenue incl. test data. Click to count from go-live only (Production).'}>
+            {viewMode === 'production' ? 'Sandbox' : 'Production'}
           </button>
         </div>
       </div>

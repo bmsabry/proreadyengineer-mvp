@@ -3694,80 +3694,84 @@ async def admin_crawl_status(
 # Payment Analytics Endpoints
 # ---------------------------------------------------------------------------
 
-@router.get('/admin/payments/analytics')
-async def admin_payment_analytics(
+@router.get('/admin/payments/production-window')
+async def get_payments_production_window(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(['admin'])),
 ) -> Dict[str, Any]:
-    """Return aggregated payment analytics for the admin dashboard."""
+    """Return the 'Production' revenue cutoff timestamp (null if never set)."""
+    from app.services.config_service import get_config_value
+    val = await get_config_value(db, 'PAYMENTS_PRODUCTION_SINCE')
+    return {"since": val or None}
+
+
+@router.post('/admin/payments/production-window')
+async def set_payments_production_window(
+    reset: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(['admin'])),
+) -> Dict[str, Any]:
+    """Stamp the 'Production' cutoff to now (set once = the go-live marker; reset=true re-stamps)."""
+    from app.services.config_service import get_config_value, save_config_values
+    existing = await get_config_value(db, 'PAYMENTS_PRODUCTION_SINCE')
+    if existing and not reset:
+        return {"since": existing}
+    now_iso = datetime.utcnow().isoformat()
+    await save_config_values(db, {'PAYMENTS_PRODUCTION_SINCE': now_iso}, current_user.id)
+    return {"since": now_iso}
+
+
+@router.get('/admin/payments/analytics')
+async def admin_payment_analytics(
+    since: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(['admin'])),
+) -> Dict[str, Any]:
+    """Aggregated payment analytics. When `since` (ISO) is given (Production view), only
+    payments initiated at/after it are counted, so pre-launch / test data is excluded."""
     from datetime import timedelta
-    from sqlalchemy import and_
+    from sqlalchemy import and_, true as _sa_true
 
     now = datetime.utcnow()
     first_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     thirty_days_ago = now - timedelta(days=30)
 
-    try:
-        res = await db.execute(
-            select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
-                PaymentAttempt.payment_status.notin_(['failed', 'refunded', 'disputed'])
-            )
-        )
-        total_revenue = float(res.scalar() or 0) / 100.0
-    except Exception:
-        total_revenue = 0.0
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace('Z', '+00:00')).replace(tzinfo=None)
+        except (ValueError, AttributeError):
+            since_dt = None
+    _sc = (PaymentAttempt.initiated_at >= since_dt) if since_dt is not None else _sa_true()
 
-    try:
-        res = await db.execute(
-            select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
-                and_(
-                    PaymentAttempt.payment_status.notin_(['failed', 'refunded', 'disputed']),
-                    PaymentAttempt.initiated_at >= first_of_month,
-                )
+    async def _sum(*conds) -> float:
+        try:
+            r = await db.execute(
+                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(and_(*conds, _sc))
             )
-        )
-        total_this_month = float(res.scalar() or 0) / 100.0
-    except Exception:
-        total_this_month = 0.0
+            return float(r.scalar() or 0) / 100.0
+        except Exception:
+            return 0.0
 
-    try:
-        res = await db.execute(
-            select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
-                PaymentAttempt.payment_status.in_(['initiated', 'processing'])
+    async def _count(*conds) -> int:
+        try:
+            r = await db.execute(
+                select(func.count()).select_from(PaymentAttempt).where(and_(*conds, _sc))
             )
-        )
-        total_pending = float(res.scalar() or 0) / 100.0
-    except Exception:
-        total_pending = 0.0
+            return int(r.scalar() or 0)
+        except Exception:
+            return 0
 
-    try:
-        res = await db.execute(
-            select(func.count()).select_from(PaymentAttempt).where(
-                and_(
-                    PaymentAttempt.payment_status == 'failed',
-                    PaymentAttempt.initiated_at >= thirty_days_ago,
-                )
-            )
-        )
-        total_failed_30d = int(res.scalar() or 0)
-    except Exception:
-        total_failed_30d = 0
-
-    # Total refunded amount
-    total_refunded = 0.0
-    try:
-        res = await db.execute(
-            select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
-                PaymentAttempt.payment_status == 'refunded',
-            )
-        )
-        total_refunded = float(res.scalar() or 0) / 100.0
-    except Exception:
-        total_refunded = 0.0
+    _ok = PaymentAttempt.payment_status.notin_(['failed', 'refunded', 'disputed'])
+    total_revenue = await _sum(_ok)
+    total_this_month = await _sum(_ok, PaymentAttempt.initiated_at >= first_of_month)
+    total_pending = await _sum(PaymentAttempt.payment_status.in_(['initiated', 'processing']))
+    total_failed_30d = await _count(PaymentAttempt.payment_status == 'failed',
+                                    PaymentAttempt.initiated_at >= thirty_days_ago)
+    total_refunded = await _sum(PaymentAttempt.payment_status == 'refunded')
 
     monthly_series: List[Dict[str, Any]] = []
     try:
-        from sqlalchemy import and_
         for i in range(5, -1, -1):
             month_offset = now.month - i
             year_offset = now.year
@@ -3779,65 +3783,33 @@ async def admin_payment_analytics(
                 m_end = datetime(year_offset + 1, 1, 1)
             else:
                 m_end = datetime(year_offset, month_offset + 1, 1)
-            res = await db.execute(
-                select(func.coalesce(func.sum(PaymentAttempt.amount), 0)).where(
-                    and_(
-                        PaymentAttempt.payment_status.notin_(['failed', 'refunded', 'disputed']),
-                        PaymentAttempt.initiated_at >= m_start,
-                        PaymentAttempt.initiated_at < m_end,
-                    )
-                )
-            )
-            monthly_series.append({
-                'month': m_start.strftime('%Y-%m'),
-                'revenue': float(res.scalar() or 0) / 100.0,
-            })
+            rev = await _sum(_ok, PaymentAttempt.initiated_at >= m_start,
+                             PaymentAttempt.initiated_at < m_end)
+            monthly_series.append({'month': m_start.strftime('%Y-%m'), 'revenue': rev})
     except Exception:
         monthly_series = []
 
-    by_purpose: List[Dict[str, Any]] = []
-    try:
-        res = await db.execute(
-            select(
-                PaymentAttempt.purpose,
-                func.coalesce(func.sum(PaymentAttempt.amount), 0).label('total'),
-                func.count().label('cnt'),
+    async def _by(status_cond) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        try:
+            r = await db.execute(
+                select(
+                    PaymentAttempt.purpose,
+                    func.coalesce(func.sum(PaymentAttempt.amount), 0).label('total'),
+                    func.count().label('cnt'),
+                )
+                .where(and_(status_cond, _sc))
+                .group_by(PaymentAttempt.purpose)
+                .order_by(func.sum(PaymentAttempt.amount).desc())
             )
-            .where(PaymentAttempt.payment_status == 'completed')
-            .group_by(PaymentAttempt.purpose)
-            .order_by(func.sum(PaymentAttempt.amount).desc())
-        )
-        for row in res.fetchall():
-            by_purpose.append({
-                'purpose': str(row.purpose),
-                'total': float(row.total) / 100.0,
-                'count': int(row.cnt),
-            })
-    except Exception:
-        by_purpose = []
+            for row in r.fetchall():
+                out.append({'purpose': str(row.purpose), 'total': float(row.total) / 100.0, 'count': int(row.cnt)})
+        except Exception:
+            out = []
+        return out
 
-    # Revenue by source — ALL non-failed/non-refunded statuses
-    # This captures initiated+completed payments so sandbox/webhook-pending amounts show correctly
-    by_purpose_all: List[Dict[str, Any]] = []
-    try:
-        res = await db.execute(
-            select(
-                PaymentAttempt.purpose,
-                func.coalesce(func.sum(PaymentAttempt.amount), 0).label('total'),
-                func.count().label('cnt'),
-            )
-            .where(PaymentAttempt.payment_status.notin_(['failed', 'refunded', 'disputed']))
-            .group_by(PaymentAttempt.purpose)
-            .order_by(func.sum(PaymentAttempt.amount).desc())
-        )
-        for row in res.fetchall():
-            by_purpose_all.append({
-                'purpose': str(row.purpose),
-                'total': float(row.total) / 100.0,
-                'count': int(row.cnt),
-            })
-    except Exception:
-        by_purpose_all = []
+    by_purpose = await _by(PaymentAttempt.payment_status == 'completed')
+    by_purpose_all = await _by(_ok)
 
     return {
         'total_revenue': total_revenue,
@@ -3859,6 +3831,7 @@ async def admin_payment_transactions(
     status: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
+    since: Optional[str] = Query(None),
     format: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role(['admin'])),
@@ -3867,6 +3840,11 @@ async def admin_payment_transactions(
     from sqlalchemy import and_
 
     filters = []
+    if since:
+        try:
+            filters.append(PaymentAttempt.initiated_at >= datetime.fromisoformat(since.replace('Z', '+00:00')).replace(tzinfo=None))
+        except (ValueError, AttributeError):
+            pass
     if purpose:
         filters.append(PaymentAttempt.purpose == purpose)
     if status:
