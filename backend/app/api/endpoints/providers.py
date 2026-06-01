@@ -1054,6 +1054,13 @@ async def crawl_provider_website(
     if not website_url or not website_url.startswith("http"):
         raise HTTPException(status_code=400, detail="Valid website URL required")
 
+    # SECURITY (PRE-006): block SSRF — only public http(s) URLs may be crawled.
+    from app.core.url_guard import assert_public_http_url, UnsafeURLError
+    try:
+        assert_public_http_url(website_url)
+    except UnsafeURLError as _u:
+        raise HTTPException(status_code=400, detail=str(_u))
+
     task = crawl_and_extract_task.delay(website_url, str(provider.id))
     return {"task_id": task.id, "status": "pending"}
 
