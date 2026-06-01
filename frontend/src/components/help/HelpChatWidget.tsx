@@ -92,7 +92,8 @@ export default function HelpChatWidget() {
     if (roles.includes('provider')) {
       router.push('/provider/upgrade');
     } else {
-      router.push('/customer/dashboard');
+      // Customer plans live on /billing (shows the monthly/yearly chooser for non-subscribers).
+      router.push('/billing');
     }
   };
 
