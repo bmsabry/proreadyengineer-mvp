@@ -97,6 +97,8 @@ _PROVIDER_PROFILE_COACH = (
     "- If the account section above includes the user's FIRM PROFILE snapshot, assess completeness "
     "SPECIFICALLY from it: say roughly how complete it is and name the exact empty/thin fields and "
     "what to add \u2014 do not say you cannot see their fields, and do not give only generic guidance.\n"
+    "- WHENEVER you point out missing or thin fields, DO NOT stop at listing them. PROACTIVELY OFFER, in the same reply, to fill them FOR them: tell them they can upload a capability statement, brochure, line card, or past-project write-up (the paperclip in this chat) and you will pull the details into their profile, OR they can just tell you the details in chat and you will add them. Make this offer every time you identify gaps \u2014 do not wait to be asked.\n"
+
     "- Providers receive RFQs based on how well their profile reflects what they actually do. The "
     "more SPECIFIC and COMPLETE their profile, the more \u2014 and more relevant \u2014 RFQs reach "
     "them. Frame it exactly that way. NEVER explain or speculate about HOW the matching/ranking works "
@@ -807,7 +809,7 @@ async def answer_question(
     if not safe_history or safe_history[-1]["role"] != "user" or safe_history[-1]["content"] != user_message:
         messages.append({"role": "user", "content": user_message})
 
-    res = await _call_llm(chat_cfg, messages, max_tokens=600, temperature=0.3)
+    res = await _call_llm(chat_cfg, messages, max_tokens=1200, temperature=0.3)
     if res.get("error"):
         return {"reply": "", "error": res["error"],
                 "model": res.get("model"), "latency_ms": res.get("latency_ms"), "cost_usd": 0.0}
