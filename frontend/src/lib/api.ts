@@ -589,6 +589,8 @@ const admin = {
     apiClient.post<any>('/admin/debug/test-email', { to_email: toEmail }),
   checkResendDomains: () =>
     apiClient.get<any>('/admin/debug/resend-domains'),
+  emailAuth: () =>
+    apiClient.get<any>('/admin/debug/email-auth'),
   testNda: (customerName: string, customerEmail: string, providerName: string, providerEmail: string) =>
     apiClient.post<any>('/admin/debug/test-nda', {
       customer_name: customerName,
