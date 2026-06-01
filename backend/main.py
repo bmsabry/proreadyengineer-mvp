@@ -151,7 +151,9 @@ def create_application() -> FastAPI:
         CORSMiddleware,
         allow_origins=allowed_origins,
         # Scoped to THIS project's own Render services (not any *.onrender.com site).
-        allow_origin_regex=r"https://(proreadyengineer|promechdirectory)[a-z0-9-]*\.onrender\.com",
+        # SECURITY (PRE-010): only THIS project's exact Render web hostnames — not any
+        # subdomain merely starting with the prefix (which an attacker could register).
+        allow_origin_regex=r"https://(proreadyengineer-web|proreadyengineer-web-staging)\.onrender\.com",
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

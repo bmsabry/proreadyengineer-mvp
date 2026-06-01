@@ -18,7 +18,7 @@ from fastapi import UploadFile, File, APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_client_ip, get_current_user_optional, get_db, reject_provider_only
+from app.api.deps import get_client_ip, get_current_user_optional, get_db, reject_provider_only, require_role
 from app.core.config import settings
 from app.models.provider import Provider
 from app.models.search import SearchRequest as SearchRequestModel
@@ -71,7 +71,7 @@ async def search_test():
 
 
 @router.post("/test-db")
-async def search_test_db(db: AsyncSession = Depends(get_db)):
+async def search_test_db(db: AsyncSession = Depends(get_db), _admin = Depends(require_role(["admin"]))):
     """Verify database connectivity and return provider count."""
     try:
         result = await db.execute(select(func.count()).select_from(Provider))
@@ -82,7 +82,7 @@ async def search_test_db(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/debug")
-async def search_debug(db: AsyncSession = Depends(get_db)):
+async def search_debug(db: AsyncSession = Depends(get_db), _admin = Depends(require_role(["admin"]))):
     """System diagnostics for Render troubleshooting."""
     logger.info("[SEARCH DEBUG] Debug endpoint called")
 
@@ -180,7 +180,7 @@ async def search_debug(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/test-quota")
-async def test_quota_debug(request: Request, db: AsyncSession = Depends(get_db)):
+async def test_quota_debug(request: Request, db: AsyncSession = Depends(get_db), _admin = Depends(require_role(["admin"]))):
     """Debug: exercise quota check and return full diagnostics."""
     import traceback
     from sqlalchemy import inspect, text
