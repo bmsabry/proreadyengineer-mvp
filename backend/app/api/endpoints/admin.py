@@ -5637,15 +5637,37 @@ async def admin_email_auth(
 
     config = await _get_runtime_config(db)
     from_address = (config.get("RESEND_FROM_EMAIL", "") or getattr(settings, "FROM_EMAIL", "") or "")
-    domain = from_address.split("@")[1].lower() if "@" in from_address else "promechdirectory.com"
+    send_domain = from_address.split("@")[1].lower() if "@" in from_address else "promechdirectory.com"
+    # Organization (registrable) domain — DMARC is published here and applies to subdomains.
+    # Simple last-two-labels heuristic (fine for .com; good enough for this panel).
+    labels = send_domain.split(".")
+    org_domain = ".".join(labels[-2:]) if len(labels) > 2 else send_domain
 
-    spf = _ea.evaluate_spf(await _ea.fetch_txt(domain))
-    dkim = _ea.evaluate_dkim(await _ea.fetch_txt("resend._domainkey." + domain), selector="resend")
-    dmarc = _ea.evaluate_dmarc(await _ea.fetch_txt("_dmarc." + domain))
+    # SPF: check the sending domain first; if absent, fall back to the org domain.
+    spf = _ea.evaluate_spf(await _ea.fetch_txt(send_domain))
+    spf_domain = send_domain
+    if spf["status"] == "fail" and org_domain != send_domain:
+        org_spf = _ea.evaluate_spf(await _ea.fetch_txt(org_domain))
+        if org_spf["status"] != "fail":
+            org_spf["detail"] += " (Published at the organization domain {}.)".format(org_domain)
+            spf, spf_domain = org_spf, org_domain
+
+    # DKIM: published on the sending domain.
+    dkim = _ea.evaluate_dkim(await _ea.fetch_txt("resend._domainkey." + send_domain), selector="resend")
+
+    # DMARC: organization-level. Prefer a subdomain record if one exists, else the org domain.
+    dmarc = _ea.evaluate_dmarc(await _ea.fetch_txt("_dmarc." + send_domain))
+    dmarc_domain = send_domain
+    if dmarc["status"] == "fail" and org_domain != send_domain:
+        dmarc = _ea.evaluate_dmarc(await _ea.fetch_txt("_dmarc." + org_domain))
+        dmarc_domain = org_domain
+
     summary = _ea.overall_status(spf, dkim, dmarc)
     return {
-        "domain": domain,
+        "domain": org_domain,
+        "send_domain": send_domain,
         "from_address": from_address,
         "checks": {"spf": spf, "dkim": dkim, "dmarc": dmarc},
+        "found_at": {"spf": spf_domain, "dkim": "resend._domainkey." + send_domain, "dmarc": "_dmarc." + dmarc_domain},
         "summary": summary,
     }

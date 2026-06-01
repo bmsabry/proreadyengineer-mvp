@@ -558,7 +558,7 @@ function EmailFailuresSection() {
 }
 
 interface EmailAuthCheck { status: string; record?: string | null; detail: string; policy?: string | null; rua?: string | null; selector?: string }
-interface EmailAuthResult { domain: string; from_address?: string; checks: { spf: EmailAuthCheck; dkim: EmailAuthCheck; dmarc: EmailAuthCheck }; summary: { overall: string; message: string } }
+interface EmailAuthResult { domain: string; send_domain?: string; from_address?: string; checks: { spf: EmailAuthCheck; dkim: EmailAuthCheck; dmarc: EmailAuthCheck }; summary: { overall: string; message: string } }
 
 function statusPill(status: string) {
   const map: Record<string, string> = {
@@ -626,7 +626,7 @@ function EmailAuthSection() {
             <div className="flex items-center gap-2">
               {statusPill(result.summary.overall)}
               <span>{result.summary.message}</span>
-              <span className="text-muted-foreground">({result.domain})</span>
+              <span className="text-muted-foreground">({result.domain}{result.send_domain && result.send_domain !== result.domain ? ` · sending via ${result.send_domain}` : ""})</span>
             </div>
             <EmailAuthRow title="SPF (authorised senders)" check={result.checks.spf} />
             <EmailAuthRow title="DKIM (resend selector)" check={result.checks.dkim} />
