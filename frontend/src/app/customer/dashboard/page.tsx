@@ -7,7 +7,7 @@ import { useRequireAuth } from '@/hooks/useAuth';
 import {
   AlertCircle, RefreshCw, Plus, Activity, FileText,
   CheckCircle, XCircle, MessageSquare, Clock, Calendar,
-  TrendingUp, Shield, ArrowRight, CreditCard, Zap, LifeBuoy
+  TrendingUp, Shield, ArrowRight, CreditCard, Zap, LifeBuoy, Receipt, ChevronRight
 } from 'lucide-react';
 import {
   CustomerRFQ, ACTIVE_STATUSES, RfqCard, SkeletonCard,
@@ -309,6 +309,16 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
             <span className="text-xs font-medium text-slate-700">{avgDays}d</span>
           </div>
         )}
+        <Link
+          href="/customer/transactions"
+          className="flex items-center justify-between pt-1 group"
+        >
+          <div className="flex items-center gap-1.5">
+            <Receipt className="h-3.5 w-3.5 text-blue-500" />
+            <span className="text-xs font-semibold text-blue-600 group-hover:text-blue-700">Transactions</span>
+          </div>
+          <ChevronRight className="h-3.5 w-3.5 text-blue-400 group-hover:translate-x-0.5 transition-transform" />
+        </Link>
       </div>
     </div>
   );
