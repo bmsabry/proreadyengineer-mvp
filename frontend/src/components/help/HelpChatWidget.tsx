@@ -247,11 +247,6 @@ export default function HelpChatWidget() {
                       <li>How do I cancel my subscription?</li>
                       <li>What is a tollgate (TG0-TG6)?</li>
                     </ul>
-                    {typeof status.remaining_today === 'number' && (
-                      <div className="mt-2 text-[11px] text-slate-500">
-                        {status.remaining_today} of {status.daily_limit} messages left today
-                      </div>
-                    )}
                   </div>
                 )}
                 {messages.map((m, i) => (

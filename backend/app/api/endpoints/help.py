@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
@@ -87,21 +87,6 @@ class ManualResponse(BaseModel):
     markdown: str
 
 
-DAILY_MESSAGE_LIMIT = 50
-
-
-async def _messages_used_today(db: AsyncSession, user_id) -> int:
-    since = datetime.now(timezone.utc) - timedelta(hours=24)
-    result = await db.execute(
-        select(func.count(HelpChatLog.id)).where(
-            HelpChatLog.user_id == user_id,
-            HelpChatLog.created_at >= since,
-            HelpChatLog.error.is_(None),
-        )
-    )
-    return int(result.scalar() or 0)
-
-
 @router.get("/help/status", response_model=StatusResponse)
 async def help_status(
     request: Request,
@@ -109,16 +94,12 @@ async def help_status(
     current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     has_access, reason = await user_has_chatbot_access(db, current_user)
-    remaining: Optional[int] = None
-    if has_access and current_user is not None:
-        used = await _messages_used_today(db, current_user.id)
-        remaining = max(0, DAILY_MESSAGE_LIMIT - used)
     return StatusResponse(
         authenticated=current_user is not None,
         has_access=has_access,
         reason=reason,
-        remaining_today=remaining,
-        daily_limit=DAILY_MESSAGE_LIMIT,
+        remaining_today=None,
+        daily_limit=0,
     )
 
 
@@ -148,21 +129,6 @@ async def help_chat(
             else "Please sign in to use the AI Help Assistant.",
         }
         raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=detail)
-
-    used_today = 0
-    if current_user is not None and "admin" not in set(current_user.roles or []):
-        used_today = await _messages_used_today(db, current_user.id)
-        if used_today >= DAILY_MESSAGE_LIMIT:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
-                    "reason": "daily_limit_reached",
-                    "message": (
-                        f"You've used your {DAILY_MESSAGE_LIMIT} help messages for today. "
-                        "Please try again tomorrow or browse the full help page."
-                    ),
-                },
-            )
 
     history_dicts = [t.model_dump() for t in data.history]
     result = await answer_question(
@@ -198,14 +164,10 @@ async def help_chat(
         await db.rollback()
         _log_id = None
 
-    remaining = None
-    if current_user is not None and "admin" not in set(current_user.roles or []):
-        remaining = max(0, DAILY_MESSAGE_LIMIT - used_today - 1)
-
     return ChatResponse(
         reply=result.get("reply") or "Sorry - I couldn't produce an answer just now. Please try again.",
         error=result.get("error"),
-        remaining_today=remaining,
+        remaining_today=None,
         links=result.get("links") or None,
         action=result.get("action") or None,
         action_result=result.get("action_result") or None,
