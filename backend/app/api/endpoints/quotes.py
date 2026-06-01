@@ -17,6 +17,8 @@ from app.services.rfq_service import submit_quote, accept_quote
 router = APIRouter()
 
 
+from app.services.provider_membership import get_user_provider_membership
+
 @router.post("/provider/rfqs/{rfq_id}/quote/extract-document", response_model=QuoteDocExtractResponse)
 async def extract_quote_document(
     rfq_id: str,
@@ -200,8 +202,7 @@ async def submit_provider_quote(
     from app.models.enums import RfqStatus
     from app.core.config import settings
 
-    result = await db.execute(select(ProviderMembership).where(ProviderMembership.user_id == current_user.id))
-    membership = result.scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(status_code=403, detail="No provider firm linked to your account")
 
@@ -489,8 +490,7 @@ async def get_provider_quotes(
     from app.models.quote import Quote
     from app.models.provider import ProviderMembership
     from app.models.rfq import RFQ
-    result = await db.execute(select(ProviderMembership).where(ProviderMembership.user_id == current_user.id))
-    membership = result.scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
     if not membership:
         return []
     result = await db.execute(select(Quote).where(Quote.provider_id == membership.provider_id))
@@ -535,9 +535,7 @@ async def set_quote_contacted(db: AsyncSession, current_user: User, quote_id: st
     except (ValueError, AttributeError):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid quote id")
 
-    membership = (await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )).scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No provider membership")
 
