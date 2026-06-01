@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+from app.services.provider_membership import get_user_provider_membership
+
 @router.get("/billing/portal")
 async def get_billing_portal(
     db: AsyncSession = Depends(get_db),
@@ -454,10 +456,7 @@ async def stripe_create_provider_subscription(
     origin = body.get("origin", settings.FRONTEND_URL)
 
     # Resolve provider from current user membership
-    mem_result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = mem_result.scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

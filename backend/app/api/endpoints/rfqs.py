@@ -51,6 +51,8 @@ def _redact_pii(text: str, business_name: str = "") -> str:
     return text
 
 
+from app.services.provider_membership import get_user_provider_membership as _get_user_provider_membership
+
 @router.post("/rfqs", response_model=RFQResponse, status_code=status.HTTP_201_CREATED)
 async def create_rfq_endpoint(
     data: RFQCreateRequest,
@@ -737,10 +739,7 @@ async def get_provider_teasers(
     from app.models.provider import ProviderMembership
     from app.models.enums import UnlockStatus
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await _get_user_provider_membership(db, current_user.id)
 
     if not membership:
         return {"teasers": [], "has_membership": False}
@@ -840,10 +839,7 @@ async def get_rfq_teaser(
     from app.models.rfq import RFQ, RFQDispatch
     from app.models.provider import ProviderMembership
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await _get_user_provider_membership(db, current_user.id)
 
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
@@ -947,12 +943,7 @@ async def unlock_checkout(
             )
 
         # Check if provider has active annual subscription — grant free access
-        _mem_result = await db.execute(
-            select(ProviderMembership).where(
-                ProviderMembership.user_id == current_user.id
-            )
-        )
-        _membership = _mem_result.scalar_one_or_none()
+        _membership = await _get_user_provider_membership(db, current_user.id)
         _provider_id_for_sub = _membership.provider_id if _membership else None
 
         if _provider_id_for_sub and await _provider_has_annual_subscription(_provider_id_for_sub, db):
@@ -1013,12 +1004,7 @@ async def unlock_checkout(
         logger.info(f"Creating Stripe checkout for rfq={rfq_id} user={current_user.id}")
 
         # Resolve provider_id for webhook metadata
-        _mem_result = await db.execute(
-            select(ProviderMembership).where(
-                ProviderMembership.user_id == current_user.id
-            )
-        )
-        _membership = _mem_result.scalar_one_or_none()
+        _membership = await _get_user_provider_membership(db, current_user.id)
         provider_id_for_meta = str(_membership.provider_id) if _membership else ""
 
         session_data = await create_stripe_checkout_session(
@@ -1095,12 +1081,7 @@ async def verify_payment(
             return {"unlocked": False, "reason": "Invalid RFQ ID"}
 
         # Step 2: Check if already unlocked (fast path)
-        mem_result = await db.execute(
-            select(ProviderMembership).where(
-                ProviderMembership.user_id == current_user.id
-            )
-        )
-        membership = mem_result.scalar_one_or_none()
+        membership = await _get_user_provider_membership(db, current_user.id)
         provider_id_str = str(membership.provider_id) if membership else ""
 
         if membership:
@@ -1208,10 +1189,7 @@ async def get_unlock_status(
     from app.models.rfq import RFQUnlock, RFQ, RFQDispatch
     from app.models.provider import ProviderMembership
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await _get_user_provider_membership(db, current_user.id)
 
     if not membership:
         return {"unlocked": False, "has_membership": False}
@@ -1381,10 +1359,7 @@ async def get_rfq_files(
     from app.services.file_service import generate_download_url
 
     # Must have provider membership
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await _get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
 
@@ -1491,10 +1466,7 @@ async def get_rfq_file_download_url(
     from app.services.file_service import generate_download_url_from_config
     from app.services.config_service import get_runtime_config
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await _get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
 
@@ -1609,10 +1581,7 @@ async def get_provider_nda_signing_url(
     from app.services.nda_service import add_provider_to_nda
 
     # Verify provider membership
-    mem_result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = mem_result.scalar_one_or_none()
+    membership = await _get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a provider")
 

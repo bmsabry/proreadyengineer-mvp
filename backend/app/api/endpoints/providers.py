@@ -54,6 +54,8 @@ class ListingInquiryRequest(BaseModel):
 
 # --------------- profile ---------------
 
+from app.services.provider_membership import get_user_provider_membership
+
 @router.get("/provider/profile", response_model=ProviderResponse)
 async def get_provider_profile(
     db: AsyncSession = Depends(get_db),
@@ -72,10 +74,7 @@ async def get_provider_profile(
     _logger = logging.getLogger(__name__)
 
     # 1. Normal path: explicit membership exists
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
 
     if not membership:
         _logger.info(f"No membership for user {current_user.email}, checking linked_provider_id")
@@ -261,10 +260,9 @@ async def update_provider_profile(
             detail="Active subscription required to edit profile"
         )
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one()
+    membership = await get_user_provider_membership(db, current_user.id)
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No provider profile found")
 
     result = await db.execute(
         select(Provider).where(Provider.id == membership.provider_id)
@@ -299,10 +297,9 @@ async def request_rank_up(
     from app.models.provider import ProviderMembership, Provider, TierEvaluationRequest
     from datetime import datetime
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one()
+    membership = await get_user_provider_membership(db, current_user.id)
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No provider profile found")
 
     result = await db.execute(
         select(Provider).where(Provider.id == membership.provider_id)
@@ -683,10 +680,7 @@ async def get_full_edit_status(
     """Get full-profile-edit paid status for current provider."""
     from app.models.provider import ProviderMembership, Provider
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
     if not membership:
         return {"paid": False, "provider_id": None}
 
@@ -712,10 +706,7 @@ async def full_edit_checkout(
     from app.models.provider import ProviderMembership, Provider
     from app.services.payment_service import create_payment_intent
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No provider profile found")
 
@@ -781,10 +772,7 @@ async def update_full_profile(
     """Update provider full profile (requires full_profile_edit_paid == True)."""
     from app.models.provider import ProviderMembership, Provider
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No provider profile found")
 
@@ -840,10 +828,7 @@ async def crawl_provider_website(
     if not data.website_url.startswith("http"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid URL: must start with http")
 
-    result = await db.execute(
-        select(ProviderMembership).where(ProviderMembership.user_id == current_user.id)
-    )
-    membership = result.scalar_one_or_none()
+    membership = await get_user_provider_membership(db, current_user.id)
     if not membership:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No provider profile found")
 
