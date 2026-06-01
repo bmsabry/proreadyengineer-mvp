@@ -407,6 +407,29 @@ async def dispatch_next_batch(
     matches = result.scalars().all()
 
     if not matches:
+        # Distinguish "the AI search found no providers" from "submit_rfq is still running
+        # the AI search and hasn't committed the matches yet". The claim flips the RFQ to
+        # OPEN_FOR_DISPATCH and commits BEFORE the search runs, so a concurrent dispatcher
+        # (the 5-min backup loop or the 15-min cron) can fire during the search window, see
+        # zero matches, and wrongly close a perfectly good RFQ as CLOSED_NO_SELECTION. Only
+        # close when there are genuinely NO matches AND enough time has passed for the search
+        # to have finished; otherwise defer (submit_rfq dispatches once its matches commit).
+        total_matches = (await db.execute(
+            select(func.count()).select_from(RFQMatch).where(RFQMatch.rfq_id == rfq_id)
+        )).scalar() or 0
+        if total_matches == 0:
+            _ref = rfq.submitted_at or getattr(rfq, "created_at", None)
+            if _ref is None:
+                logger.info("dispatch_next_batch: rfq=%s has 0 matches and no claim time; deferring close.", rfq_id)
+                return []
+            _ref = _ref if _ref.tzinfo else _ref.replace(tzinfo=timezone.utc)
+            _age = (datetime.now(timezone.utc) - _ref).total_seconds()
+            if _age < 300:  # 5-min grace — AI search is almost certainly still running
+                logger.info(
+                    "dispatch_next_batch: rfq=%s has 0 matches but was claimed %.0fs ago; "
+                    "AI search likely still running — deferring close.", rfq_id, _age,
+                )
+                return []
         rfq.rfq_status = RfqStatus.CLOSED_NO_SELECTION  # validator syncs is_closed
         rfq.closed_at = datetime.utcnow()
         await db.commit()
