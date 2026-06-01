@@ -195,6 +195,125 @@ async def get_user_subscriptions(
     return {"subscriptions": items, "count": len(items)}
 
 
+@router.get("/billing/my-transactions")
+async def get_my_transactions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """List ALL of the current user\'s money transactions, each tagged with the
+    single action available to them under the published refund policy.
+
+    Categorisation (see SYSTEM_SPEC refund policy):
+      - Membership / subscription fees -> within the refund window: action
+        "refund" (auto-refund + immediate downgrade via /billing/cancel-subscription);
+        outside the window: action "cancel_membership" (cancel at period end, no refund).
+        Window: 5 days for monthly plans, 14 days for the yearly (provider annual) plan.
+      - One-time fees that are non-refundable (NDA fee, RFQ unlock): action
+        "contact_support".
+      - Anything already refunded / disputed: action "none" (informational).
+
+    The frontend Transactions page renders exactly one button per row from
+    `action`. `cancel_key` (when present) is the subscription_type the
+    /billing/cancel-subscription endpoint expects.
+    """
+    from datetime import datetime, timezone, timedelta as _td
+    from sqlalchemy import select as _sel
+    from app.models.payment import PaymentAttempt as _PA
+    from app.models.enums import PaymentStatus as _PS, PaymentPurpose as _PP
+
+    def _aware(dt):
+        if dt is None:
+            return None
+        return dt if getattr(dt, "tzinfo", None) else dt.replace(tzinfo=timezone.utc)
+
+    now_utc = datetime.now(timezone.utc)
+
+    # purpose -> (refund_window_days, cancel_key understood by /billing/cancel-subscription)
+    _MEMBERSHIP = {
+        _PP.SEARCH_SUBSCRIPTION.value:           (5,  "customer_monthly"),
+        _PP.PROVIDER_ANNUAL_SUBSCRIPTION.value:  (14, "provider_annual"),
+        _PP.PROVIDER_PROFILE_SUBSCRIPTION.value: (5,  None),
+        _PP.ADVERTISEMENT_SUBSCRIPTION.value:    (5,  None),
+    }
+    _ONE_TIME = {_PP.NDA_FEE.value, _PP.RFQ_UNLOCK.value}
+    _LABELS = {
+        _PP.SEARCH_SUBSCRIPTION.value: "Search membership",
+        _PP.PROVIDER_ANNUAL_SUBSCRIPTION.value: "Annual Professional membership",
+        _PP.PROVIDER_PROFILE_SUBSCRIPTION.value: "Provider profile subscription",
+        _PP.ADVERTISEMENT_SUBSCRIPTION.value: "Advertisement subscription",
+        _PP.NDA_FEE.value: "NDA fee",
+        _PP.RFQ_UNLOCK.value: "RFQ unlock fee",
+    }
+
+    rows = (await db.execute(
+        _sel(_PA)
+        .where(_PA.initiated_by_user_id == current_user.id)
+        .order_by(_PA.initiated_at.desc())
+    )).scalars().all()
+
+    items = []
+    for pa in rows:
+        purpose = pa.purpose.value if hasattr(pa.purpose, "value") else str(pa.purpose)
+        pstatus = pa.payment_status.value if hasattr(pa.payment_status, "value") else str(pa.payment_status)
+
+        # Only real money movements are actionable. Hide initiated/processing/failed
+        # so the page only shows charges the user actually paid (or that were refunded).
+        if pstatus not in (_PS.COMPLETED.value, _PS.REFUNDED.value, _PS.DISPUTED.value):
+            continue
+
+        charged_at = _aware(pa.confirmed_at) or _aware(pa.initiated_at)
+        try:
+            amount_cents = int(round(float(pa.amount)))
+        except (TypeError, ValueError):
+            amount_cents = 0
+        amount_display = f"${amount_cents / 100:,.2f}"
+
+        category = "membership" if purpose in _MEMBERSHIP else ("one_time" if purpose in _ONE_TIME else "other")
+
+        action = "none"
+        within_window = None
+        window_days = None
+        cancel_key = None
+        note = None
+
+        if pstatus == _PS.REFUNDED.value:
+            note = "Refunded"
+        elif pstatus == _PS.DISPUTED.value:
+            note = "Disputed"
+        elif category == "membership":
+            window_days, cancel_key = _MEMBERSHIP[purpose]
+            within_window = bool(charged_at and now_utc <= charged_at + _td(days=window_days))
+            if cancel_key is None:
+                # No auto-refund key wired for this membership type -> support handles it.
+                action = "contact_support"
+            elif within_window:
+                action = "refund"
+            else:
+                action = "cancel_membership"
+        else:
+            # one_time fees (NDA, RFQ unlock) and any unknown purpose: non-refundable.
+            action = "contact_support"
+
+        items.append({
+            "id": str(pa.id),
+            "date": charged_at.isoformat() if charged_at else None,
+            "purpose": purpose,
+            "label": _LABELS.get(purpose, purpose.replace("_", " ").title()),
+            "amount_cents": amount_cents,
+            "amount_display": amount_display,
+            "currency": pa.currency or "USD",
+            "status": pstatus,
+            "category": category,
+            "action": action,
+            "within_window": within_window,
+            "refund_window_days": window_days,
+            "cancel_key": cancel_key,
+            "note": note,
+        })
+
+    return {"transactions": items, "count": len(items)}
+
+
 @router.get("/billing/subscription-status")
 async def get_subscription_status(
     db: AsyncSession = Depends(get_db),

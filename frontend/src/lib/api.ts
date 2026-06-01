@@ -498,6 +498,28 @@ const billing = {
       }>;
       count: number;
     }>('/billing/user-subscriptions'),
+  // All of the user's money transactions, each with the single action available
+  // to them per the refund policy (refund | cancel_membership | contact_support | none).
+  getMyTransactions: () =>
+    apiClient.get<{
+      transactions: Array<{
+        id: string;
+        date: string | null;
+        purpose: string;
+        label: string;
+        amount_cents: number;
+        amount_display: string;
+        currency: string;
+        status: string;
+        category: 'membership' | 'one_time' | 'other';
+        action: 'refund' | 'cancel_membership' | 'contact_support' | 'none';
+        within_window: boolean | null;
+        refund_window_days: number | null;
+        cancel_key: string | null;
+        note: string | null;
+      }>;
+      count: number;
+    }>('/billing/my-transactions'),
   cancelSubscription: (subscriptionType: string) =>
     apiClient.post<{ success: boolean; cancel_at: string | null; refunded?: boolean; immediate?: boolean; message?: string; refund_error?: string | null }>('/billing/cancel-subscription', { subscription_type: subscriptionType }),
   reactivateSubscription: (subscriptionType: string) =>

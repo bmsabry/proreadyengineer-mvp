@@ -11,7 +11,7 @@ import {
   TrendingUp, FileText, CheckCircle, Clock, XCircle,
   FileSignature, Calendar, ArrowRight, Inbox,
   CreditCard, Bell, Phone, Crown, Megaphone,
-  Loader2, AlertCircle, X,
+  Loader2, AlertCircle, X, Receipt, ChevronRight,
 } from 'lucide-react';
 
 // ─── Shared UI helpers ────────────────────────────────────────────────────────
@@ -725,6 +725,16 @@ function ProviderAnalyticsPanel({
             </ul>
           )}
         </div>
+        <Link
+          href="/provider/transactions"
+          className="flex items-center justify-between pt-3 mt-1 border-t border-slate-100 group"
+        >
+          <div className="flex items-center gap-1.5">
+            <Receipt className="h-3.5 w-3.5 text-blue-500" />
+            <span className="text-xs font-semibold text-blue-600 group-hover:text-blue-700">Transactions</span>
+          </div>
+          <ChevronRight className="h-3.5 w-3.5 text-blue-400 group-hover:translate-x-0.5 transition-transform" />
+        </Link>
       </div>
       {/* Quick Access */}
       <div className="mt-4 pt-4 border-t border-slate-100">
