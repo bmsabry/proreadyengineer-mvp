@@ -144,6 +144,7 @@ async def _send_via_resend(
     html_content: Optional[str],
     text_content: Optional[str],
     reply_to: Optional[str] = None,
+    attachments: Optional[list[dict]] = None,
 ) -> tuple[bool, Optional[int], Optional[str]]:
     """Send email via Resend API.
 
@@ -164,9 +165,12 @@ async def _send_via_resend(
         payload["text"] = text_content
     if reply_to:
         payload["reply_to"] = reply_to
+    if attachments:
+        # Resend expects [{filename, content(base64 str)}]
+        payload["attachments"] = attachments
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 "https://api.resend.com/emails",
                 headers={
@@ -245,6 +249,7 @@ async def _send_email_now(
     reply_to: Optional[str] = None,
     db: Optional[AsyncSession] = None,
     is_admin_alert: bool = False,
+    attachments: Optional[list[dict]] = None,
 ) -> bool:
     """
     Attempt to deliver an email immediately.
@@ -281,6 +286,7 @@ async def _send_email_now(
             html_content=html_content,
             text_content=text_content,
             reply_to=reply_to,
+            attachments=attachments,
         )
         if sent:
             return True
@@ -393,6 +399,34 @@ async def send_email(
         logger.info(f"Email {email_id} delivered successfully")
 
     return email_id
+
+
+async def send_email_with_attachments(
+    to: str | list[str],
+    subject: str,
+    html_content: str,
+    text_content: Optional[str] = None,
+    attachments: Optional[list[dict]] = None,
+    from_email: Optional[str] = None,
+    reply_to: Optional[str] = None,
+    db: Optional[AsyncSession] = None,
+) -> bool:
+    """Send a non-templated email (optionally with Resend attachments).
+
+    attachments: list of {"filename": str, "content": base64-str}. Returns True
+    iff the email was actually delivered.
+    """
+    to_list = to if isinstance(to, list) else [to]
+    return await _send_email_now(
+        to=to_list,
+        subject=subject,
+        html_content=html_content,
+        text_content=text_content,
+        from_email=from_email,
+        reply_to=reply_to,
+        db=db,
+        attachments=attachments,
+    )
 
 
 async def send_teaser_email(
