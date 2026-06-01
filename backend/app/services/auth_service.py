@@ -154,11 +154,21 @@ async def register_user(
 ) -> User:
     validate_password_strength(data.password)
 
+    # SECURITY (PRE-001): never honour client-supplied privileged roles on public
+    # self-registration. Only 'customer' and 'provider' may be self-assigned;
+    # 'admin'/'super_admin'/unknown values are dropped. Admin is granted out-of-band only.
+    _ALLOWED_SELF_ROLES = {'customer', 'provider'}
+    if data.roles:
+        _clean = [r for r in (str(x).lower().strip() for x in data.roles) if r in _ALLOWED_SELF_ROLES]
+        safe_roles = _clean or ['customer']
+    else:
+        safe_roles = ['customer']
+
     result = await db.execute(select(User).where(User.email == data.email.lower()))
     existing_user = result.scalar_one_or_none()
     if existing_user:
         existing_roles = set(existing_user.roles or [])
-        requested_roles = set(list(data.roles) if data.roles else ['customer'])
+        requested_roles = set(safe_roles)
         # Hard block: prevent provider-customer dual role on same email
         if 'provider' in existing_roles and 'customer' in requested_roles and 'provider' not in requested_roles:
             raise ValueError(
@@ -192,7 +202,7 @@ async def register_user(
         entity_type=data.entity_type,
         state=data.state or None,
         phone=(getattr(data, 'phone', None) or None),
-        roles=list(data.roles) if data.roles else ['customer'],
+        roles=safe_roles,
         email_verified=email_verified,
         email_verify_token_hash=email_verify_token_hash,
         email_verify_token_expires_at=email_verify_token_expires_at,

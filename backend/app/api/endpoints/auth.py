@@ -135,25 +135,14 @@ async def register(
                 await db.refresh(user)
                 _logger.info(f"Invite processing committed successfully for user {user.email} (email auto-verified)")
             else:
-                _logger.warning(f"Invite token verification returned None for user {user.email}")
-                # Even if token verification fails, try to extract provider_id from JWT payload
-                # (token may be expired but still readable)
-                try:
-                    import jwt as _jwt
-                    from app.core.config import settings as _settings
-                    _raw = _jwt.decode(data.invite_token, _settings.SECRET_KEY, algorithms=["HS256"], options={"verify_exp": False})
-                    if _raw.get("provider_id"):
-                        user.linked_provider_id = int(_raw["provider_id"])
-                        # Still auto-verify: they came from an invite email even if expired
-                        user.email_verified = True
-                        user.email_verify_token_hash = None
-                        user.email_verify_token_expires_at = None
-                        has_valid_invite = True
-                        await db.commit()
-                        await db.refresh(user)
-                        _logger.info(f"Stored linked_provider_id={user.linked_provider_id} from expired token (email auto-verified)")
-                except Exception as _jwt_err:
-                    _logger.warning(f"Failed to extract provider_id from expired token: {_jwt_err}")
+                # SECURITY (PRE-009): invite verification failed (expired or invalid).
+                # Grant NO authorization effects from an unverified token — no provider
+                # linkage and no email auto-verification. The user must request a fresh
+                # invite or use an admin-reviewed claim.
+                _logger.warning(
+                    f"Invite token verification failed for user {user.email}; "
+                    "no provider linkage or email verification granted (expired/invalid invite)."
+                )
         except Exception as _inv_err:
             import logging as _log2
             _log2.getLogger(__name__).error(f"INVITE PROCESSING FAILED for user {user.email}: {_inv_err}", exc_info=True)
