@@ -13,6 +13,7 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<'redirect' | 'choose'>('redirect');
   const [checkingOut, setCheckingOut] = useState<'month' | 'year' | null>(null);
+  const [agreed, setAgreed] = useState(false);
 
   // Step 1: existing subscriber -> open portal; otherwise show the plan chooser.
   const run = async () => {
@@ -98,6 +99,13 @@ export default function BillingPage() {
               <AlertCircle className="h-4 w-4" /> {error}
             </div>
           )}
+          <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+            <p className="mb-2"><strong>Refund policy:</strong> Annual plans are refundable within <strong>14 days</strong> of payment; after that there is no refund and your plan continues until the end of the paid year. Monthly plans are refundable within <strong>5 days</strong> of payment; after that there is no refund and your plan continues until the end of the paid month. One-time fees (RFQ unlocks, NDA fees, profile-edit unlock) are non-refundable. You can cancel anytime to stop renewal.</p>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
+              <span>I have read and agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Terms of Service</a> and the refund policy above.</span>
+            </label>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Card>
               <CardHeader>
@@ -110,7 +118,7 @@ export default function BillingPage() {
                     <li key={f} className="flex gap-2"><Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />{f}</li>
                   ))}
                 </ul>
-                <Button className="w-full" disabled={!!checkingOut} onClick={() => startCheckout('month')}>
+                <Button className="w-full" disabled={!!checkingOut || !agreed} onClick={() => startCheckout('month')}>
                   {checkingOut === 'month' ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</> : 'Subscribe monthly — $50/mo'}
                 </Button>
               </CardContent>
@@ -126,7 +134,7 @@ export default function BillingPage() {
                     <li key={f} className="flex gap-2"><Check className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />{f}</li>
                   ))}
                 </ul>
-                <Button className="w-full" disabled={!!checkingOut} onClick={() => startCheckout('year')}>
+                <Button className="w-full" disabled={!!checkingOut || !agreed} onClick={() => startCheckout('year')}>
                   {checkingOut === 'year' ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting...</> : 'Subscribe annually — $500/yr'}
                 </Button>
               </CardContent>

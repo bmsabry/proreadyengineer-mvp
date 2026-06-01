@@ -165,12 +165,14 @@ function PricingCard({
 export default function ProviderUpgradePage() {
   const { user, isLoading: authLoading } = useRequireAuth(['provider']);
   const [annualLoading, setAnnualLoading] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const [profileEditLoading, setProfileEditLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // ── Stripe checkout handlers ─────────────────────────────────────────
 
   const handleAnnualSubscription = async () => {
+    if (!agreed) { setErrorMsg('Please agree to the Terms and refund policy to continue.'); return; }
     setAnnualLoading(true);
     setErrorMsg(null);
     try {
@@ -191,6 +193,7 @@ export default function ProviderUpgradePage() {
   };
 
   const handleProfileEditCheckout = async () => {
+    if (!agreed) { setErrorMsg('Please agree to the Terms and refund policy to continue.'); return; }
     setProfileEditLoading(true);
     setErrorMsg(null);
     try {
@@ -277,6 +280,15 @@ export default function ProviderUpgradePage() {
 
       {/* ── Pricing Cards ── */}
       <div className="max-w-5xl mx-auto px-6 py-10">
+        <div className="max-w-2xl mx-auto mb-6">
+          <div className="mb-0 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+            <p className="mb-2"><strong>Refund policy:</strong> Annual plans are refundable within <strong>14 days</strong> of payment; after that there is no refund and your plan continues until the end of the paid year. Monthly plans are refundable within <strong>5 days</strong> of payment; after that there is no refund and your plan continues until the end of the paid month. One-time fees (RFQ unlocks, NDA fees, profile-edit unlock) are non-refundable. You can cancel anytime to stop renewal.</p>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
+              <span>I have read and agree to the <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">Terms of Service</a> and the refund policy above.</span>
+            </label>
+          </div>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-start">
 
           {/* Card 1 — Annual Professional (FEATURED) */}
