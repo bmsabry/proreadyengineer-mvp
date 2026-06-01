@@ -138,6 +138,45 @@ async def _provider_context(db: AsyncSession, user: User, ctx: Dict[str, Any]) -
         logger.info("[help_context] provider membership failed: %s", exc)
         return
 
+    # --- Firm profile snapshot + completeness (the fields that drive matching) ---
+    try:
+        from app.models.provider import Provider
+        provider = (await db.execute(select(Provider).where(Provider.id == pid))).scalar_one_or_none()
+        if provider is not None:
+            def _n(v):
+                return len(v) if isinstance(v, list) else 0
+            def _has(v):
+                return bool(v.strip()) if isinstance(v, str) else bool(v)
+            counts = {
+                "capabilities": _n(provider.capabilities),
+                "specialties": _n(provider.specialties),
+                "software_tools": _n(provider.software_tools),
+                "equipment": _n(getattr(provider, "equipment", None)),
+                "certifications": _n(getattr(provider, "certifications", None)),
+                "notable_projects": _n(provider.proven_experience_notable_projects),
+            }
+            scalars = {
+                "business_description": _has(provider.business_description),
+                "primary_specialty": _has(provider.primary_specialty),
+                "team_summary": _has(getattr(provider, "team_summary", None)),
+                "website": _has(provider.website),
+            }
+            present = sum(1 for v in counts.values() if v > 0) + sum(1 for v in scalars.values() if v)
+            total = len(counts) + len(scalars)
+            missing = [k for k, v in counts.items() if v == 0] + [k for k, v in scalars.items() if not v]
+            thin = []
+            if 0 < counts["notable_projects"] < 3:
+                thin.append("Notable Projects (only %d \u2014 add several)" % counts["notable_projects"])
+            if 0 < counts["capabilities"] < 3:
+                thin.append("capabilities (only %d)" % counts["capabilities"])
+            ctx["provider_profile"] = {
+                "counts": counts, "scalars": scalars,
+                "completeness_pct": round(present / total * 100) if total else 0,
+                "missing": missing, "thin": thin,
+            }
+    except Exception as exc:
+        logger.info("[help_context] provider profile snapshot failed: %s", exc)
+
     # --- Headline metrics, mirroring the provider dashboard's Activity Summary ---
     try:
         from app.models.rfq import RFQDispatch
@@ -267,6 +306,31 @@ def render_account_context(ctx: Dict[str, Any], page: Optional[str] = None) -> s
             f"not selected {pm.get('not_selected',0)}, NDAs signed {pm.get('ndas_signed',0)}, "
             f"win rate {pm.get('win_rate_pct',0)}%."
         )
+
+    pp = ctx.get("provider_profile")
+    if pp:
+        c = pp["counts"]; sc = pp["scalars"]
+        lines.append(
+            "Your firm profile (the fields that get you matched to RFQs): "
+            f"capabilities {c['capabilities']}, specialties/industries {c['specialties']}, "
+            f"software/tools {c['software_tools']}, equipment {c['equipment']}, "
+            f"certifications {c['certifications']}, Notable Projects {c['notable_projects']}; "
+            f"business description {'yes' if sc['business_description'] else 'no'}, "
+            f"primary specialty {'yes' if sc['primary_specialty'] else 'no'}, "
+            f"team summary {'yes' if sc['team_summary'] else 'no'}, "
+            f"website {'yes' if sc['website'] else 'no'}. "
+            f"Roughly {pp['completeness_pct']}% of the key matching fields are filled."
+        )
+        _friendly = {
+            "capabilities": "capabilities", "specialties": "specialties/industries",
+            "software_tools": "software & tools", "equipment": "equipment",
+            "certifications": "certifications", "notable_projects": "Notable Projects",
+            "business_description": "business description", "primary_specialty": "primary specialty",
+            "team_summary": "team summary", "website": "website",
+        }
+        gaps = [_friendly.get(m, m) for m in pp.get("missing", [])] + pp.get("thin", [])
+        if gaps:
+            lines.append("Profile gaps to recommend filling: " + "; ".join(gaps) + ".")
 
     au = ctx.get("accepted_uncontacted") or []
     if au:
