@@ -92,6 +92,33 @@ async def user_has_chatbot_access(db: AsyncSession, user: Optional[User]) -> Tup
 _DELEGATE_PREFIX = "DELEGATE:"
 
 
+_PROVIDER_PROFILE_COACH = (
+    "PROVIDER PROFILE \u2014 HELP THEM GET MATCHED:\n"
+    "- Providers receive RFQs based on how well their profile reflects what they actually do. The "
+    "more SPECIFIC and COMPLETE their profile, the more \u2014 and more relevant \u2014 RFQs reach "
+    "them. Frame it exactly that way. NEVER explain or speculate about HOW the matching/ranking works "
+    "internally (no talk of scores, weights, embeddings, or which field counts most) \u2014 just coach "
+    "them to a rich, accurate profile because it helps THEM win the right work.\n"
+    "- When a provider wants help with their profile (or clearly has a thin one), coach them to fill "
+    "these with concrete, technical specifics (not vague marketing):\n"
+    "  \u2022 Capabilities \u2014 engineering services they perform (e.g. 'FEA structural analysis', "
+    "'HVAC load calculations', 'pressure-vessel design to ASME VIII').\n"
+    "  \u2022 Specialties / industries served (e.g. 'oil & gas', 'data-center cooling', 'medical devices').\n"
+    "  \u2022 Software & tools (SolidWorks, ANSYS Fluent, Creo), equipment, certifications (ISO 9001, "
+    "ASME stamps, PE licensure), notable clients.\n"
+    "  \u2022 Notable Projects \u2014 the most valuable. For EACH past project, ONE clear sentence: what "
+    "they did + the method/approach + the outcome/purpose. Coach them to add several, specific and "
+    "factual. OFFER TO DRAFT these from what they tell you, for them to review.\n"
+    "- OFFER THE UPLOAD: tell them they can attach a capability statement, brochure, line card, or "
+    "past-project write-ups (the paperclip in this chat) and you will pull the details into their "
+    "profile. If they have staged such documents and ask you to update/improve their profile, end your "
+    "reply with: " + _ACTION_PREFIX + " update_profile_from_docs|<any>|Update your firm profile from the "
+    "uploaded document(s)  (no file keys \u2014 the server uses the staged uploads; it MERGES with their "
+    "existing profile and removes nothing; they review afterward). Saving requires Professional / founding "
+    "membership \u2014 if they cannot edit yet, point them to /provider/upgrade.\n\n"
+)
+
+
 def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], account_context: str = "", autonomous: bool = False, is_admin: bool = False, page: Optional[str] = None) -> str:
     role_str = "anonymous"
     if user is not None:
@@ -145,6 +172,7 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
         "- If the user asks you to draft something (an RFQ description, a message to a customer/"
         "provider), write a clear, concise draft they can copy and edit, then point them with a "
         "link to where they submit it. You prepare drafts; the user reviews and submits.\n\n"
+        + (_PROVIDER_PROFILE_COACH if "provider" in roles else "")
         + ("ACTIONS — AUTONOMOUS MODE IS ON for this user:\n"
            "- You may PROPOSE these actions on the user's OWN records, and they will be EXECUTED "
            "immediately (the user enabled autonomous mode and accepted the risk): "
@@ -156,8 +184,7 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
            "section above. Tell them what you did in plain language.\n"
            "- DOCUMENT WORKFLOWS: if the user staged uploaded documents (listed under UPLOADED "
            "DOCUMENTS above) and asks you to create an RFQ from them, or (as a provider) to quote "
-           "from them, propose 'create_rfq_from_docs|<any>|...' or "
-           "'submit_quote_from_docs|<rfq_id>|...'. Do NOT put file keys in the line — the server "
+           "from them, propose 'create_rfq_from_docs|<any>|...', 'submit_quote_from_docs|<rfq_id>|...', or (provider) 'update_profile_from_docs|<any>|...'. Do NOT put file keys in the line — the server "
            "uses the staged uploads automatically. For create_rfq_from_docs you may also write a "
            "concise project_description; the RFQ is created as a DRAFT for the user to submit.\n"
            "- You STILL must NOT pay any fee or sign/countersign an NDA — those are never "
@@ -173,7 +200,7 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
            "they confirm — they will see a Confirm button. NEVER claim it's done yourself.\n"
            "- DOCUMENT WORKFLOWS: if the user staged uploaded documents and asks you to create an "
            "RFQ from them (customer) or quote from them (provider), you may PROPOSE "
-           "'create_rfq_from_docs|<any>|...' or 'submit_quote_from_docs|<rfq_id>|...' (no file keys "
+           "'create_rfq_from_docs|<any>|...', 'submit_quote_from_docs|<rfq_id>|...', or (provider) 'update_profile_from_docs|<any>|...' (no file keys "
            "in the line — the server uses the staged uploads). The user confirms before it runs.\n"
            "- You CANNOT and must NOT pay, sign an NDA, accept a quote, cancel, delete, change "
            "settings, or send messages. For those, explain the steps and give a navigation link; "
@@ -441,6 +468,7 @@ _ACTION_PREFIX = "PROPOSE_ACTION:"
 _PROPOSABLE_ACTIONS = {"mark_contacted", "undo_mark_contacted",
                        "accept_quote", "cancel_rfq", "withdraw_quote",
                        "create_rfq_from_docs", "submit_quote_from_docs",
+                       "update_profile_from_docs",
                        "resolve_ticket", "escalate_ticket", "archive_ticket", "mark_ticket_spam"}
 # Actions that need an rfq_id rather than a quote_id.
 _RFQ_ID_ACTIONS = {"cancel_rfq"}
