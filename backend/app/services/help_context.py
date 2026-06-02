@@ -94,6 +94,48 @@ async def _customer_context(db: AsyncSession, user: User, ctx: Dict[str, Any]) -
     except Exception as exc:
         logger.info("[help_context] customer rfq counts failed: %s", exc)
 
+        # Anonymized quote details for the user's OWN open RFQs, so the assistant can
+        # help compare and recommend. Provider identities are intentionally omitted
+        # (hidden until acceptance) — never surface who submitted which quote.
+        try:
+            from app.models.quote import Quote
+            rfq_rows = (await db.execute(
+                select(RFQ.id, RFQ.title)
+                .where(RFQ.customer_user_id == user.id, RFQ.is_closed.is_(False),
+                       RFQ.quote_count > 0)
+                .order_by(RFQ.created_at.desc()).limit(3)
+            )).all()
+            rfq_quotes = []
+            for rid, rtitle in rfq_rows:
+                qs = (await db.execute(
+                    select(Quote).where(
+                        Quote.rfq_id == rid,
+                        Quote.quote_status.notin_(["draft", "withdrawn"]),
+                    ).order_by(Quote.submitted_at.asc()).limit(5)
+                )).scalars().all()
+                items = []
+                for i, q in enumerate(qs, start=1):
+                    pmin, pmax = q.rough_price_min, q.rough_price_max
+                    if pmin is not None and pmax is not None:
+                        price = f"{q.currency} {pmin:g}–{pmax:g}" if pmin != pmax else f"{q.currency} {pmin:g}"
+                    elif pmin is not None:
+                        price = f"{q.currency} {pmin:g}+"
+                    else:
+                        price = "not stated"
+                    items.append({
+                        "label": f"Quote {i}",
+                        "price": price,
+                        "turnaround": (q.turnaround_estimate_text or "not stated")[:120],
+                        "scope": (q.scope_notes or "")[:220],
+                        "assumptions": (q.assumptions_text or "")[:220],
+                    })
+                if items:
+                    rfq_quotes.append({"rfq_title": (rtitle or "Untitled RFQ")[:120], "quotes": items})
+            if rfq_quotes:
+                ctx["rfq_quotes"] = rfq_quotes
+        except Exception as exc:
+            logger.info("[help_context] customer quote details failed: %s", exc)
+
     # NDAs awaiting the customer's countersignature, on OPEN RFQs only.
     try:
         awaiting = (await db.execute(
@@ -292,6 +334,21 @@ def render_account_context(ctx: Dict[str, Any], page: Optional[str] = None) -> s
             f"{r.get('provider_selected',0)} where you selected a provider, {r.get('cancelled',0)} cancelled; "
             f"{r.get('total_quotes_received',0)} quotes received in total."
         )
+    rq = ctx.get("rfq_quotes")
+    if rq:
+        lines.append(
+            "Quotes you have received (anonymized — provider identities are hidden until you "
+            "accept; compare on price, turnaround, scope, and assumptions only):"
+        )
+        for entry in rq:
+            lines.append(f"RFQ \"{entry['rfq_title']}\":")
+            for q in entry["quotes"]:
+                detail = f"- {q['label']}: price {q['price']}; turnaround {q['turnaround']}"
+                if q.get("scope"):
+                    detail += f"; scope: {q['scope']}"
+                if q.get("assumptions"):
+                    detail += f"; assumptions: {q['assumptions']}"
+                lines.append(detail)
     if ctx.get("search_used_this_month") is not None:
         lines.append(f"Searches used this month: {ctx['search_used_this_month']}.")
     if ctx.get("nda_free_credits_remaining") is not None:
