@@ -425,21 +425,21 @@ export default function FeaturedFirmsPage() {
     <div className="min-h-screen bg-slate-50">
       <header className="border-b bg-white shadow-sm sticky top-0 z-50">
         <div className="max-w-6xl mx-auto flex h-14 items-center px-6">
-          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-[#0F2B54]">
+          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-primary">
             <Building2 className="h-6 w-6" />
             <span>ProMechDirectory</span>
           </Link>
           <nav className="ml-auto flex gap-4 text-sm items-center">
-            <Link href="/search" className="text-slate-600 hover:text-[#0F2B54] px-3 py-1 rounded">Search</Link>
-            <Link href="/software-providers" className="text-slate-600 hover:text-[#0F2B54] px-3 py-1 rounded">Software</Link>
-            <Link href="/advertise" className="text-slate-600 hover:text-[#0F2B54] px-3 py-1 rounded">Advertise</Link>
-            <Link href="/login" className="bg-[#0F2B54] text-white px-4 py-1.5 rounded-lg hover:bg-[#0a1f3e]">Sign In</Link>
+            <Link href="/search" className="text-slate-600 hover:text-primary px-3 py-1 rounded">Search</Link>
+            <Link href="/software-providers" className="text-slate-600 hover:text-primary px-3 py-1 rounded">Software</Link>
+            <Link href="/advertise" className="text-slate-600 hover:text-primary px-3 py-1 rounded">Advertise</Link>
+            <Link href="/login" className="bg-primary text-white px-4 py-1.5 rounded-lg hover:bg-primary/90">Sign In</Link>
           </nav>
         </div>
       </header>
 
       {/* Hero */}
-      <section className="bg-gradient-to-br from-slate-800 to-[#0F2B54] text-white py-14 px-6">
+      <section className="bg-gradient-to-br from-slate-800 to-primary text-white py-14 px-6">
         <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-3xl md:text-4xl font-extrabold mb-3">Featured Engineering Firms</h1>
           <p className="text-blue-200 text-lg max-w-2xl mx-auto mb-8">
@@ -451,7 +451,7 @@ export default function FeaturedFirmsPage() {
             <div className="relative flex items-center">
               <div className="absolute left-4 flex items-center">
                 {searching ? (
-                  <Loader2 className="h-5 w-5 text-slate-400 animate-spin" />
+                  <Loader2 className="h-5 w-5 text-slate-500 animate-spin" />
                 ) : (
                   <Sparkles className="h-5 w-5 text-blue-400" />
                 )}
@@ -461,12 +461,12 @@ export default function FeaturedFirmsPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by engineering specialty, capability, or service..."
-                className="w-full py-3.5 pl-12 pr-28 rounded-2xl bg-white text-slate-900 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 shadow-lg"
+                className="w-full py-3.5 pl-12 pr-28 rounded-2xl bg-white text-slate-900 text-sm placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-300 shadow-lg"
               />
               <button
                 type="submit"
                 disabled={searching}
-                className="absolute right-2 px-5 py-2 rounded-xl bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#0a1f3e] disabled:opacity-60 transition-colors"
+                className="absolute right-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary/90 disabled:opacity-60 transition-colors"
               >
                 <Search className="h-4 w-4" />
               </button>
@@ -493,7 +493,7 @@ export default function FeaturedFirmsPage() {
       <main className="max-w-6xl mx-auto px-6 py-10">
         {loading ? (
           <div className="flex items-center justify-center py-24">
-            <Loader2 className="h-8 w-8 text-[#0F2B54] animate-spin" />
+            <Loader2 className="h-8 w-8 text-primary animate-spin" />
             <span className="ml-4 text-slate-500">Loading featured firms&hellip;</span>
           </div>
         ) : ads.length === 0 ? (
@@ -505,11 +505,11 @@ export default function FeaturedFirmsPage() {
                 </div>
                 <h3 className="text-lg font-bold text-slate-700 mb-2">Could not load featured firms</h3>
                 <p className="text-sm text-red-600 mb-6 max-w-md">{fetchError}</p>
-                <button onClick={() => fetchAds(1)} className="text-sm text-[#0F2B54] font-semibold hover:underline">Retry</button>
+                <button onClick={() => fetchAds(1)} className="text-sm text-primary font-semibold hover:underline">Retry</button>
               </>
             ) : (
               <>
-                <Building2 className="h-12 w-12 text-slate-300 mb-4" />
+                <Building2 className="h-12 w-12 text-slate-500 mb-4" />
                 <h3 className="text-lg font-bold text-slate-700 mb-2">
                   {isSearchResult ? 'No matching firms found' : 'No featured firms yet'}
                 </h3>
@@ -519,7 +519,7 @@ export default function FeaturedFirmsPage() {
                     : 'Be the first to feature your engineering firm here!'}
                 </p>
                 {isSearchResult && (
-                  <button onClick={handleClearSearch} className="text-sm text-[#0F2B54] font-medium hover:underline mt-4">
+                  <button onClick={handleClearSearch} className="text-sm text-primary font-medium hover:underline mt-4">
                     View all firms
                   </button>
                 )}
@@ -579,7 +579,7 @@ export default function FeaturedFirmsPage() {
           </p>
           <Link
             href="/advertise"
-            className="inline-block bg-[#0F2B54] text-white px-8 py-3 rounded-xl font-semibold hover:bg-[#0a1f3e] transition-colors mt-4"
+            className="inline-block bg-primary text-white px-8 py-3 rounded-xl font-semibold hover:bg-primary/90 transition-colors mt-4"
           >
             Advertise Your Firm &rarr;
           </Link>

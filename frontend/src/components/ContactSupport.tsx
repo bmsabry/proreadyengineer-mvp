@@ -43,7 +43,7 @@ export default function ContactSupport({ variant = 'light' }: { variant?: 'light
         <button
           onClick={() => setShowContact(true)}
           title="Contact our support team"
-          className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap text-blue-100 hover:bg-[#2a4d7a] hover:text-white transition-colors duration-150"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap text-blue-100 hover:bg-primary/90 hover:text-white transition-colors duration-150"
         >
           <LifeBuoy size={14} />
           <span>Contact Support</span>
@@ -66,10 +66,10 @@ export default function ContactSupport({ variant = 'light' }: { variant?: 'light
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <LifeBuoy className="h-5 w-5 text-[#1e3a5f]" />
+                <LifeBuoy className="h-5 w-5 text-primary" />
                 <h2 className="text-lg font-bold text-slate-900">Contact Support</h2>
               </div>
-              <button onClick={() => setShowContact(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowContact(false)} className="text-gray-600 hover:text-gray-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -127,7 +127,7 @@ export default function ContactSupport({ variant = 'light' }: { variant?: 'light
                   <button
                     onClick={handleContactSubmit}
                     disabled={submitting || !form.subject.trim() || !form.message.trim()}
-                    className="flex-1 py-2 bg-[#1e3a5f] text-white rounded-lg text-sm font-medium hover:bg-[#2a4d7a] disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex-1 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {submitting ? 'Sending...' : 'Send Message'}
                   </button>

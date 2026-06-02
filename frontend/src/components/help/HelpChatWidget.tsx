@@ -247,7 +247,7 @@ export default function HelpChatWidget() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-[#0F2B54] text-white px-4 py-3 shadow-lg hover:shadow-xl hover:bg-[#143a6f] transition-all"
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-primary text-white px-4 py-3 shadow-lg hover:shadow-xl hover:bg-primary/90 transition-all"
           aria-label="Open AI Help Assistant"
         >
           <MessageCircle className="h-5 w-5" />
@@ -259,7 +259,7 @@ export default function HelpChatWidget() {
       {open && (
         <div className="fixed bottom-6 right-6 z-50 w-[92vw] max-w-md h-[70vh] max-h-[640px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-[#0F2B54] text-white">
+          <div className="flex items-center justify-between px-4 py-3 bg-primary text-white">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4" />
               <div>
@@ -310,7 +310,7 @@ export default function HelpChatWidget() {
                       <div
                         className={`rounded-2xl px-3 py-2 text-sm whitespace-pre-wrap ${
                           m.role === 'user'
-                            ? 'bg-[#0F2B54] text-white'
+                            ? 'bg-primary text-white'
                             : 'bg-white border border-slate-200 text-slate-800'
                         }`}
                       >
@@ -322,7 +322,7 @@ export default function HelpChatWidget() {
                             <button
                               key={li}
                               onClick={() => { setOpen(false); router.push(lnk.href); }}
-                              className="inline-flex items-center justify-between gap-2 rounded-xl border border-[#0F2B54] px-3 py-1.5 text-xs font-semibold text-[#0F2B54] hover:bg-[#0F2B54] hover:text-white transition-colors"
+                              className="inline-flex items-center justify-between gap-2 rounded-xl border border-primary px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary hover:text-white transition-colors"
                             >
                               <span>{lnk.label}</span>
                               <span aria-hidden>&rarr;</span>
@@ -360,14 +360,14 @@ export default function HelpChatWidget() {
                         <div className="mt-1 flex items-center gap-2">
                           <button
                             onClick={() => sendFeedback(i, 1)}
-                            className={`p-1 rounded ${m.feedback === 1 ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}
+                            className={`p-1 rounded ${m.feedback === 1 ? 'text-emerald-600' : 'text-slate-500 hover:text-slate-500'}`}
                             aria-label="Helpful"
                           >
                             <ThumbsUp className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => sendFeedback(i, -1)}
-                            className={`p-1 rounded ${m.feedback === -1 ? 'text-red-600' : 'text-slate-300 hover:text-slate-500'}`}
+                            className={`p-1 rounded ${m.feedback === -1 ? 'text-red-600' : 'text-slate-500 hover:text-slate-500'}`}
                             aria-label="Not helpful"
                           >
                             <ThumbsDown className="h-3.5 w-3.5" />
@@ -414,7 +414,7 @@ export default function HelpChatWidget() {
                   <span className="text-[11px] text-slate-500">Let the assistant act for you</span>
                   <button
                     onClick={() => setShowConsent(true)}
-                    className="text-[11px] font-semibold text-[#0F2B54] hover:underline"
+                    className="text-[11px] font-semibold text-primary hover:underline"
                   >
                     Enable autonomous mode
                   </button>
@@ -466,7 +466,7 @@ export default function HelpChatWidget() {
                     <span key={a.key} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[11px] text-slate-700 max-w-[180px]">
                       <Paperclip className="h-3 w-3 shrink-0" />
                       <span className="truncate">{a.filename}</span>
-                      <button onClick={() => removeAttachment(a.key)} className="text-slate-400 hover:text-red-600" aria-label="Remove">×</button>
+                      <button onClick={() => removeAttachment(a.key)} className="text-slate-500 hover:text-red-600" aria-label="Remove">×</button>
                     </span>
                   ))}
                 </div>
@@ -499,20 +499,20 @@ export default function HelpChatWidget() {
                     }
                   }}
                   placeholder={attachments.length ? "Ask me to create an RFQ / quote from these…" : "Ask a question…"}
-                  className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/30"
+                  className="flex-1 px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/30"
                   disabled={sending}
                   maxLength={2000}
                 />
                 <button
                   onClick={onSend}
                   disabled={sending || uploading || !input.trim()}
-                  className="p-2 rounded-lg bg-[#0F2B54] text-white hover:bg-[#143a6f] disabled:opacity-50"
+                  className="p-2 rounded-lg bg-primary text-white hover:bg-primary/90 disabled:opacity-50"
                   aria-label="Send"
                 >
                   <Send className="h-4 w-4" />
                 </button>
               </div>
-              <div className="text-[10px] text-slate-400 mt-1 px-1">
+              <div className="text-[10px] text-slate-500 mt-1 px-1">
                 Grounded on the platform manual. Attach a doc and ask me to create an RFQ or quote.
               </div>
             </div>
@@ -520,7 +520,7 @@ export default function HelpChatWidget() {
             <div className="border-t border-slate-200 p-3 bg-white">
               <button
                 onClick={onSubscribeClick}
-                className="w-full py-2 rounded-lg bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#143a6f]"
+                className="w-full py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90"
               >
                 {status?.authenticated ? 'View subscription plans' : 'Sign up / Log in'}
               </button>
@@ -556,7 +556,7 @@ function PaywallView({ status, onSubscribe }: { status: HelpStatus; onSubscribe:
       )}
       <button
         onClick={onSubscribe}
-        className="w-full py-2 rounded-lg bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#143a6f]"
+        className="w-full py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90"
       >
         {authenticated ? 'View subscription plans' : 'Sign up / Log in'}
       </button>

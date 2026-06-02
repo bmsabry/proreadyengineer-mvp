@@ -63,6 +63,9 @@
   body {
     @apply bg-background text-foreground;
     line-height: 1.6;
+    /* Tabular (lining) figures: digits align in columns and don't shift as values
+       change — precision cue suited to a technical/engineering data product. */
+    font-variant-numeric: tabular-nums;
   }
 
   h1, h2, h3, h4, h5, h6 {

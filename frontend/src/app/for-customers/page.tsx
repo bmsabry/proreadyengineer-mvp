@@ -17,7 +17,7 @@ export default function ForCustomersPage() {
           <div className="bg-white rounded-lg p-6 shadow-sm border">
             <div className="text-3xl mb-4">🔍</div>
             <h3 className="text-lg font-semibold mb-2">Smart Search</h3>
-            <p className="text-gray-600 text-sm">Describe your engineering needs in plain language and get AI-matched providers from our database of 6,000+ firms.</p>
+            <p className="text-gray-600 text-sm">Describe your engineering needs in plain language and get AI-matched providers from our database of 5,000+ firms.</p>
           </div>
           <div className="bg-white rounded-lg p-6 shadow-sm border">
             <div className="text-3xl mb-4">📋</div>
@@ -58,7 +58,7 @@ export default function ForCustomersPage() {
               </Link>
             </div>
             {/* Search Plan */}
-            <div className="bg-[#0F2B54] rounded-xl p-6 shadow-md border border-[#0F2B54] text-white">
+            <div className="bg-primary rounded-xl p-6 shadow-md border border-primary text-white">
               <div className="mb-4">
                 <span className="text-xs font-semibold uppercase tracking-wider text-blue-200">Search Plan</span>
                 <div className="mt-2 flex items-baseline gap-1">
@@ -75,7 +75,7 @@ export default function ForCustomersPage() {
               </ul>
               <Link
                 href="/billing"
-                className="block text-center bg-white text-[#0F2B54] px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-50 transition-colors"
+                className="block text-center bg-white text-primary px-4 py-2.5 rounded-lg font-semibold text-sm hover:bg-blue-50 transition-colors"
               >
                 Upgrade — $50/mo or $500/yr
               </Link>

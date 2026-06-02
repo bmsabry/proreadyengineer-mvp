@@ -43,10 +43,10 @@ export default function AcceptedQuotesPage() {
         </div>
         {quotes.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-12 text-center">
-            <Trophy className="h-12 w-12 mx-auto mb-4 text-slate-300" />
+            <Trophy className="h-12 w-12 mx-auto mb-4 text-slate-500" />
             <h3 className="text-base font-semibold text-slate-700 mb-2">No accepted quotes yet</h3>
             <p className="text-sm text-slate-500 mb-6">Keep submitting quality quotes to win projects!</p>
-            <Button onClick={() => router.push('/provider/rfqs')} className="bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl">Browse RFQs</Button>
+            <Button onClick={() => router.push('/provider/rfqs')} className="bg-primary hover:bg-primary/90 text-white rounded-xl">Browse RFQs</Button>
           </div>
         ) : (
           <div className="space-y-6">
@@ -56,7 +56,7 @@ export default function AcceptedQuotesPage() {
                   <div>
                     <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-semibold bg-emerald-100 text-emerald-700"><Trophy className="h-4 w-4" /> Accepted!</span>
                     <p className="text-base font-semibold text-slate-900 mt-2">RFQ #{String(q.rfq_id).slice(0,8)}&hellip;</p>
-                    <p className="text-xs text-slate-400">{q.submitted_at ? formatDate(q.submitted_at) : 'Recently'}</p>
+                    <p className="text-xs text-slate-500">{q.submitted_at ? formatDate(q.submitted_at) : 'Recently'}</p>
                   </div>
                   <Button size="sm" variant="outline" onClick={() => router.push('/provider/rfq/' + q.rfq_id)} className="gap-1 rounded-xl text-xs shrink-0">View Project <ArrowRight className="h-3 w-3" /></Button>
                 </div>
@@ -70,9 +70,9 @@ export default function AcceptedQuotesPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                     {q.customer_contact_name && <p><span className="font-medium text-slate-600">Name: </span>{q.customer_contact_name}</p>}
                     {q.customer_company && <p><span className="font-medium text-slate-600">Company: </span>{q.customer_company}</p>}
-                    {q.customer_email && <p className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-slate-400" /><a href={`mailto:${q.customer_email}`} className="text-blue-600 hover:underline">{q.customer_email}</a></p>}
-                    {(q as any).customer_phone && <p className="flex items-center gap-1.5"><Phone className="h-3 w-3 text-slate-400" />{(q as any).customer_phone}</p>}
-                    {(q as any).customer_website && <p className="flex items-center gap-1.5"><Globe className="h-3 w-3 text-slate-400" /><a href={(q as any).customer_website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{(q as any).customer_website}</a></p>}
+                    {q.customer_email && <p className="flex items-center gap-1.5"><Mail className="h-3 w-3 text-slate-500" /><a href={`mailto:${q.customer_email}`} className="text-blue-600 hover:underline">{q.customer_email}</a></p>}
+                    {(q as any).customer_phone && <p className="flex items-center gap-1.5"><Phone className="h-3 w-3 text-slate-500" />{(q as any).customer_phone}</p>}
+                    {(q as any).customer_website && <p className="flex items-center gap-1.5"><Globe className="h-3 w-3 text-slate-500" /><a href={(q as any).customer_website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">{(q as any).customer_website}</a></p>}
                   </div>
                 </div>
               </div>

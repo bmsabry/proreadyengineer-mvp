@@ -78,7 +78,7 @@ function SubscriptionCard({ subStatus, isLoading }: SubscriptionCardProps) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-6 mt-4">
       <div className="flex items-center gap-2 mb-4">
-        <CreditCard className="h-5 w-5 text-[#0F2B54]" />
+        <CreditCard className="h-5 w-5 text-primary" />
         <h2 className="text-base font-bold text-slate-900">Subscription</h2>
       </div>
       {isLoading ? (
@@ -94,11 +94,11 @@ function SubscriptionCard({ subStatus, isLoading }: SubscriptionCardProps) {
           </div>
           <p className="text-sm text-slate-600 mb-4">5 searches / month included.</p>
           <Link href="/billing">
-            <button className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm hover:shadow-md">
+            <button className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm hover:shadow-md">
               <Zap className="h-4 w-4" /> Upgrade — $50/mo or $500/yr
             </button>
           </Link>
-          <p className="text-xs text-slate-400 text-center mt-2">100 searches/month</p>
+          <p className="text-xs text-slate-500 text-center mt-2">100 searches/month</p>
         </>
       ) : (
         <>
@@ -108,7 +108,7 @@ function SubscriptionCard({ subStatus, isLoading }: SubscriptionCardProps) {
           </div>
           <p className="text-sm text-slate-600 mb-4">100 searches / month — $50/mo or $500/yr.</p>
           <Link href="/billing">
-            <button className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-[#0F2B54] text-[#0F2B54] hover:bg-[#0F2B54] hover:text-white rounded-xl font-semibold text-sm transition-all duration-150">
+            <button className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 border border-primary text-primary hover:bg-primary hover:text-white rounded-xl font-semibold text-sm transition-all duration-150">
               <CreditCard className="h-4 w-4" /> Active — Manage Subscription
             </button>
           </Link>
@@ -174,7 +174,7 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-6 h-fit">
       <div className="flex items-center gap-2 mb-5">
-        <TrendingUp className="h-5 w-5 text-[#0F2B54]" />
+        <TrendingUp className="h-5 w-5 text-primary" />
         <h2 className="text-base font-bold text-slate-900">Activity Summary</h2>
       </div>
 
@@ -278,7 +278,7 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Account</p>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Calendar className="h-3.5 w-3.5 text-slate-400" />
+            <Calendar className="h-3.5 w-3.5 text-slate-500" />
             <span className="text-xs text-slate-500">Member since</span>
           </div>
           <span className="text-xs font-medium text-slate-700">
@@ -287,7 +287,7 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
         </div>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <FileText className="h-3.5 w-3.5 text-slate-400" />
+            <FileText className="h-3.5 w-3.5 text-slate-500" />
             <span className="text-xs text-slate-500">Plan</span>
           </div>
           <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
@@ -297,7 +297,7 @@ function AnalyticsPanel({ rfqs, user, subStatus }: AnalyticsPanelProps) {
         {avgDays !== null && (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1.5">
-              <Clock className="h-3.5 w-3.5 text-slate-400" />
+              <Clock className="h-3.5 w-3.5 text-slate-500" />
               <span className="text-xs text-slate-500">Avg days to quote</span>
             </div>
             <span className="text-xs font-medium text-slate-700">{avgDays}d</span>
@@ -442,7 +442,7 @@ function CustomerDashboardInner() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -471,7 +471,7 @@ function CustomerDashboardInner() {
             </div>
             <div className="flex items-center gap-3">
               <Link href="/">
-                <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm hover:shadow-md">
+                <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm hover:shadow-md">
                   <Plus className="h-4 w-4" /> New RFQ
                 </button>
               </Link>
@@ -518,24 +518,24 @@ function CustomerDashboardInner() {
             <div className="lg:col-span-2">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <Activity className="h-5 w-5 text-[#0F2B54]" />
+                  <Activity className="h-5 w-5 text-primary" />
                   <h2 className="text-base font-bold text-slate-900">Active RFQs</h2>
                   <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
                     {rfqs.filter(r => ACTIVE_STATUSES.includes(r.rfq_status)).length} total
                   </span>
                 </div>
-                <Link href="/customer/active-rfqs" className="inline-flex items-center gap-1 text-xs text-[#0F2B54] hover:underline font-medium">
+                <Link href="/customer/active-rfqs" className="inline-flex items-center gap-1 text-xs text-primary hover:underline font-medium">
                   See all <ArrowRight className="h-3 w-3" />
                 </Link>
               </div>
 
               {activeRfqs.length === 0 ? (
                 <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
-                  <Activity className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+                  <Activity className="h-10 w-10 text-slate-500 mx-auto mb-3" />
                   <p className="text-slate-500 text-sm font-medium">No active RFQs at the moment</p>
-                  <p className="text-slate-400 text-xs mt-1">Submit a new RFQ to get started</p>
+                  <p className="text-slate-500 text-xs mt-1">Submit a new RFQ to get started</p>
                   <Link href="/">
-                    <button className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-[#0F2B54] text-white rounded-lg text-sm font-medium hover:bg-[#1a3a6b] transition-colors">
+                    <button className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
                       <Plus className="h-3.5 w-3.5" /> New RFQ
                     </button>
                   </Link>
@@ -547,7 +547,7 @@ function CustomerDashboardInner() {
                   ))}
                   {rfqs.filter(r => ACTIVE_STATUSES.includes(r.rfq_status)).length > 3 && (
                     <Link href="/customer/active-rfqs">
-                      <div className="flex items-center justify-center gap-2 py-3 border-2 border-dashed border-slate-200 rounded-xl text-sm text-slate-500 hover:border-[#0F2B54] hover:text-[#0F2B54] transition-colors cursor-pointer">
+                      <div className="flex items-center justify-center gap-2 py-3 border-2 border-dashed border-slate-200 rounded-xl text-sm text-slate-500 hover:border-primary hover:text-primary transition-colors cursor-pointer">
                         <ArrowRight className="h-4 w-4" />
                         View all active RFQs
                       </div>
@@ -570,7 +570,7 @@ export default function CustomerDashboard() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     }>
       <CustomerDashboardInner />

@@ -43,7 +43,7 @@ function TagInput({
         {required ? (
           <span className="text-red-500">*</span>
         ) : (
-          <span className="text-slate-400 text-xs">(optional)</span>
+          <span className="text-slate-500 text-xs">(optional)</span>
         )}
       </Label>
       <div className="flex gap-2">
@@ -266,7 +266,7 @@ export default function FullProfileEditPage(): React.ReactElement {
   if (authLoading || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+        <Loader2 className="h-8 w-8 animate-spin text-slate-500" />
       </div>
     );
   }
@@ -367,7 +367,7 @@ export default function FullProfileEditPage(): React.ReactElement {
               <div className="space-y-1">
                 <Label>
                   Projects Summary{' '}
-                  <span className="text-slate-400 text-xs">(optional — free text)</span>
+                  <span className="text-slate-500 text-xs">(optional — free text)</span>
                 </Label>
                 <Textarea
                   rows={4}
@@ -458,7 +458,7 @@ export default function FullProfileEditPage(): React.ReactElement {
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="name">
-                    Display Name <span className="text-slate-400 text-xs">(optional)</span>
+                    Display Name <span className="text-slate-500 text-xs">(optional)</span>
                   </Label>
                   <Input
                     id="name"
@@ -585,7 +585,7 @@ export default function FullProfileEditPage(): React.ReactElement {
             <CardContent className="space-y-4">
               <div className="space-y-1">
                 <Label htmlFor="team_summary">
-                  Team Summary <span className="text-slate-400 text-xs">(optional)</span>
+                  Team Summary <span className="text-slate-500 text-xs">(optional)</span>
                 </Label>
                 <Textarea
                   id="team_summary"

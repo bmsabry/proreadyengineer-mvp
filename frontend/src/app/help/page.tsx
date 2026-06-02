@@ -31,7 +31,7 @@ function renderMarkdown(md: string): string {
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
       .replace(/`([^`]+)`/g, '<code class="bg-slate-100 px-1 py-0.5 rounded text-xs">$1</code>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="text-[#0F2B54] underline" href="$2">$1</a>');
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="text-primary underline" href="$2">$1</a>');
 
   for (const raw of lines) {
     const line = raw;

@@ -53,15 +53,15 @@ function PricingCard({
   icon,
 }: PricingCardProps) {
   const borderClass = isFeatured
-    ? 'border-2 border-[#0F2B54] shadow-2xl'
+    ? 'border-2 border-primary shadow-2xl'
     : 'border border-slate-200 shadow-sm';
 
   const headerClass = isFeatured
-    ? 'bg-[#0F2B54] text-white'
+    ? 'bg-primary text-white'
     : 'bg-slate-50 text-slate-800';
 
   const ctaClass = isFeatured
-    ? 'bg-[#0F2B54] hover:bg-[#0a1f3e] text-white'
+    ? 'bg-primary hover:bg-primary/90 text-white'
     : 'bg-slate-800 hover:bg-slate-900 text-white';
 
   const CtaContent = (
@@ -121,11 +121,11 @@ function PricingCard({
               {f.included ? (
                 <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
               ) : (
-                <XCircle className="h-4 w-4 text-slate-300 shrink-0 mt-0.5" />
+                <XCircle className="h-4 w-4 text-slate-500 shrink-0 mt-0.5" />
               )}
               <span
                 className={`text-sm leading-snug ${
-                  f.included ? 'text-slate-700 font-medium' : 'text-slate-400'
+                  f.included ? 'text-slate-700 font-medium' : 'text-slate-500'
                 }`}
               >
                 {f.text}
@@ -153,7 +153,7 @@ function PricingCard({
         ) : null}
 
         {note && (
-          <p className="text-xs text-slate-400 text-center mt-3">{note}</p>
+          <p className="text-xs text-slate-500 text-center mt-3">{note}</p>
         )}
       </div>
     </div>
@@ -218,7 +218,7 @@ export default function ProviderUpgradePage() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -255,7 +255,7 @@ export default function ProviderUpgradePage() {
       {/* ── Page Header ── */}
       <div className="bg-white border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-6 py-10 text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#0F2B54]/10 text-[#0F2B54] text-xs font-semibold mb-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 text-primary text-xs font-semibold mb-4">
             <TrendingUp className="h-3.5 w-3.5" />
             Provider Growth Plans
           </div>
@@ -329,7 +329,7 @@ export default function ProviderUpgradePage() {
             ctaLabel="Unlock RFQs as Needed"
             ctaHref="/provider/all-rfqs"
             note="No commitment required"
-            icon={<ArrowRight className="h-5 w-5 text-slate-400" />}
+            icon={<ArrowRight className="h-5 w-5 text-slate-500" />}
           />
 
         </div>
@@ -337,7 +337,7 @@ export default function ProviderUpgradePage() {
 
       {/* ── Social Proof / Motivating Copy ── */}
       <div className="max-w-5xl mx-auto px-6 pb-12">
-        <div className="bg-[#0F2B54] rounded-2xl p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-primary rounded-2xl p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="flex items-start gap-4">
             <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center shrink-0">
               <TrendingUp className="h-5 w-5 text-white" />

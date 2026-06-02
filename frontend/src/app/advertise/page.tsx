@@ -61,7 +61,7 @@ export default function AdvertisePage() {
       </header>
 
       <main className="flex-1">
-        <section className="bg-gradient-to-br from-[#0F2B54] to-[#1a3d6e] text-white py-20 px-6">
+        <section className="bg-gradient-to-br from-primary to-[#1a3d6e] text-white py-20 px-6">
           <div className="max-w-4xl mx-auto text-center">
             <Badge className="bg-white/20 text-white mb-4 border-white/30">Advertising</Badge>
             <h1 className="text-4xl font-bold mb-4">Advertise on ProMechDirectory</h1>
@@ -100,7 +100,7 @@ export default function AdvertisePage() {
                     ))}
                   </ul>
                   <Link href="/register?role=provider&redirect=/provider/advertise?type=software-providers">
-                    <Button className="w-full mt-2 bg-[#0F2B54] hover:bg-[#0a1f3e]">Get Started</Button>
+                    <Button className="w-full mt-2 bg-primary hover:bg-primary/90">Get Started</Button>
                   </Link>
                 </CardContent>
               </Card>
@@ -126,7 +126,7 @@ export default function AdvertisePage() {
                     ))}
                   </ul>
                   <Link href="/register?role=provider&redirect=/provider/advertise?type=featured-firms">
-                    <Button className="w-full mt-2 bg-[#0F2B54] hover:bg-[#0a1f3e]">Get Started</Button>
+                    <Button className="w-full mt-2 bg-primary hover:bg-primary/90">Get Started</Button>
                   </Link>
                 </CardContent>
               </Card>

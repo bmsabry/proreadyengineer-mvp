@@ -69,7 +69,7 @@ export default function AcceptedRFQsPage() {
   if (authLoading || isLoading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -94,9 +94,9 @@ export default function AcceptedRFQsPage() {
       {/* Empty state */}
       {items.length === 0 && (
         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto">
-          <CheckCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+          <CheckCircle className="h-10 w-10 mx-auto mb-3 text-slate-500" />
           <p className="text-base font-medium text-slate-500">No accepted quotes yet</p>
-          <p className="text-sm text-slate-400 mt-1">When a customer selects your quote, engagement details will appear here.</p>
+          <p className="text-sm text-slate-500 mt-1">When a customer selects your quote, engagement details will appear here.</p>
         </div>
       )}
 
@@ -110,7 +110,7 @@ export default function AcceptedRFQsPage() {
               <div className="flex items-center gap-2 mb-4">
                 <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0" />
                 <span className="text-sm font-bold text-emerald-700">Quote Accepted</span>
-                <span className="ml-auto text-xs text-slate-400 shrink-0">
+                <span className="ml-auto text-xs text-slate-500 shrink-0">
                   {formatDate(q.updated_at ?? q.created_at)}
                 </span>
               </div>
@@ -139,7 +139,7 @@ export default function AcceptedRFQsPage() {
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Customer Contact</p>
                   {q.customer_contact_name && (
                     <div className="flex items-center gap-1.5">
-                      <User className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                      <User className="h-3.5 w-3.5 text-slate-500 shrink-0" />
                       <p className="text-sm font-medium text-slate-900">{q.customer_contact_name}</p>
                     </div>
                   )}
@@ -158,7 +158,7 @@ export default function AcceptedRFQsPage() {
                 </div>
               ) : (
                 <div className="border border-slate-200 rounded-lg p-3 mb-4 text-center">
-                  <p className="text-xs text-slate-400">Customer contact details will appear here once available.</p>
+                  <p className="text-xs text-slate-500">Customer contact details will appear here once available.</p>
                 </div>
               )}
 
@@ -191,7 +191,7 @@ export default function AcceptedRFQsPage() {
       {closedItems.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <XCircle className="h-4 w-4 text-slate-400" />
+            <XCircle className="h-4 w-4 text-slate-500" />
             <h2 className="text-sm font-semibold text-slate-500">Closed RFQs</h2>
             <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">{closedItems.length}</span>
           </div>
@@ -209,15 +209,15 @@ export default function AcceptedRFQsPage() {
                     ${Number(q.rough_price_min).toLocaleString()} &ndash; ${Number(q.rough_price_max ?? q.rough_price_min).toLocaleString()}
                   </span>
                 )}
-                <span className="text-xs text-slate-400 ml-auto">{formatDate(q.updated_at ?? q.created_at)}</span>
+                <span className="text-xs text-slate-500 ml-auto">{formatDate(q.updated_at ?? q.created_at)}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleUndoContacted(q.id); }}
                   disabled={contactingId === q.id}
-                  className="text-xs font-medium text-[#0F2B54] hover:underline disabled:opacity-60"
+                  className="text-xs font-medium text-primary hover:underline disabled:opacity-60"
                 >
                   {contactingId === q.id ? '…' : 'Undo'}
                 </button>
-                <ArrowRight className="h-3.5 w-3.5 text-slate-300" />
+                <ArrowRight className="h-3.5 w-3.5 text-slate-500" />
               </div>
             ))}
           </div>

@@ -292,7 +292,7 @@ function FoundingModal({ onClose, onApplied }: {
           <h3 className="font-bold text-slate-900 flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-blue-600" /> Founding Provider Application
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-5 w-5" /></button>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-600"><X className="h-5 w-5" /></button>
         </div>
 
         <div className="px-6 py-5">
@@ -322,7 +322,7 @@ function FoundingModal({ onClose, onApplied }: {
                         {results.map((r, i) => (
                           <li key={i} className="px-3 py-2 text-sm">
                             <span className="font-medium text-slate-800">{r.name}</span>
-                            {r.location && <span className="text-slate-400"> — {r.location}</span>}
+                            {r.location && <span className="text-slate-500"> — {r.location}</span>}
                           </li>
                         ))}
                       </ul>

@@ -202,7 +202,7 @@ function AdvertiseInner() {
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -350,7 +350,7 @@ function AdvertiseInner() {
           <div className="flex gap-3">
             <Link
               href="/provider/dashboard"
-              className="flex-1 text-center py-2.5 rounded-xl bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#0a1f3e] transition-colors"
+              className="flex-1 text-center py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors"
             >
               Go to Dashboard
             </Link>
@@ -477,9 +477,9 @@ function AdvertiseInner() {
           {/* ── PRIMARY: File upload ── */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-              <Upload className="inline h-3.5 w-3.5 mr-1 text-slate-400" />
+              <Upload className="inline h-3.5 w-3.5 mr-1 text-slate-500" />
               Upload Brochure or Flyer
-              <span className="font-normal text-slate-400 ml-1">(PDF, Word, or text file)</span>
+              <span className="font-normal text-slate-500 ml-1">(PDF, Word, or text file)</span>
             </label>
 
             {!uploadedFile ? (
@@ -487,9 +487,9 @@ function AdvertiseInner() {
                 htmlFor="doc-upload"
                 className="flex flex-col items-center justify-center gap-2 w-full rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 hover:border-violet-300 hover:bg-violet-50 px-6 py-8 cursor-pointer transition-all"
               >
-                <FileUp className="h-8 w-8 text-slate-300" />
+                <FileUp className="h-8 w-8 text-slate-500" />
                 <span className="text-sm font-medium text-slate-600">Click to upload</span>
-                <span className="text-xs text-slate-400">PDF · DOCX · TXT — up to 10 MB</span>
+                <span className="text-xs text-slate-500">PDF · DOCX · TXT — up to 10 MB</span>
                 <input
                   id="doc-upload"
                   ref={fileInputRef}
@@ -513,7 +513,7 @@ function AdvertiseInner() {
                 <button
                   type="button"
                   onClick={removeFile}
-                  className="p-1 rounded-lg hover:bg-violet-100 text-slate-400 hover:text-slate-600 transition-colors"
+                  className="p-1 rounded-lg hover:bg-violet-100 text-slate-500 hover:text-slate-600 transition-colors"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -531,15 +531,15 @@ function AdvertiseInner() {
           {/* ── Divider ── */}
           <div className="flex items-center gap-3">
             <div className="flex-1 h-px bg-slate-100" />
-            <span className="text-xs text-slate-400 font-medium">or provide content another way</span>
+            <span className="text-xs text-slate-500 font-medium">or provide content another way</span>
             <div className="flex-1 h-px bg-slate-100" />
           </div>
 
           {/* Website URL */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-              <Globe className="inline h-3.5 w-3.5 mr-1 text-slate-400" />
-              Website URL <span className="font-normal text-slate-400">(optional)</span>
+              <Globe className="inline h-3.5 w-3.5 mr-1 text-slate-500" />
+              Website URL <span className="font-normal text-slate-500">(optional)</span>
             </label>
             <input
               type="text"
@@ -548,13 +548,13 @@ function AdvertiseInner() {
               placeholder="www.your-company.com"
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
             />
-            <p className="text-xs text-slate-400 mt-1">Our AI will read all pages of your site to build your ad.</p>
+            <p className="text-xs text-slate-500 mt-1">Our AI will read all pages of your site to build your ad.</p>
           </div>
 
           {/* Description text — shown as editable area; populated by file upload or manual entry */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-              Description <span className="font-normal text-slate-400">(optional — edit or add to the text above)</span>
+              Description <span className="font-normal text-slate-500">(optional — edit or add to the text above)</span>
             </label>
             <textarea
               value={descriptionText}
@@ -568,7 +568,7 @@ function AdvertiseInner() {
           {/* Click-through URL */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-              Click-Through URL <span className="font-normal text-slate-400">(optional)</span>
+              Click-Through URL <span className="font-normal text-slate-500">(optional)</span>
             </label>
             <input
               type="text"
@@ -577,7 +577,7 @@ function AdvertiseInner() {
               placeholder="www.your-company.com/product (defaults to website URL)"
               className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-200 focus:border-violet-400"
             />
-            <p className="text-xs text-slate-400 mt-1">Where should ad clicks redirect? Defaults to your website URL.</p>
+            <p className="text-xs text-slate-500 mt-1">Where should ad clicks redirect? Defaults to your website URL.</p>
           </div>
 
           {/* Error */}
@@ -592,7 +592,7 @@ function AdvertiseInner() {
           <button
             type="submit"
             disabled={isSubmitting || isParsing}
-            className="w-full py-3 rounded-xl bg-[#0F2B54] text-white text-sm font-semibold hover:bg-[#0a1f3e] disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+            className="w-full py-3 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
             {isSubmitting ? (
               <>
@@ -612,7 +612,7 @@ function AdvertiseInner() {
             )}
           </button>
 
-          <p className="text-xs text-center text-slate-400">
+          <p className="text-xs text-center text-slate-500">
             Your ad will be reviewed by an admin before going live. $50/month subscription starts after approval.
           </p>
         </form>
@@ -625,7 +625,7 @@ export default function ProviderAdvertisePage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     }>
       <AdvertiseInner />

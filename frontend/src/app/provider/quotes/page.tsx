@@ -68,9 +68,9 @@ export default function MyQuotesPage() {
         </div>
         {filtered.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-10 text-center">
-            <FileText className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+            <FileText className="h-10 w-10 mx-auto mb-3 text-slate-500" />
             <p className="text-slate-500 mb-4">No quotes found. Browse RFQs to get started.</p>
-            <Link href="/provider/rfqs"><Button className="bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl">Browse RFQs</Button></Link>
+            <Link href="/provider/rfqs"><Button className="bg-primary hover:bg-primary/90 text-white rounded-xl">Browse RFQs</Button></Link>
           </div>
         ) : (
           <div className="space-y-4">
@@ -82,7 +82,7 @@ export default function MyQuotesPage() {
                       <p className="text-sm font-semibold text-slate-900">RFQ #{String(q.rfq_id).slice(0,8)}&hellip;</p>
                       <QStatusBadge status={q.quote_status} />
                     </div>
-                    <p className="text-xs text-slate-400">{q.submitted_at ? formatDate(q.submitted_at) : 'Draft'}</p>
+                    <p className="text-xs text-slate-500">{q.submitted_at ? formatDate(q.submitted_at) : 'Draft'}</p>
                   </div>
                   <Button size="sm" variant="ghost" onClick={() => router.push('/provider/rfq/' + q.rfq_id)} className="gap-1 text-slate-600 rounded-xl">View Project <ArrowRight className="h-3 w-3" /></Button>
                 </div>

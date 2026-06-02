@@ -61,7 +61,7 @@ export default function PaymentSelector({
         )}
       </button>
 
-      <p className="text-center text-xs text-gray-400">
+      <p className="text-center text-xs text-gray-600">
         Powered by Stripe &mdash; all major cards accepted
       </p>
     </div>
