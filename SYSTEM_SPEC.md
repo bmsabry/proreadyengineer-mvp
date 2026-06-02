@@ -229,6 +229,11 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
      advice and no safety-critical engineering sign-off.
    - **Cost accuracy:** uses real API `usage` tokens with a char-based (~4 chars/token) fallback
      in `_call_llm` so a turn is never undercounted to $0 if usage is omitted.
+   - **Answer-gap mining (2026-06-01):** admin **Assistant Gaps** (`GET /admin/help/gaps` → page
+     `/admin/assistant-gaps`) scans recent `help_chat_logs` and surfaces turns that look like gaps —
+     scope refusals, errored turns, thumbs-down, and "couldn't answer" replies — so the manual
+     (`docs/help/proreadyengineer_manual.md`, the assistant's RAG grounding) can be improved from real
+     misses. Read-only, admin-gated.
    - **Cross-session memory (2026-06-01):** `users.assistant_memory` (Text, migration
      `w9x0y1z2a3b4`) stores short notes the user asks the assistant to remember. The model
      emits a trailing `MEMORY: <note>` line (or `MEMORY: CLEAR`); `_extract_memory` strips it
@@ -343,6 +348,13 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
    signing remain human-clicked. 
 
    **Profile coaching + `update_profile_from_docs` (2026-06-01):** the assistant now coaches PROVIDERS to build a strong matching profile (capabilities, specialties, software/tools, equipment, certifications, and especially **Notable Projects** — one sentence each: service + method + outcome) WITHOUT disclosing the matching mechanism (prompt: never mention scores/weights/embeddings; frame as "more complete = more relevant RFQs for you"). It proactively offers document upload; on `update_profile_from_docs` (a SAFE / confirm-then-execute action in `help_actions`) it LLM-extracts profile fields from the staged brochure/capability-statement and **additively merges** them into the provider's profile (`_merge_profile_fields`: union list fields, fill scalars only if empty, never remove), then re-embeds via `generate_provider_embedding_async`. Ownership + the full-profile-edit gate (`_provider_can_edit_profile`: paid or annual/founding) are enforced; file keys come only from staged uploads; audit-logged. Manual §6.2 documents it; payments/NDA signing stay forbidden (§19 inv 16/17). (2026-06-01: added a CONVERSATIONAL variant `update_profile_from_chat` — the LLM emits a `PROFILE_DATA: {json}` companion line of ONLY the fields the provider stated; `_extract_action` parses it onto `action.profile_updates`, the widget forwards it on confirm, and the shared `_apply_profile_updates` helper validates to known fields and merges. So a provider can just TELL the assistant what to add. Same SAFE/confirm + ownership + edit-gate + audit; payments/NDA still forbidden.) See §19 invariant 17.
+   (2026-06-01: re-embedding is resilient — `generate_provider_embedding_async` retries the embedding
+   call up to 3× with backoff on transient failures (config/no-key errors fail fast), is non-fatal
+   (a save never 500s), and a prolonged outage is recovered by the admin backstop
+   `POST /admin/providers/reembed-missing`, which re-embeds providers whose vector is still NULL. The
+   re-embed trigger set `EMBEDDING_FIELDS` exactly matches `_provider_embed_text`: firm/name,
+   primary_specialty, business_description, capabilities, specialties, software_tools, notable_projects —
+   so editing equipment/certifications/notable_clients/team_summary correctly does NOT re-embed.)
 
    **Phase 5 quality flywheel (2026-05-30):**
    - **Feedback loop:** each assistant turn returns its `log_id`; the widget shows 👍/👎 which
@@ -386,7 +398,10 @@ settings field), so in practice they must be set in Admin → Settings, not env.
     `/api/v1/internal/cron/dispatch-rfq-batches`.
   - **Backup:** an in-process asyncio loop in `app/main.py` calls the same dispatch
     function (~every 5 min). Both honour the interval floor.
-  - The internal cron endpoint is **unauthenticated by design** (CRON_SECRET was removed).
+  - The internal cron endpoint is **authenticated** by `verify_cron_or_admin` (PRE-004, 2026-06-01):
+    it accepts EITHER a valid `X-Cron-Secret` header (the Render cron service sends `CRON_SECRET`)
+    OR an authenticated admin. **Fail-safe rollout** — enforcement activates only once `CRON_SECRET`
+    is set on BOTH the API and cron services; until then it stays open so the cron never silently 401s.
   - **Celery exists in the code but no worker/beat runs in `render.yaml`** — the entire
     Celery layer is dormant in production. Emails and dispatch run inline / via cron. See §20.
 
@@ -467,8 +482,10 @@ This is the flow most often re-explained. Do not redesign it without the owner's
   (provider = signer "1", customer = signer "2"). **Do NOT set document-level
   `embedded_signing`** — it suppresses ALL SignWell invitation emails (that was the bug
   that left the customer un-notified).
-- **Webhook:** `/api/v1/webhooks/signrequest` (name kept for historical registration —
-  do not rename). It records each signer and downloads the signed PDF to S3 on completion.
+- **Webhook:** `/api/v1/webhooks/signwell` (the real live route, in `payments.py`). The older
+  `/signrequest` path does NOT exist (404) — corrected 2026-06-01. It records each signer and
+  downloads the signed PDF to S3 on completion. Before unlocking on a `fully_signed` event it also
+  runs a server-to-server completion confirmation (`_signwell_document_is_completed`, PRE-005).
 
 **Notifications are part of the NDA workflow, not optional.** At every step the waiting
 party MUST be told there is an action for them, through BOTH channels:
@@ -530,7 +547,9 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   - PayPal → `/api/v1/payments/webhooks/paypal`: signature-verified against PayPal's
     verify-webhook-signature API, **fail-closed in production**. PayPal is not configured,
     so this path is effectively unused.
-  - SignWell → `/api/v1/webhooks/signrequest` (see §9). **Not** signature-verified (§20).
+  - SignWell → `/api/v1/webhooks/signwell` (see §9). **Not** signature-verified, but a
+    server-to-server completion confirmation (`_signwell_document_is_completed`, PRE-005) gates
+    the unlock; defensive polling also compensates (§9/§20).
   - Resend → `/api/v1/payments/webhooks/resend`: records bounces/complaints/failures.
 - **Fulfillment map** (`fulfill_payment_purpose` routes by `PaymentPurpose`):
   - `rfq_unlock` → `rfq_service.complete_rfq_unlock` (writes unlocked `RFQUnlock`).
@@ -538,6 +557,19 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
     change `rfq_status`** (must not strand the RFQ — §19).
   - `search_subscription`, `provider_annual_subscription`, `advertisement_subscription`,
     `full_profile_edit_unlock` → create/renew the relevant `Subscription` / flag.
+- **Self-serve transactions & refunds (2026-05-31):**
+  - `GET /billing/my-transactions` — the signed-in user's payment history (unlocks, NDA fees,
+    subscriptions, ads), powering the customer + provider **Transactions** pages
+    (`/customer/transactions`, `/provider/transactions`) with per-type actions (refund request /
+    cancel / contact support).
+  - `POST /billing/cancel-subscription` — cancels at period end AND auto-refunds when still inside the
+    refund window (**5 days monthly / 14 days annual or one-time**, from purchase), then immediately
+    downgrades access. Outside the window: cancel at period end, no refund.
+  - `charge.refunded` / `charge.refund.updated` Stripe webhooks → `_handle_charge_refunded` record
+    full or partial refunds so the admin Payments view reflects them.
+  - Admin: `GET /admin/payments/transactions` (Production default — §16) lists all payments;
+    `POST /admin/payments/{payment_id}/refund` issues a manual Stripe refund.
+  - Checkout requires an explicit **refund-policy consent** checkbox (policy lives on `/terms`).
 
 ---
 
@@ -575,6 +607,21 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
   endpoint's campaign-invite branch (the campaign token is a RANDOM string, not the JWT
   invite the RFQ-dispatch flow uses, so it is matched separately). Idempotent; consumes one
   founding slot; marks the invite `REGISTERED`.
+- **Self-serve founding-provider APPLICATION (2026-06-01) — distinct from the campaign-invite promo
+  above.** The public **About** page (`/about`) hosts an "apply for a free founding provider account"
+  flow backed by `app/api/endpoints/founding.py`:
+  - `GET /founding/status` — how many of the limited **50** invitations remain
+    (`FOUNDING_INVITE_LIMIT=50`; sent count in `system_config` `FOUNDING_INVITE_SENT`); when exhausted
+    the flow reports **closed**.
+  - `GET /founding/search` — public provider-name search so the applicant can see whether their firm
+    is already listed (claim) vs new.
+  - `POST /founding/apply` — validated multipart application. REQUIRES name, business name, a real
+    website URL, and at least one business document; guards types (sites are sites, names are names).
+    On success it emails **info@promechdirectory.com**, subject **"Give free provider account"**
+    (attachments included; notes if the firm already exists), decrements the counter, and closes at 0.
+  - Admin adjusts the remaining count in **Settings**. This grants nothing automatically — staff create
+    the account manually from the email; the campaign-invite promo (above) is what grants the actual
+    time-boxed `provider_annual`.
 - **Subscription expiry enforcement (2026-05-31) — CRITICAL, see §19 invariant.** Access
   gates check ONLY `subscription_status=='active'`; nothing else ends a subscription when
   its paid period lapses. The daily Celery beat task `maintenance.expire_subscriptions`
@@ -658,19 +705,19 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
 **Routes by area** (`frontend/src/app`):
 - Public/marketing: `/`, `/search`, `/for-customers`, `/for-providers`, `/advertise`,
   `/featured-firms`, `/software-providers`, `/providers/[id]`, `/contact`, `/help`,
-  `/privacy`, `/terms`.
+  `/privacy`, `/terms`, `/about` (About Us + self-serve founding-provider application — §12).
 - Auth: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`,
   `/check-email`.
 - Customer portal (`/customer/*`): `dashboard`, `rfq/new`, `rfq/[id]`,
   `rfq/[id]/tracking`, `quotes`, `active-rfqs`, `quoted-rfqs`, `accepted-rfqs`,
-  `all-rfqs`, `cancelled-rfqs`, `profile`.
+  `all-rfqs`, `cancelled-rfqs`, `profile`, `transactions` (payment history + refund/cancel — §11).
 - Provider portal (`/provider/*`): `dashboard`, `rfq/[id]` (the unlock→sign→view→quote
   flow), `rfqs`, list pages, `nda/[id]/sign`, `profile`, `profile/full-edit`, `upgrade`,
-  `claim`, `add-firm`, `advertise`.
+  `claim`, `add-firm`, `advertise`, `transactions` (payment history + refund/cancel — §11).
 - Shared: `/nda/[id]/sign` (customer NDA pay/sign), `/rfqs/[id]/unlock`.
 - Admin (`/admin/*`): `dashboard`, `rfqs`(+`[id]`), `claims`, `providers`, `payments`, `operating-cost`,
   `webhooks`, `campaigns`, `support`(+`[id]`), `ads`, `users`, `data-extraction`,
-  `debugging`, `settings`, `operating-cost`, `bandwidth`.
+  `debugging`, `settings`, `bandwidth`, `assistant-gaps` (answer-gap mining — §6).
   The **Debugging** page also hosts an **Email Authentication** panel
   (`GET /admin/debug/email-auth`): a live SPF/DKIM/DMARC posture check over DNS-over-HTTPS
   (`app/services/email_auth.py`, pure evaluators unit-tested in `tests/unit/test_email_auth.py`),
@@ -685,6 +732,10 @@ interceptor. Some pages bypass the interceptor with raw `fetch` (they do not get
 refresh-retry) — see §20.
 
 **UI/UX conventions (follow these — the owner enforces them):**
+- **Contact Support** is the FIRST item in the persistent nav bar for BOTH customer and provider
+  portals (a shared `ContactSupport` component with a `variant` prop), placed before "Main Page".
+  Its modal is centered on the viewport via `createPortal` to `document.body` (an ancestor
+  `backdrop-filter` otherwise becomes the containing block and anchors `position:fixed` to the header).
 - The **Activity Summary** panel (customer `AnalyticsPanel` on the dashboard, and the
   provider analytics panel) is THE place where stats and **action-required notifications**
   appear. New notifications for a persona go here, not as separate top-of-page banners.
@@ -929,8 +980,13 @@ live behaviour match the stale value** — the live behaviour is correct.
   signer order** (opposite of `add_provider_to_nda`). If that path is exercised, it may hit
   the same "thanks for filling out" issue that was fixed in the provider-first path.
 - **SignWell webhook is not signature-verified** (`SIGNWELL_WEBHOOK_SECRET` exists but is
-  unused in the handler). Defensive polling (`_sync_nda_signatures`) compensates.
-- **Internal cron endpoint is unauthenticated** (CRON_SECRET removed by design).
+  unused in the handler). Mitigated by (a) a server-to-server completion confirmation before unlock
+  (`_signwell_document_is_completed`, PRE-005, 2026-06-01) and (b) defensive polling
+  (`_sync_nda_signatures`).
+- **Internal cron endpoint auth — FIXED 2026-06-01 (PRE-004):** guarded by `verify_cron_or_admin`
+  (`X-Cron-Secret` header OR admin). Fail-safe: stays open until `CRON_SECRET` is configured on BOTH
+  the API and cron services. NOTE: stale in-code comments in `internal.py` still say "auth removed" —
+  ignore them; the `verify_cron_or_admin` dependency IS applied.
 - **Frontend:** two near-duplicate API modules (`providerRFQ` vs `providerRfqAccess`);
   several pages use raw `fetch` and bypass the 401→refresh interceptor; auth tokens are in
   `localStorage` (httpOnly-cookie migration is tracked backlog).
@@ -999,6 +1055,21 @@ A 7-pass pre-launch security review was completed before going live (2026-05-31)
 
 ### 22.3 Operational hardening backlog
 - Cookie-only auth (drop localStorage token); parameterize raw-SQL search; remove API-key-prefix log lines; rate-limit search endpoints; Sentry alerting + written incident runbook; tighten DMARC `p=none` → `quarantine` after reviewing reports; verify AWS S3 **Block Public Access = ON**; run `pip-audit` + `npm audit` at each release.
+
+### 22.4 Second security audit — PRE-001…013 (2026-06-01)
+A follow-up 13-finding review ("Codex") was triaged and fully remediated **without changing functionality**. Preserve these:
+- **PRE-001/002 — role assignment:** self-serve registration is whitelisted to `{customer, provider}` (`_ALLOWED_SELF_ROLES` in `auth_service`); a provider self-claim only sets `linked_provider_id` (no auto-verify / membership grant).
+- **PRE-008 — JWT type:** `get_current_user` requires `payload["type"] == "access"` (a refresh token can't authenticate API calls).
+- **PRE-011 — lockout enforced:** `get_current_active_user` honours `locked_until`.
+- **PRE-010 — CORS:** `allow_origin_regex` pinned to the prod + staging web origins.
+- **PRE-012 — debug endpoints** (`/search/test-db`, `/search/debug`, `/search/test-quota`, `/ads/_status_summary`) are admin-gated.
+- **PRE-003 — stored XSS:** admin support-ticket HTML is `DOMPurify.sanitize`d before `dangerouslySetInnerHTML` (`isomorphic-dompurify`).
+- **PRE-007 — upload binding:** S3 upload-complete handlers require the key to start with the caller's own prefix (`search-uploads/`, `rfqs/{rfq_id}/files/`).
+- **PRE-006 — SSRF:** provider/ad website crawls pass through `app/core/url_guard.py:assert_public_http_url` (blocks loopback/private/link-local/multicast/reserved + metadata `169.254.169.254`; http(s) only) and use `verify=True`.
+- **PRE-005 — SignWell:** before unlocking on a `fully_signed` webhook, `_signwell_document_is_completed` (isolated `AsyncSessionLocal` session) confirms the doc is actually complete; returns False only when SignWell explicitly reports not-complete (§9/§11/§20).
+- **PRE-004 — cron secret:** `verify_cron_or_admin` (§7/§20).
+- **PRE-009 — removed** the expired-invite fallback in registration.
+- **PRE-013 — dependency hygiene:** dev-only tools split into `requirements-dev.txt`; CI installs it and runs a non-blocking `pip-audit`.
 
 > The consolidated review + cutover runbook was produced as `GoLive_Security_Report_and_Runbook.md` (operator's working folder), not committed to the repo.
 
