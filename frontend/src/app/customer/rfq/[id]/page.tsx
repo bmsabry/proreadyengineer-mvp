@@ -186,7 +186,7 @@ export default function RFQDetailPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {(acceptedProvider as any).email && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Mail className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <Mail className="h-4 w-4 text-gray-600 flex-shrink-0" />
                   <a href={`mailto:${(acceptedProvider as any).email}`} className="text-blue-600 hover:underline break-all">
                     {(acceptedProvider as any).email}
                   </a>
@@ -194,7 +194,7 @@ export default function RFQDetailPage() {
               )}
               {(acceptedProvider as any).phone && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Phone className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <Phone className="h-4 w-4 text-gray-600 flex-shrink-0" />
                   <a href={`tel:${(acceptedProvider as any).phone}`} className="text-blue-600 hover:underline">
                     {(acceptedProvider as any).phone}
                   </a>
@@ -202,7 +202,7 @@ export default function RFQDetailPage() {
               )}
               {(acceptedProvider as any).website && (
                 <div className="flex items-center gap-2 text-sm">
-                  <Globe className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <Globe className="h-4 w-4 text-gray-600 flex-shrink-0" />
                   <a href={(acceptedProvider as any).website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
                     {(acceptedProvider as any).website}
                   </a>
@@ -210,7 +210,7 @@ export default function RFQDetailPage() {
               )}
               {((acceptedProvider as any).city || (acceptedProvider as any).state) && (
                 <div className="flex items-center gap-2 text-sm">
-                  <MapPin className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                  <MapPin className="h-4 w-4 text-gray-600 flex-shrink-0" />
                   <span className="text-gray-700">
                     {[(acceptedProvider as any).city, (acceptedProvider as any).state].filter(Boolean).join(', ')}
                   </span>
@@ -235,7 +235,7 @@ export default function RFQDetailPage() {
                   {downloadingQuoteId === acceptedQuote.id ? 'Preparing...' : 'Download Provider Official Quote'}
                 </Button>
                 {acceptedQuote.document_filename && (
-                  <p className="text-xs text-gray-400 mt-1">{acceptedQuote.document_filename}</p>
+                  <p className="text-xs text-gray-600 mt-1">{acceptedQuote.document_filename}</p>
                 )}
               </div>
             )}
@@ -380,7 +380,7 @@ export default function RFQDetailPage() {
                           {downloadingQuoteId === quote.id ? 'Preparing download...' : 'Download Provider Official Quote'}
                         </button>
                         {quote.document_filename && (
-                          <p className="text-xs text-gray-400 mt-0.5 ml-6">{quote.document_filename}</p>
+                          <p className="text-xs text-gray-600 mt-0.5 ml-6">{quote.document_filename}</p>
                         )}
                       </div>
                     )}
@@ -419,7 +419,7 @@ export default function RFQDetailPage() {
                 <ul className="space-y-2">
                   {(rfq as any).files.map((file: any) => (
                     <li key={file.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded border">
-                      <FileText className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                      <FileText className="h-4 w-4 text-gray-600 flex-shrink-0" />
                       <span className="text-sm flex-1 truncate">{file.original_filename}</span>
                       {file.download_url && (
                         <a

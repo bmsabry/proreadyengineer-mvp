@@ -92,11 +92,11 @@ export default function AllRFQsPage() {
 
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto">
-          <Archive className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+          <Archive className="h-10 w-10 mx-auto mb-3 text-slate-500" />
           <p className="text-base font-medium text-slate-500">
             {filter === 'all' ? 'No RFQs received yet' : `No ${filter} RFQs`}
           </p>
-          <p className="text-sm text-slate-400 mt-1">RFQ invitations dispatched to your firm will appear here.</p>
+          <p className="text-sm text-slate-500 mt-1">RFQ invitations dispatched to your firm will appear here.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -117,7 +117,7 @@ export default function AllRFQsPage() {
               )}
 
               {(t as any).created_at && (
-                <p className="text-xs text-slate-400 mb-3">Received {formatDate((t as any).created_at)}</p>
+                <p className="text-xs text-slate-500 mb-3">Received {formatDate((t as any).created_at)}</p>
               )}
 
               {t.status === 'unlocked' || t.status === 'quoted' ? (
@@ -129,7 +129,7 @@ export default function AllRFQsPage() {
               ) : (
                 <Button size="sm"
                   onClick={() => router.push(`/provider/rfq/${t.rfq_id}`)}
-                  className="w-full text-xs bg-[#1e3a5f] hover:bg-[#2a4d7a] text-white flex items-center justify-center gap-1 mt-auto">
+                  className="w-full text-xs bg-primary hover:bg-primary/90 text-white flex items-center justify-center gap-1 mt-auto">
                   <Lock size={12} /> Unlock & View
                 </Button>
               )}

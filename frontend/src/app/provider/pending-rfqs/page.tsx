@@ -18,12 +18,12 @@ function WithdrawDialog({ quoteId, onConfirm, onCancel, busy }: {
       <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-slate-900">Withdraw Quote?</h3>
-          <button onClick={onCancel} disabled={busy} className="text-slate-400 hover:text-slate-600"><X size={20} /></button>
+          <button onClick={onCancel} disabled={busy} className="text-slate-500 hover:text-slate-600"><X size={20} /></button>
         </div>
         <p className="text-sm text-slate-600 mb-2">
           Are you sure? This will retract your quote only. The RFQ will remain open for other providers.
         </p>
-        <p className="text-xs text-slate-400 mb-6">Quote ID: <span className="font-mono">{quoteId.slice(0,8)}&hellip;</span></p>
+        <p className="text-xs text-slate-500 mb-6">Quote ID: <span className="font-mono">{quoteId.slice(0,8)}&hellip;</span></p>
         <div className="flex gap-3">
           <Button variant="outline" size="sm" onClick={onCancel} disabled={busy} className="flex-1">Cancel</Button>
           <Button size="sm" onClick={onConfirm} disabled={busy}
@@ -120,9 +120,9 @@ export default function PendingRFQsPage() {
 
         {items.length === 0 ? (
           <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto">
-            <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+            <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-500" />
             <p className="text-base font-medium text-slate-500">No pending quotes</p>
-            <p className="text-sm text-slate-400 mt-1">Submitted quotes awaiting a customer decision will appear here.</p>
+            <p className="text-sm text-slate-500 mt-1">Submitted quotes awaiting a customer decision will appear here.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -132,7 +132,7 @@ export default function PendingRFQsPage() {
                   <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${statusColor(q.quote_status)}`}>
                     {q.quote_status.replace(/_/g, ' ')}
                   </span>
-                  <span className="ml-auto text-xs text-slate-400">{formatDate(q.submitted_at ?? q.created_at)}</span>
+                  <span className="ml-auto text-xs text-slate-500">{formatDate(q.submitted_at ?? q.created_at)}</span>
                 </div>
 
                 <p className="text-xs text-slate-500 mb-2">

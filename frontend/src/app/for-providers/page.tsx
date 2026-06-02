@@ -17,7 +17,7 @@ export default function ForProvidersPage() {
           <div className="bg-white rounded-lg p-6 shadow-sm border">
             <div className="text-3xl mb-4">📌</div>
             <h3 className="text-lg font-semibold mb-2">Claim Your Profile</h3>
-            <p className="text-gray-600 text-sm">Search for your firm in our pre-seeded directory of 6,000+ engineering providers and claim ownership of your listing.</p>
+            <p className="text-gray-600 text-sm">Search for your firm in our pre-seeded directory of 5,000+ engineering providers and claim ownership of your listing.</p>
           </div>
           <div className="bg-white rounded-lg p-6 shadow-sm border">
             <div className="text-3xl mb-4">📬</div>

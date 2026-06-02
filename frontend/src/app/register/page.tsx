@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
-const ic = 'mt-1.5 block w-full border border-slate-200 rounded-lg bg-white py-0 px-4 h-11 text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all duration-150 text-sm';
+const ic = 'mt-1.5 block w-full border border-slate-200 rounded-lg bg-white py-0 px-4 h-11 text-slate-900 placeholder:text-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all duration-150 text-sm';
 const icLocked = ic + ' bg-slate-100 cursor-not-allowed text-slate-500';
 const lc = 'block text-sm font-medium text-slate-700';
 
@@ -302,12 +302,12 @@ function RegisterPageContent() {
         {/* Brand header */}
         <div className="mb-8 text-center">
           <Link href="/" className="inline-flex items-center gap-2.5 mb-3 group">
-            <div className="w-10 h-10 rounded-xl bg-[#0F2B54] flex items-center justify-center shadow-md group-hover:shadow-lg transition-all duration-150">
+            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-md group-hover:shadow-lg transition-all duration-150">
               <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
               </svg>
             </div>
-            <span className="font-bold text-xl text-[#0F2B54] tracking-tight">ProMechDirectory</span>
+            <span className="font-bold text-xl text-primary tracking-tight">ProMechDirectory</span>
           </Link>
           <p className="text-sm text-slate-500 font-medium">Engineering Services Marketplace</p>
         </div>
@@ -335,7 +335,7 @@ function RegisterPageContent() {
                 type="button"
                 onClick={handleProviderSearch}
                 disabled={searchLoading || searchQuery.trim().length < 2}
-                className="h-11 px-5 rounded-lg bg-[#0F2B54] text-white text-sm font-semibold hover:bg-[#1a3a6b] disabled:opacity-50 transition-all"
+                className="h-11 px-5 rounded-lg bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 transition-all"
               >
                 {searchLoading ? 'Searching...' : 'Search'}
               </button>
@@ -379,7 +379,7 @@ function RegisterPageContent() {
             <button
               type="button"
               onClick={() => setFd(p => ({ ...p, role: 'customer' }))}
-              className="text-sm text-slate-400 hover:text-slate-600 transition-colors"
+              className="text-sm text-slate-500 hover:text-slate-600 transition-colors"
             >
               Go back to role selection
             </button>
@@ -398,12 +398,12 @@ function RegisterPageContent() {
       {/* Brand header */}
       <div className="mb-8 text-center">
         <Link href="/" className="inline-flex items-center gap-2.5 mb-3 group">
-          <div className="w-10 h-10 rounded-xl bg-[#0F2B54] flex items-center justify-center shadow-md group-hover:shadow-lg transition-all duration-150">
+          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-md group-hover:shadow-lg transition-all duration-150">
             <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
           </div>
-          <span className="font-bold text-xl text-[#0F2B54] tracking-tight">ProMechDirectory</span>
+          <span className="font-bold text-xl text-primary tracking-tight">ProMechDirectory</span>
         </Link>
         <p className="text-sm text-slate-500 font-medium">Engineering Services Marketplace</p>
       </div>
@@ -541,7 +541,7 @@ function RegisterPageContent() {
                 />
               </div>
               <div className="space-y-1.5">
-                <label className={lc}>Phone <span className="text-slate-400 font-normal text-xs">(optional)</span></label>
+                <label className={lc}>Phone <span className="text-slate-500 font-normal text-xs">(optional)</span></label>
                 <input
                   type="tel"
                   name="phone"
@@ -626,7 +626,7 @@ function RegisterPageContent() {
             <button
               type="submit"
               disabled={loading || emailMismatch}
-              className="w-full flex justify-center items-center gap-2 h-11 px-4 rounded-xl bg-[#0F2B54] hover:bg-[#1a3a6b] text-white text-sm font-semibold transition-all duration-150 shadow-sm hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full flex justify-center items-center gap-2 h-11 px-4 rounded-xl bg-primary hover:bg-primary/90 text-white text-sm font-semibold transition-all duration-150 shadow-sm hover:shadow-md disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <>
@@ -645,7 +645,7 @@ function RegisterPageContent() {
         </form>
 
         <div className="border-t border-slate-100 px-8 py-4">
-          <p className="text-center text-xs text-slate-400">
+          <p className="text-center text-xs text-slate-500">
             By registering you agree to our{' '}
             <Link href="/terms" className="text-blue-600 hover:text-blue-700 transition-colors duration-150">Terms of Service</Link>
             {' '}and{' '}
@@ -654,7 +654,7 @@ function RegisterPageContent() {
         </div>
       </div>
 
-      <p className="mt-8 text-xs text-slate-400 text-center">Trusted by engineering firms across North America</p>
+      <p className="mt-8 text-xs text-slate-500 text-center">Trusted by engineering firms across North America</p>
     </div>
   );
 }
@@ -664,7 +664,7 @@ export default function RegisterPage() {
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#0F2B54] flex items-center justify-center animate-pulse"></div>
+          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center animate-pulse"></div>
           <div className="animate-spin rounded-full h-5 w-5 border-2 border-slate-200 border-t-[#0F2B54]"></div>
         </div>
       </div>

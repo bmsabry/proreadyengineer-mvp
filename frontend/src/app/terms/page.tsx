@@ -72,7 +72,7 @@ export default function TermsPage() {
               with qualified engineering service providers. Services include:
             </p>
             <ul className="list-disc list-inside space-y-1.5 ml-4">
-              <li>AI-powered search and provider matching across 6,000+ firms</li>
+              <li>AI-powered search and provider matching across 5,000+ firms</li>
               <li>Request for Quotation (RFQ) submission and management</li>
               <li>Provider directory with detailed capability profiles</li>
               <li>Secure document handling including NDA management</li>

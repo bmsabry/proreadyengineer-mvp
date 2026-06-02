@@ -54,7 +54,7 @@ export default function OperatingCostPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <Wallet className="h-5 w-5 text-[#0F2B54]" />
+            <Wallet className="h-5 w-5 text-primary" />
             <h1 className="text-xl font-bold text-slate-900">Operating Cost</h1>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -73,7 +73,7 @@ export default function OperatingCostPage() {
       )}
 
       {loading && !data ? (
-        <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-[#0F2B54]" /></div>
+        <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
       ) : data ? (
         <>
           {/* KPI cards */}

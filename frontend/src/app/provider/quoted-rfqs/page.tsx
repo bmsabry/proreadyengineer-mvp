@@ -63,9 +63,9 @@ export default function QuotedRFQsPage() {
 
       {items.length === 0 ? (
         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto">
-          <MessageSquare className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+          <MessageSquare className="h-10 w-10 mx-auto mb-3 text-slate-500" />
           <p className="text-base font-medium text-slate-500">No closed quotes yet</p>
-          <p className="text-sm text-slate-400 mt-1">Quotes on closed RFQs where you were not selected will appear here.</p>
+          <p className="text-sm text-slate-500 mt-1">Quotes on closed RFQs where you were not selected will appear here.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -75,7 +75,7 @@ export default function QuotedRFQsPage() {
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${statusColor(q.quote_status)}`}>
                   {q.quote_status.replace(/_/g, ' ')}
                 </span>
-                <span className="ml-auto text-xs text-slate-400">
+                <span className="ml-auto text-xs text-slate-500">
                   {formatDate(q.updated_at ?? q.created_at)}
                 </span>
               </div>
@@ -86,7 +86,7 @@ export default function QuotedRFQsPage() {
 
               {q.rough_price_min != null && q.rough_price_max != null && (
                 <div className="bg-slate-50 rounded-lg px-3 py-2 mb-2">
-                  <p className="text-xs text-slate-400 mb-0.5">Your Quote</p>
+                  <p className="text-xs text-slate-500 mb-0.5">Your Quote</p>
                   <p className="text-sm font-semibold text-slate-700">
                     ${Number(q.rough_price_min).toLocaleString()} &ndash; ${Number(q.rough_price_max).toLocaleString()}
                     {q.currency ? ` ${q.currency}` : ''}
@@ -95,7 +95,7 @@ export default function QuotedRFQsPage() {
               )}
 
               {q.submitted_at && (
-                <p className="text-xs text-slate-400 mb-3">Submitted {formatDate(q.submitted_at)}</p>
+                <p className="text-xs text-slate-500 mb-3">Submitted {formatDate(q.submitted_at)}</p>
               )}
 
               <Button size="sm" variant="outline"

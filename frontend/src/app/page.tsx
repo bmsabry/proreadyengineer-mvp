@@ -21,7 +21,7 @@ function Footer() {
       <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col sm:flex-row justify-between items-center gap-4">
         <div>
           <p className="text-sm font-semibold text-slate-800">ProMechDirectory</p>
-          <p className="text-xs text-slate-400 mt-0.5">&copy; {new Date().getFullYear()} All rights reserved.</p>
+          <p className="text-xs text-slate-500 mt-0.5">&copy; {new Date().getFullYear()} All rights reserved.</p>
         </div>
         <div className="flex flex-wrap gap-6 items-center">
           {needsConfig && (
@@ -87,7 +87,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 shadow-sm">
         <div className="max-w-7xl mx-auto px-6 flex h-16 items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#0F2B54] flex items-center justify-center flex-shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center flex-shrink-0">
               <Building2 className="h-4 w-4 text-white" />
             </div>
             <span className="font-bold text-lg text-slate-900 tracking-tight">ProMechDirectory</span>
@@ -115,7 +115,7 @@ export default function LandingPage() {
                   </Button>
                 </Link>
                 <Link href="/register">
-                  <Button size="sm" className="bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-lg px-5 ml-1 transition-colors duration-150">
+                  <Button size="sm" className="bg-primary hover:bg-primary/90 text-white rounded-lg px-5 ml-1 transition-colors duration-150">
                     Get Started
                   </Button>
                 </Link>
@@ -132,11 +132,11 @@ export default function LandingPage() {
             <div className="max-w-3xl mx-auto text-center">
               <div className="inline-flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-full px-4 py-1.5 mb-8">
                 <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                <span className="text-xs font-semibold text-blue-700 tracking-wide uppercase">6,000+ Verified Engineering Firms</span>
+                <span className="text-xs font-semibold text-blue-700 tracking-wide uppercase">5,000+ Verified Engineering Firms</span>
               </div>
               <h1 className="text-5xl sm:text-6xl font-bold text-slate-900 leading-tight mb-6" style={{ letterSpacing: '-0.02em' }}>
                 Find the Right{' '}
-                <span className="text-[#0F2B54]">Engineering Partner</span>
+                <span className="text-primary">Engineering Partner</span>
               </h1>
               <p className="text-lg text-slate-500 mb-10 max-w-2xl mx-auto leading-relaxed">
                 Connect with verified engineering service providers. Submit RFQs, compare quotes,
@@ -144,7 +144,7 @@ export default function LandingPage() {
               </p>
               <form onSubmit={handleSearch} className="flex gap-3 max-w-2xl mx-auto">
                 <div className="relative flex-1">
-                  <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500 pointer-events-none" />
                   <Input
                     type="text"
                     placeholder="Describe your engineering project or challenge..."
@@ -153,12 +153,12 @@ export default function LandingPage() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
                 </div>
-                <Button type="submit" className="h-14 px-8 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold shadow-sm transition-colors duration-150 flex-shrink-0">
+                <Button type="submit" className="h-14 px-8 bg-primary hover:bg-primary/90 text-white rounded-xl font-semibold shadow-sm transition-colors duration-150 flex-shrink-0">
                   Search
                 </Button>
                 <span className="flex items-center pl-1"><HelpTip id="search.query" size={18} /></span>
               </form>
-              <p className="mt-4 text-sm text-slate-400">
+              <p className="mt-4 text-sm text-slate-500">
                 Or{' '}
                 <Link href="/search/upload" className="text-blue-600 hover:text-blue-700 font-medium hover:underline transition-colors duration-150">
                   upload a project document

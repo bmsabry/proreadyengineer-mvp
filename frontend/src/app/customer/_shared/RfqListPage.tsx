@@ -116,7 +116,7 @@ export function RfqCard({ rfq, showCancel = false, onCancelled }: RfqCardProps) 
     <div className="bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 p-6 group">
       <div className="flex items-start justify-between gap-4 mb-5">
         <Link href={`/customer/rfq/${rfq.id}`} className="flex-1 min-w-0">
-          <p className="text-base font-semibold text-slate-900 leading-snug line-clamp-2 group-hover:text-[#0F2B54] transition-colors duration-150 cursor-pointer">
+          <p className="text-base font-semibold text-slate-900 leading-snug line-clamp-2 group-hover:text-primary transition-colors duration-150 cursor-pointer">
             {rfq.project_description}
           </p>
           {rfq.business_name && (
@@ -193,9 +193,9 @@ export function RfqCard({ rfq, showCancel = false, onCancelled }: RfqCardProps) 
             {rfq.nda_required && (
               <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-violet-50 text-violet-700 border border-violet-200">NDA</span>
             )}
-            {dateLabel && <span className="text-xs text-slate-400">{dateLabel}</span>}
+            {dateLabel && <span className="text-xs text-slate-500">{dateLabel}</span>}
           </div>
-          <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-[#0F2B54] group-hover:translate-x-0.5 transition-all duration-150" />
+          <ChevronRight className="h-4 w-4 text-slate-500 group-hover:text-primary group-hover:translate-x-0.5 transition-all duration-150" />
         </div>
       </Link>
     </div>
@@ -271,7 +271,7 @@ export function RfqListPage({ title, subtitle, filter, emptyMessage, showCancel 
               <p className="mt-1 text-sm text-slate-600">{subtitle}</p>
             </div>
             <Link href="/">
-              <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm hover:shadow-md">
+              <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm hover:shadow-md">
                 <Plus className="h-4 w-4" />
                 New RFQ
               </button>
@@ -303,12 +303,12 @@ export function RfqListPage({ title, subtitle, filter, emptyMessage, showCancel 
         {!isLoading && !loadError && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mb-5">
-              <Inbox className="h-8 w-8 text-slate-400" />
+              <Inbox className="h-8 w-8 text-slate-500" />
             </div>
             <h2 className="text-xl font-bold text-slate-900 mb-2">No RFQs here</h2>
             <p className="text-slate-500 text-sm max-w-xs mb-6">{emptyMessage}</p>
             <Link href="/">
-              <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm">
+              <button className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl font-semibold text-sm transition-all duration-150 shadow-sm">
                 <Plus className="h-4 w-4" /> Submit an RFQ
               </button>
             </Link>

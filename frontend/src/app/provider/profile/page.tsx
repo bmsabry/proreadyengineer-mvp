@@ -257,7 +257,7 @@ export default function ProviderProfilePage() {
   if (authLoading || isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#0F2B54]" />
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
       </div>
     );
   }
@@ -404,16 +404,16 @@ export default function ProviderProfilePage() {
             {/* Account Information */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-                <User className="h-5 w-5 text-[#0F2B54]" />
+                <User className="h-5 w-5 text-primary" />
                 <h2 className="font-semibold text-slate-800">Account Information</h2>
               </div>
               <div className="px-6 py-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
                 <div>
-                  <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Full Name</label>
+                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Full Name</label>
                   <p className="mt-1 text-slate-800 font-medium">{displayName}</p>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Email Address</label>
+                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Email Address</label>
                   <div className="mt-1 flex items-center gap-2">
                     <p className="text-slate-800 font-medium">{user?.email}</p>
                     {emailVerified
@@ -424,24 +424,24 @@ export default function ProviderProfilePage() {
                 </div>
                 {createdAt && (
                   <div>
-                    <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Account Created</label>
+                    <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Account Created</label>
                     <div className="mt-1 flex items-center gap-1.5 text-slate-800 font-medium">
-                      <Calendar className="h-4 w-4 text-slate-400" />
+                      <Calendar className="h-4 w-4 text-slate-500" />
                       {createdAt.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
                     </div>
                   </div>
                 )}
                 {lastLogin && (
                   <div>
-                    <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Last Login</label>
+                    <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Last Login</label>
                     <div className="mt-1 flex items-center gap-1.5 text-slate-800 font-medium">
-                      <Clock className="h-4 w-4 text-slate-400" />
+                      <Clock className="h-4 w-4 text-slate-500" />
                       {lastLogin.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
                 )}
                 <div>
-                  <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Account Roles</label>
+                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Account Roles</label>
                   <div className="mt-1 flex flex-wrap gap-1.5">
                     {(user?.roles || []).map(function(role) {
                       return <span key={role} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full capitalize">{role}</span>;
@@ -454,7 +454,7 @@ export default function ProviderProfilePage() {
             {/* Subscription and Tier */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
               <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-                <Crown className="h-5 w-5 text-[#0F2B54]" />
+                <Crown className="h-5 w-5 text-primary" />
                 <h2 className="font-semibold text-slate-800">Subscription and Tier</h2>
               </div>
               <div className="px-6 py-5 space-y-4">
@@ -470,7 +470,7 @@ export default function ProviderProfilePage() {
                         {cancelAtDate ? (
                           <p className="text-amber-600 text-xs mt-1 font-medium">Cancels on {cancelAtDate} &mdash; access continues until then</p>
                         ) : renewsDate ? (
-                          <p className="text-slate-400 text-xs mt-1">Renews {renewsDate}</p>
+                          <p className="text-slate-500 text-xs mt-1">Renews {renewsDate}</p>
                         ) : null}
                       </div>
                       <div className="flex flex-col items-end gap-2 flex-shrink-0">
@@ -523,7 +523,7 @@ export default function ProviderProfilePage() {
                         </div>
                         <p className="text-slate-500 text-sm mt-0.5">$500 one-time &mdash; unlimited profile edits forever</p>
                       </div>
-                      <Link href="/provider/upgrade" className="px-4 py-2 bg-[#0F2B54] text-white rounded-lg text-sm font-semibold hover:bg-[#1a3a6b] transition-colors">Upgrade to Annual</Link>
+                      <Link href="/provider/upgrade" className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors">Upgrade to Annual</Link>
                     </div>
                     <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
                       <p className="text-sm font-medium text-blue-800">Upgrade to Annual Pro for $1,000/year</p>
@@ -535,36 +535,36 @@ export default function ProviderProfilePage() {
                     <div className="flex items-start justify-between">
                       <div>
                         <div className="flex items-center gap-2">
-                          <User className="h-5 w-5 text-slate-400" />
+                          <User className="h-5 w-5 text-slate-500" />
                           <span className="font-semibold text-slate-800 text-lg">Free Account</span>
                         </div>
                         <p className="text-slate-500 text-sm mt-0.5">Pay $50 per RFQ unlock &mdash; no profile edits included</p>
                       </div>
-                      <Link href="/provider/upgrade" className="px-4 py-2 bg-[#0F2B54] text-white rounded-lg text-sm font-semibold hover:bg-[#1a3a6b] transition-colors flex items-center gap-1.5">
+                      <Link href="/provider/upgrade" className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center gap-1.5">
                         <Zap className="h-4 w-4" /> View Plans
                       </Link>
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="p-4 border-2 border-[#0F2B54] rounded-lg">
+                      <div className="p-4 border-2 border-primary rounded-lg">
                         <div className="flex items-center gap-2 mb-2">
-                          <Crown className="h-5 w-5 text-[#0F2B54]" />
+                          <Crown className="h-5 w-5 text-primary" />
                           <span className="font-bold text-slate-800">Annual Professional</span>
-                          <span className="ml-auto text-xs bg-[#0F2B54] text-white px-2 py-0.5 rounded-full">Best Value</span>
+                          <span className="ml-auto text-xs bg-primary text-white px-2 py-0.5 rounded-full">Best Value</span>
                         </div>
-                        <p className="text-2xl font-bold text-[#0F2B54]">$1,000<span className="text-sm font-normal text-slate-500">/year</span></p>
+                        <p className="text-2xl font-bold text-primary">$1,000<span className="text-sm font-normal text-slate-500">/year</span></p>
                         <ul className="mt-2 space-y-1 text-xs text-slate-600">
                           <li className="flex items-center gap-1"><CheckCircle className="h-3 w-3 text-emerald-500" /> All RFQs auto-delivered</li>
                           <li className="flex items-center gap-1"><CheckCircle className="h-3 w-3 text-emerald-500" /> Unlimited profile edits</li>
                           <li className="flex items-center gap-1"><CheckCircle className="h-3 w-3 text-emerald-500" /> Request Rank Up</li>
                           <li className="flex items-center gap-1"><CheckCircle className="h-3 w-3 text-emerald-500" /> Pays off at just 20 RFQs</li>
                         </ul>
-                        <Link href="/provider/upgrade" className="mt-3 block w-full text-center px-4 py-2 bg-[#0F2B54] text-white rounded-lg text-sm font-semibold hover:bg-[#1a3a6b] transition-colors">
+                        <Link href="/provider/upgrade" className="mt-3 block w-full text-center px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors">
                           Get Annual Pro
                         </Link>
                       </div>
                       <div className="p-4 border border-slate-200 rounded-lg">
                         <div className="flex items-center gap-2 mb-2">
-                          <Star className="h-5 w-5 text-slate-400" />
+                          <Star className="h-5 w-5 text-slate-500" />
                           <span className="font-bold text-slate-800">Profile Edit Only</span>
                         </div>
                         <p className="text-2xl font-bold text-slate-700">$500<span className="text-sm font-normal text-slate-500"> once</span></p>
@@ -600,7 +600,7 @@ export default function ProviderProfilePage() {
                         Upgrade your account to edit your company profile, update capabilities, and improve your ranking with buyers.
                       </p>
                       <Link href="/provider/upgrade"
-                        className="block w-full px-6 py-3 bg-[#0F2B54] text-white rounded-xl text-sm font-semibold hover:bg-[#1a3a6b] transition-colors">
+                        className="block w-full px-6 py-3 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
                         View Upgrade Options
                       </Link>
                     </div>
@@ -676,7 +676,7 @@ export default function ProviderProfilePage() {
                         <Label htmlFor="business_description">Business Description</Label>
                         <Textarea id="business_description" rows={5} value={formData.business_description} disabled={!hasProfileEdit}
                           onChange={function(e) { setFormData(function(prev) { return { ...prev, business_description: e.target.value }; }); }} />
-                        <p className="text-xs text-slate-400">Heavily weighs on the matching process, as evaluated by AI.</p>
+                        <p className="text-xs text-slate-500">Heavily weighs on the matching process, as evaluated by AI.</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="notable_projects" className="font-semibold">Notable Projects</Label>
@@ -684,7 +684,7 @@ export default function ProviderProfilePage() {
                           placeholder="e.g. Fatigue analysis for Boeing 737 landing gear, CFD simulation for SpaceX Starship heat shield, FEA for NASA composite pressure vessel"
                           value={formData.notable_projects} disabled={!hasProfileEdit}
                           onChange={function(e) { setFormData(function(prev) { return { ...prev, notable_projects: e.target.value }; }); }} />
-                        <p className="text-xs text-slate-400">Comma-separated list of notable projects, each summarized in one sentence — this field has the greatest impact on RFQ match determination.</p>
+                        <p className="text-xs text-slate-500">Comma-separated list of notable projects, each summarized in one sentence — this field has the greatest impact on RFQ match determination.</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -701,7 +701,7 @@ export default function ProviderProfilePage() {
                           placeholder="e.g. FEA, CFD, Fatigue Analysis, Structural Design"
                           value={formData.capabilities} disabled={!hasProfileEdit}
                           onChange={function(e) { setFormData(function(prev) { return { ...prev, capabilities: e.target.value }; }); }} />
-                        <p className="text-xs text-slate-400">Comma-separated list of technical capabilities</p>
+                        <p className="text-xs text-slate-500">Comma-separated list of technical capabilities</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="specialties">Specialties</Label>
@@ -709,7 +709,7 @@ export default function ProviderProfilePage() {
                           placeholder="e.g. Aerospace, Automotive, Medical Devices"
                           value={formData.specialties} disabled={!hasProfileEdit}
                           onChange={function(e) { setFormData(function(prev) { return { ...prev, specialties: e.target.value }; }); }} />
-                        <p className="text-xs text-slate-400">Comma-separated list of industry specialties</p>
+                        <p className="text-xs text-slate-500">Comma-separated list of industry specialties</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="secondary_specialties">Secondary Specialties</Label>
@@ -717,7 +717,7 @@ export default function ProviderProfilePage() {
                           placeholder="e.g. Thermal Analysis, Vibration Testing"
                           value={formData.secondary_specialties} disabled={!hasProfileEdit}
                           onChange={function(e) { setFormData(function(prev) { return { ...prev, secondary_specialties: e.target.value }; }); }} />
-                        <p className="text-xs text-slate-400">Comma-separated list of secondary specialties</p>
+                        <p className="text-xs text-slate-500">Comma-separated list of secondary specialties</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="software_tools">Software Tools</Label>
@@ -725,7 +725,7 @@ export default function ProviderProfilePage() {
                           placeholder="e.g. ANSYS, SolidWorks, MATLAB, Abaqus"
                           value={formData.software_tools} disabled={!hasProfileEdit}
                           onChange={function(e) { setFormData(function(prev) { return { ...prev, software_tools: e.target.value }; }); }} />
-                        <p className="text-xs text-slate-400">Comma-separated list of engineering software tools</p>
+                        <p className="text-xs text-slate-500">Comma-separated list of engineering software tools</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -749,7 +749,7 @@ export default function ProviderProfilePage() {
                           placeholder="e.g. info@example.com, sales@example.com"
                           value={formData.email_addresses} disabled={!hasProfileEdit}
                           onChange={function(e) { setFormData(function(prev) { return { ...prev, email_addresses: e.target.value }; }); }} />
-                        <p className="text-xs text-slate-400">Enter one email only for the firm.</p>
+                        <p className="text-xs text-slate-500">Enter one email only for the firm.</p>
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="certifications">Certifications</Label>
@@ -757,7 +757,7 @@ export default function ProviderProfilePage() {
                           placeholder="e.g. ISO 9001, AS9100, NADCAP"
                           value={formData.certifications} disabled={!hasProfileEdit}
                           onChange={function(e) { setFormData(function(prev) { return { ...prev, certifications: e.target.value }; }); }} />
-                        <p className="text-xs text-slate-400">Comma-separated list of certifications and accreditations</p>
+                        <p className="text-xs text-slate-500">Comma-separated list of certifications and accreditations</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -771,7 +771,7 @@ export default function ProviderProfilePage() {
                   {!hasProfileEdit && (
                     <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center">
                       <p className="text-sm text-slate-500">
-                        <Link href="/provider/upgrade" className="text-[#0F2B54] font-semibold hover:underline">Upgrade your plan</Link> to save profile changes.
+                        <Link href="/provider/upgrade" className="text-primary font-semibold hover:underline">Upgrade your plan</Link> to save profile changes.
                       </p>
                     </div>
                   )}

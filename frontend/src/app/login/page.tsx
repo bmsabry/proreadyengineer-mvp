@@ -138,12 +138,12 @@ function LoginPageContent() {
       {/* Brand header */}
       <div className="mb-8 text-center">
         <Link href="/" className="inline-flex items-center gap-2.5 mb-3 group">
-          <div className="w-10 h-10 rounded-xl bg-[#0F2B54] flex items-center justify-center shadow-md group-hover:shadow-lg transition-all duration-150">
+          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-md group-hover:shadow-lg transition-all duration-150">
             <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
           </div>
-          <span className="font-bold text-xl text-[#0F2B54] tracking-tight">ProMechDirectory</span>
+          <span className="font-bold text-xl text-primary tracking-tight">ProMechDirectory</span>
         </Link>
         <p className="text-sm text-slate-500 font-medium">Engineering Services Marketplace</p>
       </div>
@@ -182,7 +182,7 @@ function LoginPageContent() {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 disabled={isSubmitting}
-                className="h-11 border border-slate-200 rounded-lg bg-white px-4 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all duration-150"
+                className="h-11 border border-slate-200 rounded-lg bg-white px-4 text-slate-900 placeholder:text-slate-500 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition-all duration-150"
               />
             </div>
 
@@ -211,7 +211,7 @@ function LoginPageContent() {
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
                 disabled={isSubmitting}
-                className="h-4 w-4 rounded border-slate-300 text-[#0F2B54] focus:ring-blue-500 cursor-pointer accent-[#0F2B54]"
+                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-blue-500 cursor-pointer accent-[#0F2B54]"
               />
               <Label htmlFor="rememberMe" className="text-sm font-normal text-slate-600 cursor-pointer select-none">
                 Keep me signed in for 30 days
@@ -229,7 +229,7 @@ function LoginPageContent() {
 
             <Button
               type="submit"
-              className="w-full h-11 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl font-semibold transition-all duration-150 shadow-sm hover:shadow-md"
+              className="w-full h-11 bg-primary hover:bg-primary/90 text-white rounded-xl font-semibold transition-all duration-150 shadow-sm hover:shadow-md"
               disabled={isSubmitting}
             >
               {isSubmitting ? (
@@ -273,7 +273,7 @@ function LoginPageContent() {
       </div>
 
       {/* Footer trust line */}
-      <p className="mt-8 text-xs text-slate-400 text-center">
+      <p className="mt-8 text-xs text-slate-500 text-center">
         Trusted by engineering firms across North America
       </p>
     </div>
@@ -285,7 +285,7 @@ export default function LoginPage() {
     <Suspense fallback={
       <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#0F2B54] flex items-center justify-center animate-pulse">
+          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center animate-pulse">
             <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>

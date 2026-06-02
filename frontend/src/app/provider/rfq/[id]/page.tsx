@@ -148,7 +148,7 @@ function FilesSection({ files, loading, rfqId }: { files: RFQFile[]; loading: bo
           <div className="flex items-center gap-2 text-sm text-gray-700">
             <FileText className="h-4 w-4 text-blue-500"/>
             <span>{f.original_filename}</span>
-            {f.file_size_bytes && <span className="text-gray-400 text-xs">({fmtBytes(f.file_size_bytes)})</span>}
+            {f.file_size_bytes && <span className="text-gray-600 text-xs">({fmtBytes(f.file_size_bytes)})</span>}
           </div>
           {f.presigned_url ? (
             <a href={f.presigned_url} target="_blank" rel="noreferrer">
@@ -473,8 +473,8 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
               isDragging ? 'border-blue-400 bg-blue-100' : 'border-gray-300'
             }`}
           >
-            <Upload className="h-4 w-4 text-gray-400" />
-            <span className="text-xs text-gray-400">or drag &amp; drop a file here</span>
+            <Upload className="h-4 w-4 text-gray-600" />
+            <span className="text-xs text-gray-600">or drag &amp; drop a file here</span>
           </div>
         )}
 
@@ -504,7 +504,7 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
                     <div className="flex flex-col items-center gap-1">
                       <Upload className="h-5 w-5 text-blue-500" />
                       <span className="text-sm text-blue-600 font-medium">Drag &amp; drop or click to select</span>
-                      <span className="text-xs text-gray-400">PDF, DOCX, or TXT · max 10MB</span>
+                      <span className="text-xs text-gray-600">PDF, DOCX, or TXT · max 10MB</span>
                     </div>
                   )}
                 </label>
@@ -522,7 +522,7 @@ function QuoteForm({ rfqId, onSuccess }: { rfqId: string; onSuccess: () => void 
                     <Badge className="bg-green-100 text-green-700 text-xs">Fields extracted</Badge>
                   )}
                 </div>
-                <button type="button" onClick={handleClearDocument} className="text-gray-400 hover:text-gray-600">
+                <button type="button" onClick={handleClearDocument} className="text-gray-600 hover:text-gray-600">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -1061,7 +1061,7 @@ function ProviderRFQPageInner() {
               ) : isClosed ? (
                 <Card className="border-gray-200 bg-gray-50">
                   <CardContent className="pt-6 text-center">
-                    <Ban className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                    <Ban className="h-12 w-12 text-gray-600 mx-auto mb-3" />
                     <h3 className="font-semibold text-gray-700 text-lg mb-2">Project No Longer Accepting Quotes</h3>
                     <p className="text-gray-500 text-sm">This project has been closed. No further quotes are being accepted.</p>
                   </CardContent>

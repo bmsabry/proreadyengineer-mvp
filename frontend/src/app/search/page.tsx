@@ -40,7 +40,7 @@ const SEARCH_PHASES = [
   { icon: "🔍", text: "Analyzing your engineering query..." },
   { icon: "🧠", text: "Extracting technical intent with AI..." },
   { icon: "⚡", text: "Generating semantic embeddings..." },
-  { icon: "🗄️", text: "Scanning 6,000+ provider profiles..." },
+  { icon: "🗄️", text: "Scanning 5,000+ provider profiles..." },
   { icon: "📐", text: "Applying specialty & capability filters..." },
   { icon: "🏆", text: "Scoring top candidates..." },
   { icon: "✨", text: "Ranking providers by project fit..." },
@@ -48,7 +48,7 @@ const SEARCH_PHASES = [
 ];
 
 const SEARCH_FACTS = [
-  "Our directory includes 6,000+ engineering service firms across North America.",
+  "Our directory includes 5,000+ engineering service firms across North America.",
   "Providers are scored on specialty match, capabilities, and project history.",
   "Vector similarity compares your query against thousands of provider profiles.",
   "Tier ratings reflect provider track record and project complexity.",
@@ -207,19 +207,19 @@ function SearchPageContent() {
       <header className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200 shadow-sm">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-2 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-[#0F2B54] flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
               <Building2 className="h-4 w-4 text-white" />
             </div>
             <span className="font-bold text-sm text-slate-900 hidden sm:block tracking-tight">ProMechDirectory</span>
           </Link>
           <form onSubmit={handleFormSubmit} className="flex-1 max-w-xl flex gap-2">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
               <Input className="pl-9 h-10 border-slate-200 rounded-xl text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10"
                 placeholder="Refine your search…" value={query} onChange={(e) => setQuery(e.target.value)} disabled={isLoading} />
             </div>
             <Button type="submit" disabled={isLoading || !query.trim()}
-              className="h-10 px-4 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white rounded-xl text-sm font-medium">
+              className="h-10 px-4 bg-primary hover:bg-primary/90 text-white rounded-xl text-sm font-medium">
               {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <><Search className="h-3.5 w-3.5 mr-1.5" />Search</>}
             </Button>
           </form>
@@ -246,11 +246,11 @@ function SearchPageContent() {
         {isLoading && (
           <div className="max-w-2xl mx-auto py-10">
             <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#0F2B54] shadow-lg mb-4">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary shadow-lg mb-4">
                 <Search className="h-8 w-8 text-white animate-pulse" />
               </div>
               <h2 className="text-2xl font-bold text-slate-900">AI-Powered Matching in Progress</h2>
-              <p className="text-sm text-slate-500 mt-1">Analyzing 6,000+ engineering firms for your project</p>
+              <p className="text-sm text-slate-500 mt-1">Analyzing 5,000+ engineering firms for your project</p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 mb-6">
               <span className="text-2xl">{SEARCH_PHASES[loadPhase].icon}</span>
@@ -269,7 +269,7 @@ function SearchPageContent() {
               </div>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm px-5 py-4 mb-8">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-1">Did you know?</p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Did you know?</p>
               <p className="text-sm text-slate-700">{SEARCH_FACTS[loadFact]}</p>
             </div>
             <div className="space-y-3">{[0,1,2,3,4].map(i => <SkeletonCard key={i} />)}</div>
@@ -300,7 +300,7 @@ function SearchPageContent() {
               {results.length === 0 ? (
                 <div className="text-center py-20">
                   <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-100 mb-4">
-                    <Building2 className="h-8 w-8 text-slate-400" />
+                    <Building2 className="h-8 w-8 text-slate-500" />
                   </div>
                   <h3 className="text-base font-semibold text-slate-700 mb-1">No matches found</h3>
                   <p className="text-sm text-slate-500">Try broadening your search terms or describing the engineering discipline differently.</p>
@@ -340,8 +340,8 @@ function SearchPageContent() {
                         <div className="shrink-0 text-right">
                           {typeof r.composite_score === "number" && (
                             <div>
-                              <span className="text-3xl font-black text-[#0F2B54] leading-none">{Math.round(r.composite_score)}</span>
-                              <span className="text-sm text-slate-400">/100</span>
+                              <span className="text-3xl font-black text-primary leading-none">{Math.round(r.composite_score)}</span>
+                              <span className="text-sm text-slate-500">/100</span>
                               <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1 ml-auto">
                                 <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-indigo-600" style={{ width: `${Math.min(100,Math.round(r.composite_score))}%` }} />
                               </div>
@@ -355,11 +355,11 @@ function SearchPageContent() {
               )}
             </div>
             <div className="w-72 shrink-0">
-              <div className="bg-gradient-to-br from-[#0F2B54] to-[#1a3a6b] text-white rounded-2xl p-6 sticky top-24">
+              <div className="bg-gradient-to-br from-primary to-primary/90 text-white rounded-2xl p-6 sticky top-24">
                 <h3 className="font-bold text-white text-base mb-1">Ready to get quotes?</h3>
                 <p className="text-blue-200 text-xs mb-4">Submit one RFQ and we’ll contact all matched providers in sequential batches. Only the top 5 are shown to you.</p>
                 <Button onClick={handleStartRfq} disabled={isRequestingQuote}
-                  className="w-full bg-white text-[#0F2B54] hover:bg-blue-50 rounded-xl font-semibold text-sm h-10 mb-5">
+                  className="w-full bg-white text-primary hover:bg-blue-50 rounded-xl font-semibold text-sm h-10 mb-5">
                   {isRequestingQuote ? <Loader2 className="h-4 w-4 animate-spin" /> : <><ArrowRight className="h-4 w-4 mr-1.5" />Submit RFQ</>}
                 </Button>
                 <ul className="space-y-2 mb-5">
@@ -376,11 +376,11 @@ function SearchPageContent() {
         )}
         {!isLoading && !hasSearched && (
           <div className="text-center py-24">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-[#0F2B54] shadow-lg mb-6">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-primary shadow-lg mb-6">
               <Search className="h-10 w-10 text-white" />
             </div>
             <h2 className="text-2xl font-bold text-slate-900 mb-2">Find Engineering Service Providers</h2>
-            <p className="text-sm text-slate-500 max-w-md mx-auto">Describe your engineering project above and our AI will match you with the best-fit providers from our directory of 6,000+ firms.</p>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">Describe your engineering project above and our AI will match you with the best-fit providers from our directory of 5,000+ firms.</p>
           </div>
         )}
       </main>
@@ -393,7 +393,7 @@ export default function SearchPage() {
     <Suspense fallback={
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[#0F2B54] mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
             <Loader2 className="h-8 w-8 animate-spin text-white" />
           </div>
           <p className="text-sm text-slate-500">Loading search...</p>

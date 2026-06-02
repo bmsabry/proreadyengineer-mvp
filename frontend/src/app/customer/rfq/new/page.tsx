@@ -429,7 +429,7 @@ function CreateRFQForm() {
                 </>
               )}
             </Button>
-            <p className="text-center text-xs text-slate-400 mt-3">
+            <p className="text-center text-xs text-slate-500 mt-3">
               By submitting, you agree to our{' '}
               <Link href="/terms" className="underline hover:text-slate-600">Terms of Service</Link>{' '}
               and{' '}

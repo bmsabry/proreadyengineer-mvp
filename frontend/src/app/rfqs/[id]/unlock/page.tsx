@@ -169,7 +169,7 @@ export default function RFQUnlockPage() {
             <CardContent className="space-y-3">
               {teaser.urgency && (
                 <div className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-gray-400" />
+                  <Clock className="h-4 w-4 text-gray-600" />
                   <span className="text-sm text-gray-600">Urgency:</span>
                   <Badge variant={
                     teaser.urgency === 'High' ? 'destructive' :
@@ -179,7 +179,7 @@ export default function RFQUnlockPage() {
               )}
               {teaser.tollgate_phases && teaser.tollgate_phases.length > 0 && (
                 <div className="flex items-start gap-2">
-                  <Tag className="h-4 w-4 text-gray-400 mt-0.5" />
+                  <Tag className="h-4 w-4 text-gray-600 mt-0.5" />
                   <span className="text-sm text-gray-600 flex-shrink-0">Phases:</span>
                   <div className="flex flex-wrap gap-1">
                     {teaser.tollgate_phases.map((phase) => (
