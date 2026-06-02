@@ -143,7 +143,7 @@ export default function ActiveRFQsPage() {
               <Button
                 size="sm"
                 onClick={() => router.push(`/provider/rfq/${t.rfq_id}`)}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs flex items-center justify-center gap-1 mt-auto"
+                className="w-full bg-primary hover:bg-primary/90 text-white text-xs flex items-center justify-center gap-1 mt-auto"
               >
                 Submit Quote <ArrowRight size={12} />
               </Button>

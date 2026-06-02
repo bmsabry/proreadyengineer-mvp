@@ -95,7 +95,7 @@ export default function ForCustomersPage() {
         <div className="text-center flex flex-col sm:flex-row gap-4 justify-center">
           <Link
             href="/search"
-            className="inline-block bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+            className="inline-block bg-primary text-white px-8 py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
           >
             Start Searching
           </Link>

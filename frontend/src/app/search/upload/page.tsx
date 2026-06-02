@@ -288,7 +288,7 @@ export default function UploadPage() {
 
         <div className="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
           {selectedFiles.length > 0 && (
-            <Button onClick={handleFindProviders} disabled={isSubmitting} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8" size="lg">
+            <Button onClick={handleFindProviders} disabled={isSubmitting} className="bg-primary hover:bg-primary/90 text-white font-semibold px-8" size="lg">
               {isSubmitting ? (
                 <>
                   <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
