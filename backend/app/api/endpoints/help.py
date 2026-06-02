@@ -175,6 +175,96 @@ async def help_chat(
     )
 
 
+@limiter.limit("20/minute")
+@router.post("/help/chat/stream")
+async def help_chat_stream(
+    request: Request,
+    data: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
+):
+    """Server-Sent-Events streaming sibling of /help/chat.
+
+    Streams the assistant reply token-by-token. For ANY non-happy condition the
+    service yields a `fallback` event and the client transparently re-issues the
+    request to the non-streaming /help/chat endpoint, so behaviour there is
+    identical. The non-streaming path is the source of truth.
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from app.db.session import AsyncSessionLocal
+    from app.services.help_service import answer_question_stream
+
+    has_access, reason = await user_has_chatbot_access(db, current_user)
+    if not has_access:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={"reason": reason, "message": "The AI Help Assistant is available to subscribers only."},
+        )
+
+    _uid = current_user.id if current_user else None
+    _role = ",".join(current_user.roles or []) if current_user else None
+    _email = current_user.email if current_user else None
+    _msg = data.message
+    _history = [t.model_dump() for t in data.history]
+    _page = data.page or None
+    _atts = [a.model_dump() for a in (data.attachments or [])]
+
+    async def _sse():
+        # Use a fresh session: a StreamingResponse outlives the request-scoped one.
+        async with AsyncSessionLocal() as sdb:
+            try:
+                async for kind, payload in answer_question_stream(
+                    db=sdb, user=current_user, history=_history,
+                    user_message=_msg, page=_page, attachments=_atts,
+                ):
+                    if kind == "token":
+                        yield f"event: token\ndata: {_json.dumps({'t': payload})}\n\n"
+                    elif kind == "fallback":
+                        yield "event: fallback\ndata: {}\n\n"
+                        return
+                    elif kind == "meta":
+                        m = payload or {}
+                        log_id = None
+                        try:
+                            log = HelpChatLog(
+                                user_id=_uid, user_role=_role, user_email=_email,
+                                user_message=_msg[:2000],
+                                assistant_reply=(m.get("reply") or "")[:8000],
+                                prompt_tokens=m.get("prompt_tokens"),
+                                completion_tokens=m.get("completion_tokens"),
+                                total_tokens=m.get("total_tokens"),
+                                model=(m.get("model") or "")[:128] or None,
+                                error=(m.get("error") or None),
+                                latency_ms=m.get("latency_ms"),
+                                cost_usd=m.get("cost_usd"),
+                            )
+                            sdb.add(log)
+                            await sdb.commit()
+                            log_id = str(log.id)
+                        except Exception as exc:
+                            logger.warning("[help_chat_stream] log persist failed: %s", exc)
+                            await sdb.rollback()
+                        meta_out = {
+                            "reply": m.get("reply") or "",
+                            "error": m.get("error"),
+                            "links": m.get("links") or None,
+                            "action": m.get("action") or None,
+                            "action_result": m.get("action_result") or None,
+                            "log_id": log_id,
+                        }
+                        yield f"event: meta\ndata: {_json.dumps(meta_out)}\n\n"
+            except Exception as exc:
+                logger.warning("[help_chat_stream] stream failed: %s", exc)
+                yield "event: fallback\ndata: {}\n\n"
+
+    return StreamingResponse(
+        _sse(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 _ASSIST_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 _ASSIST_UPLOAD_EXTS = ("pdf", "docx", "txt")
 

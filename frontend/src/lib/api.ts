@@ -981,4 +981,60 @@ export const helpApi = {
       throw new Error(`help chat failed: ${st ?? axErr?.message ?? 'unknown'}`);
     }
   },
+
+  // Streaming sibling of chat(). Calls onToken for each delta and resolves with the
+  // final response meta, or null to signal the caller should fall back to chat().
+  // Throws (with .code) on a non-2xx status (e.g. 402) so the caller handles it.
+  chatStream: async (
+    message: string,
+    history: HelpChatTurn[],
+    page: string | undefined,
+    attachments: HelpUpload[] | undefined,
+    onToken: (delta: string) => void,
+  ): Promise<HelpChatResponse | null> => {
+    const token = getStoredToken();
+    const res = await fetch(`${API_URL}/api/v1/help/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: 'include',
+      body: JSON.stringify({ message, history, page, attachments: attachments || [] }),
+    });
+    if (!res.ok || !res.body) {
+      const err: Error & { code?: number } = new Error(`help stream failed: ${res.status}`);
+      err.code = res.status;
+      throw err;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let meta: HelpChatResponse | null = null;
+    let fellBack = false;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buf.indexOf('\n\n')) !== -1) {
+        const chunk = buf.slice(0, nl);
+        buf = buf.slice(nl + 2);
+        let event = 'message';
+        let dataStr = '';
+        for (const ln of chunk.split('\n')) {
+          if (ln.startsWith('event:')) event = ln.slice(6).trim();
+          else if (ln.startsWith('data:')) dataStr += ln.slice(5).trim();
+        }
+        if (event === 'token') {
+          try { const o = JSON.parse(dataStr); if (o && o.t) onToken(o.t as string); } catch { /* ignore */ }
+        } else if (event === 'fallback') {
+          fellBack = true;
+        } else if (event === 'meta') {
+          try { meta = JSON.parse(dataStr) as HelpChatResponse; } catch { /* ignore */ }
+        }
+      }
+    }
+    return fellBack ? null : meta;
+  },
 };

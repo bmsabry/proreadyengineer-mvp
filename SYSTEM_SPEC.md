@@ -239,6 +239,14 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
      ANONYMIZED (Quote 1/2/3 — price/turnaround/scope/assumptions, no provider identity) for up
      to 3 open RFQs; the assistant may compare/recommend but must never reveal or guess which
      provider submitted a quote, nor discuss providers on the platform (legal/ethical hard line).
+   - **Streaming (2026-06-01, additive):** `POST /help/chat/stream` (SSE) streams the reply
+     token-by-token via `_call_llm_stream` + `answer_question_stream`. It is line-buffered and
+     strips the trailing control lines (PROPOSE_ACTION / SUGGESTED_LINKS / MEMORY / PROFILE_DATA
+     / DELEGATE). For ANY non-happy case (no msg, attachments, budget cap, missing key,
+     out-of-scope, or a DELEGATE handoff) it emits an SSE `fallback` event and the frontend
+     transparently re-calls the non-streaming `/help/chat` — which remains the untouched source
+     of truth. The stream endpoint uses a fresh `AsyncSessionLocal()` (a StreamingResponse
+     outlives the request session) and logs the turn like `/help/chat`.
 
    **Operating Cost panel (admin, 2026-05-30):** `/admin/operating-cost` (endpoint
    `GET /admin/operating-cost`) shows where money goes: LLM cost per model from REAL token
