@@ -90,6 +90,7 @@ async def user_has_chatbot_access(db: AsyncSession, user: Optional[User]) -> Tup
 
 
 _DELEGATE_PREFIX = "DELEGATE:"
+_MEMORY_PREFIX = "MEMORY:"  # one-line self-note the assistant persists across sessions
 
 
 _PROVIDER_PROFILE_COACH = (
@@ -161,6 +162,13 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
         "page that shows it — don't guess or invent a number.\n"
         "- This snapshot is ONLY ever this one signed-in user's data. Never mention, infer, or "
         "compare another user's data — you do not have it.\n"
+        "- MEMORY: when the user EXPLICITLY asks you to remember something about them, or states a "
+        "durable preference (e.g. \"I usually work in SI units\", \"my budgets are around $5k\", "
+        "\"always remind me to attach drawings\"), acknowledge it and add ONE line at the very END of "
+        "your reply: " + _MEMORY_PREFIX + " <concise note in third person>. To forget, use "
+        + _MEMORY_PREFIX + " CLEAR. Only store the user's OWN preferences/context — never another "
+        "party's data, secrets, or payment details. Anything under REMEMBERED above is what you already "
+        "know about them; use it naturally.\n"
         "- COMPARING QUOTES: if the snapshot lists \"Quotes you have received\" on the user's RFQ(s), "
         "you MAY compare them and recommend which looks strongest — reason ONLY over the price, "
         "turnaround, scope, and assumptions shown, and explain the trade-offs plainly. CRITICAL: the "
@@ -244,6 +252,11 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
         f"USER CONTEXT: the user is signed in with role(s) = {role_str}. Tailor examples "
         "to their role when helpful.\n\n"
         + (("=== THIS USER'S ACCOUNT (live, authoritative for their own data) ===\n" + account_context + "\n=== END ACCOUNT ===\n\n") if account_context else "")
+        + ((
+            "=== REMEMBERED ABOUT THIS USER (notes they asked you to keep; this user only) ===\n"
+            + (getattr(user, "assistant_memory", None) or "")
+            + "\n=== END REMEMBERED ===\n\n"
+        ) if getattr(user, "assistant_memory", None) else "")
         + "=== MANUAL (authoritative) ===\n"
         f"{manual}\n"
         "=== END MANUAL ==="
@@ -521,6 +534,51 @@ def _extract_action(reply: str):
     if action and profile_data and action.get("type") == "update_profile_from_chat":
         action["profile_updates"] = profile_data
     return "\n".join(kept).strip(), action
+
+
+def _extract_memory(reply: str):
+    """Pull a trailing MEMORY: line out of the reply. Returns (clean_reply, note|None).
+    note == "CLEAR" means wipe stored memory."""
+    if not reply or _MEMORY_PREFIX not in reply:
+        return reply, None
+    kept, note = [], None
+    for ln in reply.splitlines():
+        if note is None and ln.strip().upper().startswith(_MEMORY_PREFIX):
+            note = (ln.split(":", 1)[1].strip() if ":" in ln else "")
+        else:
+            kept.append(ln)
+    return "\n".join(kept).strip(), (note or None)
+
+
+async def _persist_memory(db: AsyncSession, user: Optional[User], note: Optional[str]) -> None:
+    """Append a short self-note to the user's assistant_memory (or CLEAR it).
+    Scoped to this user only; capped to the most recent ~1500 chars."""
+    if user is None or note is None:
+        return
+    try:
+        from sqlalchemy import update as _update
+        from app.models.user import User as _User
+        if note.strip().upper() == "CLEAR":
+            newval = None
+        else:
+            existing = (getattr(user, "assistant_memory", None) or "").strip()
+            line = note.strip()[:300]
+            if existing and line.lower() in existing.lower():
+                return  # already remembered; avoid duplicates
+            combined = (existing + "\n" + line).strip() if existing else line
+            newval = combined[-1500:]
+        await db.execute(_update(_User).where(_User.id == user.id).values(assistant_memory=newval))
+        await db.commit()
+        try:
+            user.assistant_memory = newval
+        except Exception:
+            pass
+    except Exception as exc:
+        logger.warning("[help_service] memory persist failed: %s", exc)
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
 
 def _sanitize_history(history: List[Dict[str, Any]]) -> List[Dict[str, str]]:
@@ -875,6 +933,8 @@ async def answer_question(
     # --- Normal LLM4 answer ---
     clean, action = _extract_action(reply)
     clean, links = _extract_links(clean)
+    clean, _mem_note = _extract_memory(clean)
+    await _persist_memory(db, user, _mem_note)
     auto = await _maybe_autoexecute(db, user, action, attachments, page=page)
     return {
         "reply": clean,
