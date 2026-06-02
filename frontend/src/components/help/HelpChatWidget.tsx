@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { helpApi } from '@/lib/api';
-import type { HelpChatTurn, HelpStatus, HelpUpload } from '@/lib/api';
+import type { HelpChatTurn, HelpStatus, HelpUpload, HelpChatResponse } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { MessageCircle, X, Send, Lock, Sparkles, Paperclip, ThumbsUp, ThumbsDown } from 'lucide-react';
 
@@ -97,6 +97,25 @@ export default function HelpChatWidget() {
     }
   };
 
+  // Turn a finished HelpChatResponse into an assistant message (used by the JSON
+  // path and to finalize a streamed message).
+  const applyResponse = (resp: HelpChatResponse, replaceLast: boolean) => {
+    const action = resp.action && typeof resp.action.type === 'string' ? resp.action : undefined;
+    const ar = resp.action_result;
+    const baseLinks = (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//'));
+    const arLink = ar && ar.executed && ar.link && typeof ar.link.href === 'string' && ar.link.href.startsWith('/') ? [ar.link] : [];
+    const msg: Msg = { role: 'assistant', content: resp.reply, links: [...baseLinks, ...arLink], action, actionStatus: action ? 'pending' : undefined, autoResult: ar && ar.executed ? (ar.message || 'Done.') : undefined, logId: resp.log_id || undefined };
+    setMessages((prev) => {
+      if (replaceLast && prev.length && prev[prev.length - 1].role === 'assistant') {
+        const copy = [...prev];
+        copy[copy.length - 1] = msg;
+        return copy;
+      }
+      return [...prev, msg];
+    });
+    if (ar && ar.executed) setAttachments([]);
+  };
+
   const onSend = async () => {
     const text = input.trim();
     if (!text || sending) return;
@@ -105,29 +124,62 @@ export default function HelpChatWidget() {
     const nextMsgs: Msg[] = [...messages, { role: 'user', content: text }];
     setMessages(nextMsgs);
     setSending(true);
+    const history: HelpChatTurn[] = nextMsgs.slice(-10);
+    const page = typeof window !== 'undefined' ? window.location.pathname : undefined;
+    const sentAttachments = attachments;
     try {
-      const history: HelpChatTurn[] = nextMsgs.slice(-10);
-      const page = typeof window !== 'undefined' ? window.location.pathname : undefined;
-      const sentAttachments = attachments;
-      const resp = await helpApi.chat(text, history, page, sentAttachments);
-      const action = resp.action && typeof resp.action.type === 'string' ? resp.action : undefined;
-      const ar = resp.action_result;
-      const baseLinks = (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//'));
-      const arLink = ar && ar.executed && ar.link && typeof ar.link.href === 'string' && ar.link.href.startsWith('/') ? [ar.link] : [];
-      setMessages((prev) => [...prev, { role: 'assistant', content: resp.reply, links: [...baseLinks, ...arLink], action, actionStatus: action ? 'pending' : undefined, autoResult: ar && ar.executed ? (ar.message || 'Done.') : undefined, logId: resp.log_id || undefined }]);
-      if (ar && ar.executed) setAttachments([]);
-      if (status && typeof resp.remaining_today === 'number') {
-        setStatus({ ...status, remaining_today: resp.remaining_today });
+      // Attachments use the non-streaming path (document workflows). Everything
+      // else streams, with a transparent fallback to the JSON endpoint.
+      if (sentAttachments && sentAttachments.length) {
+        const resp = await helpApi.chat(text, history, page, sentAttachments);
+        applyResponse(resp, false);
+      } else {
+        // Add an empty assistant bubble to fill as tokens stream in.
+        setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+        let streamedAny = false;
+        let meta: HelpChatResponse | null | undefined;
+        try {
+          meta = await helpApi.chatStream(text, history, page, sentAttachments, (delta) => {
+            streamedAny = true;
+            setMessages((prev) => {
+              const copy = [...prev];
+              const last = copy[copy.length - 1];
+              if (last && last.role === 'assistant') copy[copy.length - 1] = { ...last, content: last.content + delta };
+              return copy;
+            });
+          });
+        } catch (streamErr) {
+          // Stream endpoint failed before completing. Drop the placeholder.
+          setMessages((prev) => (prev.length && prev[prev.length - 1].role === 'assistant' && !streamedAny ? prev.slice(0, -1) : prev));
+          const code = (streamErr as { code?: number }).code;
+          if (code === 402) throw streamErr;  // access -> outer handler
+          // Otherwise fall back to the JSON path for a clean answer.
+          const resp = await helpApi.chat(text, history, page, sentAttachments);
+          applyResponse(resp, !streamedAny ? false : true);
+          setSending(false);
+          return;
+        }
+        if (meta === null) {
+          // Explicit fallback signal (delegation / edge case): drop placeholder, use JSON.
+          setMessages((prev) => (prev.length && prev[prev.length - 1].role === 'assistant' ? prev.slice(0, -1) : prev));
+          const resp = await helpApi.chat(text, history, page, sentAttachments);
+          applyResponse(resp, false);
+        } else if (meta) {
+          applyResponse(meta, true);
+        } else {
+          // No meta and no fallback: drop placeholder and use JSON.
+          setMessages((prev) => (prev.length && prev[prev.length - 1].role === 'assistant' ? prev.slice(0, -1) : prev));
+          const resp = await helpApi.chat(text, history, page, sentAttachments);
+          applyResponse(resp, false);
+        }
       }
     } catch (e) {
       const err = e as Error & { code?: number; message?: string };
       if (err.code === 402) {
         setStatus((s) => (s ? { ...s, has_access: false, reason: 'no_active_subscription' } : s));
       } else if (err.code === 429) {
-        setError("You've reached the daily limit. Try again tomorrow.");
+        setError("You've hit the rate limit for a moment. Please try again shortly.");
       } else {
-        // Surface the underlying message so non-obvious failures (422, 500, etc.)
-        // are diagnosable instead of always reading 'Something went wrong'.
         const msg = (err?.message || '').trim();
         setError(msg ? `Couldn't reach the assistant: ${msg}` : 'Something went wrong. Please try again.');
       }
