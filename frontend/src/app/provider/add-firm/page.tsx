@@ -152,7 +152,7 @@ function AddFirmContent() {
                   <li className="flex items-center gap-2"><CheckCircle className="h-4 w-4 text-blue-500" /> One-time fee, no subscription</li>
                 </ul>
                 <Button
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                  className="w-full bg-primary hover:bg-primary/90 text-white"
                   onClick={handleStartPayment}
                   disabled={isLoading}
                 >
@@ -218,7 +218,7 @@ function AddFirmContent() {
                 <Button variant="outline" onClick={() => setStep('select')} className="flex-1">
                   Back
                 </Button>
-                <Button className="flex-1 bg-blue-600 hover:bg-blue-700 text-white" onClick={handlePaymentConfirm}>
+                <Button className="flex-1 bg-primary hover:bg-primary/90 text-white" onClick={handlePaymentConfirm}>
                   <CreditCard className="h-4 w-4 mr-2" />
                   Confirm Payment
                 </Button>
@@ -286,7 +286,7 @@ function AddFirmContent() {
                   Back
                 </Button>
                 <Button
-                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                  className="flex-1 bg-primary hover:bg-primary/90 text-white"
                   onClick={handleSelfRegisterSubmit}
                   disabled={isLoading}
                 >
@@ -369,7 +369,7 @@ function AddFirmContent() {
             <Button variant="outline" onClick={() => router.push('/provider/dashboard')}>
               Go to Dashboard
             </Button>
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white" onClick={() => router.push('/provider/claim')}>
+            <Button className="bg-primary hover:bg-primary/90 text-white" onClick={() => router.push('/provider/claim')}>
               Claim Existing Listing
             </Button>
           </div>

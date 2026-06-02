@@ -193,7 +193,7 @@ export default function ProviderClaimPage() {
           </p>
           <div className="flex flex-wrap gap-2">
             <Link href="/provider/add-firm">
-              <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+              <Button size="sm" className="bg-primary hover:bg-primary/90 text-white text-xs">
                 Create New Listing ($100)
                 <ArrowRight className="ml-1 h-3 w-3" />
               </Button>

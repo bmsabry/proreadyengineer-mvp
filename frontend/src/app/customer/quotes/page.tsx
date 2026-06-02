@@ -132,7 +132,7 @@ export default function CustomerQuotesPage() {
             {error.includes('log in') && (
               <Link
                 href="/login"
-                className="mt-4 inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+                className="mt-4 inline-block bg-primary text-white px-6 py-2 rounded-lg hover:bg-primary/90"
               >Log In</Link>
             )}
           </div>
@@ -147,7 +147,7 @@ export default function CustomerQuotesPage() {
             </p>
             <Link
               href="/search"
-              className="inline-block bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+              className="inline-block bg-primary text-white px-8 py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
             >
               Find Engineering Firms
             </Link>

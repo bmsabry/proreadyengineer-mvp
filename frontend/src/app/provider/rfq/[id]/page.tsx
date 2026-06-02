@@ -121,7 +121,7 @@ function LockedCard({ status, onUnlock, checkingOut }: { status: UnlockStatus; o
         )}
       </CardContent>
       <CardFooter className="flex flex-col gap-3">
-        <Button onClick={onUnlock} disabled={checkingOut} size="lg" className="w-full bg-blue-600 hover:bg-blue-700 text-white">
+        <Button onClick={onUnlock} disabled={checkingOut} size="lg" className="w-full bg-primary hover:bg-primary/90 text-white">
           {checkingOut
             ? <><Loader2 className="h-4 w-4 mr-2 animate-spin"/>Processing...</>
             : status.is_annual_subscriber

@@ -33,7 +33,7 @@ export default function Error({
         <p className="text-gray-600 mb-2 text-sm">{error?.message || "An unexpected error occurred"}</p>
         {error?.digest && <p className="text-xs text-gray-600 mb-4">Error ID: {error.digest}</p>}
         <div className="flex gap-2">
-          <button onClick={handleRetry} className="bg-blue-600 text-white px-4 py-2 rounded text-sm hover:bg-blue-700">
+          <button onClick={handleRetry} className="bg-primary text-white px-4 py-2 rounded text-sm hover:bg-primary/90">
             {retryCount < 2 ? "Try Again" : "Go Home"}
           </button>
           <button onClick={() => { if (typeof window !== "undefined") window.location.reload(); }} className="bg-gray-100 text-gray-700 px-4 py-2 rounded text-sm border hover:bg-gray-200">
