@@ -949,3 +949,205 @@ async def answer_question(
         "latency_ms": res.get("latency_ms"),
         "cost_usd": cost4,
     }
+
+
+# ---------------------------------------------------------------------------
+# Streaming (additive). The non-streaming answer_question above is the proven
+# path and is intentionally left untouched. This streaming path mirrors its
+# happy-case prep, and for ANY non-happy condition (no message, attachments,
+# budget cap, missing key, out-of-scope, or a DELEGATE handoff) it yields a
+# ("fallback", None) sentinel so the caller transparently falls back to the
+# non-streaming /help/chat endpoint — guaranteeing identical behaviour there.
+# ---------------------------------------------------------------------------
+
+# Control lines the model emits at the END of a reply that must never be shown.
+_CONTROL_PREFIXES = (
+    _ACTION_PREFIX.upper(), _LINK_PREFIX.upper(), _MEMORY_PREFIX.upper(),
+    _PROFILE_DATA_PREFIX.upper(), _DELEGATE_PREFIX.upper(),
+)
+
+
+def _is_control_line(line: str) -> bool:
+    st = line.strip().upper()
+    return any(st.startswith(p) for p in _CONTROL_PREFIXES)
+
+
+async def _call_llm_stream(cfg, messages, *, max_tokens: int = 4000, temperature: float = 0.3):
+    """Async generator over an OpenAI-compatible streaming chat-completion.
+    Yields ("delta", text), ("usage", dict), or ("error", message)."""
+    payload = {
+        "model": cfg["model"],
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    import json as _json
+    url = f"{str(cfg['base']).rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as resp:
+                if resp.status_code >= 400:
+                    body = (await resp.aread()).decode("utf-8", "replace")[:300]
+                    yield ("error", f"llm_http_{resp.status_code}: {body}")
+                    return
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        obj = _json.loads(data)
+                    except Exception:
+                        continue
+                    ch = obj.get("choices") or []
+                    if ch:
+                        txt = (ch[0].get("delta") or {}).get("content")
+                        if txt:
+                            yield ("delta", txt)
+                    if obj.get("usage"):
+                        yield ("usage", obj["usage"])
+    except Exception as exc:
+        yield ("error", f"llm_stream_failed: {exc}")
+
+
+async def answer_question_stream(
+    db: AsyncSession,
+    user: Optional[User],
+    history: List[Dict[str, Any]],
+    user_message: str,
+    page: Optional[str] = None,
+    attachments: Optional[List[Dict[str, Any]]] = None,
+):
+    """Async generator yielding ("token", text), then a single ("meta", dict),
+    OR ("fallback", None) to defer to the non-streaming path."""
+    user_message = (user_message or "").strip()[:_MAX_USER_MESSAGE_CHARS]
+    atts = attachments or []
+    if not user_message or atts:
+        yield ("fallback", None); return
+
+    from app.core.config import settings as _settings
+    rt_cfg: Dict[str, Any] = {}
+    try:
+        from app.services.config_service import get_runtime_config
+        rt_cfg = await get_runtime_config(db)
+    except Exception:
+        rt_cfg = {}
+    budget = float(getattr(_settings, "CHATBOT_MONTHLY_BUDGET_USD", 15.0))
+    is_admin = bool(user and "admin" in (user.roles or []))
+    if user is not None and not is_admin:
+        if await _user_month_cost(db, user.id) >= budget:
+            yield ("fallback", None); return
+
+    chat_cfg = await _get_chat_llm_config(db)
+    if not chat_cfg["api_key"]:
+        yield ("fallback", None); return
+
+    roles = list(user.roles or []) if user else []
+    account_ctx = ""
+    if user is not None:
+        try:
+            from app.services.help_context import build_account_context, render_account_context
+            _snap = await build_account_context(db, user)
+            account_ctx = render_account_context(_snap, page=page)
+        except Exception as exc:
+            logger.info("[help_service] (stream) account context failed: %s", exc)
+
+    grounding, max_sim = await _get_grounding(db, user_message)
+    if (max_sim is not None and max_sim < _SCOPE_MIN_SIM
+            and not _looks_account_related(user_message)
+            and not _looks_engineering(user_message)):
+        yield ("fallback", None); return
+
+    _autonomous = bool(getattr(user, "agent_autonomous_enabled", False)) if user else False
+    system_prompt = _build_system_prompt(grounding, user, roles, account_context=account_ctx,
+                                         autonomous=_autonomous, is_admin=is_admin, page=page)
+    safe_history = _sanitize_history(history)
+    messages: List[Dict[str, str]] = [{"role": "system", "content": system_prompt}]
+    messages.extend(safe_history)
+    if not safe_history or safe_history[-1]["role"] != "user" or safe_history[-1]["content"] != user_message:
+        messages.append({"role": "user", "content": user_message})
+
+    t0 = time.time()
+    full = ""
+    flushed = 0
+    decided = False  # whether we've ruled out a DELEGATE handoff
+    usage: Dict[str, Any] = {}
+    stream_error: Optional[str] = None
+
+    async for kind, val in _call_llm_stream(chat_cfg, messages, max_tokens=4000, temperature=0.3):
+        if kind == "usage":
+            usage = val or {}
+            continue
+        if kind == "error":
+            stream_error = val
+            break
+        # kind == "delta"
+        full += val
+        if not decided:
+            stripped = full.lstrip()
+            if len(stripped) >= len(_DELEGATE_PREFIX):
+                if stripped.upper().startswith(_DELEGATE_PREFIX):
+                    yield ("fallback", None); return  # hand off to JSON path
+                decided = True
+            else:
+                continue  # too short to tell yet; keep buffering
+        # Flush completed, non-control lines (hold the in-progress last line).
+        lines = full.split("\n")
+        complete = lines[:-1]
+        visible_parts = []
+        for ln in complete:
+            if _is_control_line(ln):
+                break
+            visible_parts.append(ln)
+        visible = "\n".join(visible_parts)
+        if len(visible) > flushed:
+            yield ("token", visible[flushed:])
+            flushed = len(visible)
+
+    # If the stream errored before we emitted anything, fall back cleanly.
+    if stream_error and flushed == 0 and not full.strip():
+        yield ("fallback", None); return
+
+    # Flush any remaining safe text (the final in-progress line if not control).
+    if not stream_error:
+        final_lines = []
+        for ln in full.split("\n"):
+            if _is_control_line(ln):
+                break
+            final_lines.append(ln)
+        final_visible = "\n".join(final_lines)
+        if len(final_visible) > flushed:
+            yield ("token", final_visible[flushed:])
+            flushed = len(final_visible)
+
+    reply = full.strip()
+    latency_ms = int((time.time() - t0) * 1000)
+    pt = usage.get("prompt_tokens") or max(1, sum(len(str(m.get("content", ""))) for m in messages) // 4)
+    ct = usage.get("completion_tokens") or max(1, len(reply) // 4)
+    cost4 = _estimate_cost(chat_cfg.get("model"), pt, ct, rt_cfg)
+
+    # Post-process the FULL text exactly like the non-streaming path.
+    clean, action = _extract_action(reply)
+    clean, links = _extract_links(clean)
+    clean, _mem_note = _extract_memory(clean)
+    await _persist_memory(db, user, _mem_note)
+    auto = await _maybe_autoexecute(db, user, action, atts, page=page)
+
+    yield ("meta", {
+        "reply": clean,
+        "links": links,
+        "action": None if auto else action,
+        "action_result": auto,
+        "model": chat_cfg.get("model"),
+        "delegated": False,
+        "prompt_tokens": pt,
+        "completion_tokens": ct,
+        "total_tokens": usage.get("total_tokens") or (pt + ct),
+        "latency_ms": latency_ms,
+        "cost_usd": cost4,
+        "error": stream_error,
+    })
