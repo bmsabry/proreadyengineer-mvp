@@ -229,6 +229,16 @@ Four configurable LLMs (originally "the three LLMs"; LLM4 added for the chatbot)
      advice and no safety-critical engineering sign-off.
    - **Cost accuracy:** uses real API `usage` tokens with a char-based (~4 chars/token) fallback
      in `_call_llm` so a turn is never undercounted to $0 if usage is omitted.
+   - **Cross-session memory (2026-06-01):** `users.assistant_memory` (Text, migration
+     `w9x0y1z2a3b4`) stores short notes the user asks the assistant to remember. The model
+     emits a trailing `MEMORY: <note>` line (or `MEMORY: CLEAR`); `_extract_memory` strips it
+     and `_persist_memory` appends to the user's own row (capped ~1500 chars, dedup, this-user
+     only). It's injected back into the system prompt under a REMEMBERED block. Scoped strictly
+     to the signed-in user — never another party's data.
+   - **Compare-quotes (2026-06-01):** the customer snapshot includes their OWN received quotes
+     ANONYMIZED (Quote 1/2/3 — price/turnaround/scope/assumptions, no provider identity) for up
+     to 3 open RFQs; the assistant may compare/recommend but must never reveal or guess which
+     provider submitted a quote, nor discuss providers on the platform (legal/ethical hard line).
 
    **Operating Cost panel (admin, 2026-05-30):** `/admin/operating-cost` (endpoint
    `GET /admin/operating-cost`) shows where money goes: LLM cost per model from REAL token

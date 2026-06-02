@@ -107,6 +107,11 @@ class User(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # Short, user-controlled notes the AI Help Assistant remembers across chat
+    # sessions (the signed-in user's OWN stated preferences/context). Capped in
+    # app code; scoped to this user only — never another user's data.
+    assistant_memory: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     # Provider invite: stores provider_id from invite token at registration
     linked_provider_id: Mapped[Optional[int]] = mapped_column(
         Integer, nullable=True, default=None
