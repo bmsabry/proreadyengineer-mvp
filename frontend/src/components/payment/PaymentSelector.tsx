@@ -46,7 +46,7 @@ export default function PaymentSelector({
         type="button"
         onClick={handleStripeClick}
         disabled={isDisabled}
-        className="w-full flex items-center justify-center gap-2 rounded-md bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {(stripeProcessing || stripe.stripeLoading) ? (
           <>
@@ -61,7 +61,7 @@ export default function PaymentSelector({
         )}
       </button>
 
-      <p className="text-center text-xs text-gray-400">
+      <p className="text-center text-xs text-gray-600">
         Powered by Stripe &mdash; all major cards accepted
       </p>
     </div>

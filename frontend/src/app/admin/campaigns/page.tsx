@@ -94,7 +94,7 @@ function StatCard({
   sub?: string;
   color?: string;
 }) {
-  const colorClass = color || 'text-[#0F2B54]';
+  const colorClass = color || 'text-primary';
   return (
     <div className="bg-slate-50 rounded-xl p-4 border border-slate-200">
       <div className={`text-2xl font-bold ${colorClass}`}>{value}</div>
@@ -121,10 +121,10 @@ function SectionCard({
         className={`flex items-center gap-3 px-6 py-4 border-b border-slate-100${collapsible ? ' cursor-pointer hover:bg-slate-50' : ''}`}
         onClick={() => { if (collapsible) setOpen((o) => !o); }}
       >
-        <div className="w-8 h-8 rounded-lg bg-[#0F2B54]/10 flex items-center justify-center">
-          <Icon className="h-4 w-4 text-[#0F2B54]" />
+        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+          <Icon className="h-4 w-4 text-primary" />
         </div>
-        <h2 className="font-semibold text-[#0F2B54] text-sm flex-1">{title}</h2>
+        <h2 className="font-semibold text-primary text-sm flex-1">{title}</h2>
         {collapsible && (open
           ? <ChevronUp className="h-4 w-4 text-slate-400" />
           : <ChevronDown className="h-4 w-4 text-slate-400" />
@@ -400,7 +400,7 @@ export default function CampaignsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h3 className="font-semibold text-[#0F2B54]">Email Preview</h3>
+              <h3 className="font-semibold text-primary">Email Preview</h3>
               <button onClick={() => setShowPreview(false)} className="text-slate-400 hover:text-slate-600 text-xl">&times;</button>
             </div>
             <div style={{ maxHeight: '72vh', overflowY: 'auto' }}>
@@ -416,11 +416,11 @@ export default function CampaignsPage() {
         <SectionCard title="Email Composer" icon={Mail} collapsible defaultOpen>
           <div className="space-y-4">
             {/* Draft with AI */}
-            <div className="rounded-lg border border-[#0F2B54]/15 bg-[#0F2B54]/[0.03] p-3">
+            <div className="rounded-lg border border-primary/15 bg-primary/[0.03] p-3">
               <button
                 type="button"
                 onClick={() => setShowAiDraft((v) => !v)}
-                className="flex items-center gap-2 text-sm font-semibold text-[#0F2B54]"
+                className="flex items-center gap-2 text-sm font-semibold text-primary"
               >
                 <Sparkles className="h-4 w-4" />
                 Draft with AI
@@ -436,13 +436,13 @@ export default function CampaignsPage() {
                     value={aiBrief}
                     onChange={(e) => setAiBrief(e.target.value)}
                     rows={3}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20 resize-y"
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 resize-y"
                     placeholder="e.g. Invite mechanical-engineering firms to claim a free founding-member profile; emphasize no upfront cost and early-access to RFQs; friendly but professional."
                   />
                   <button
                     onClick={doDraftWithAI}
                     disabled={busy === 'draft'}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#0F2B54] hover:bg-[#0F2B54]/90 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
+                    className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
                   >
                     {busy === 'draft' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                     Generate draft
@@ -456,7 +456,7 @@ export default function CampaignsPage() {
                 type="text"
                 value={fSubj}
                 onChange={(e) => setFSubj(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                 placeholder="Email subject line..."
               />
             </div>
@@ -468,7 +468,7 @@ export default function CampaignsPage() {
                     <span
                       key={v}
                       onClick={() => setFBody((b) => b + v)}
-                      className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded cursor-pointer hover:bg-[#0F2B54]/10 transition-colors"
+                      className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded cursor-pointer hover:bg-primary/10 transition-colors"
                     >
                       {v}
                     </span>
@@ -479,7 +479,7 @@ export default function CampaignsPage() {
                 value={fBody}
                 onChange={(e) => setFBody(e.target.value)}
                 rows={10}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20 resize-y"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 resize-y"
                 placeholder="Leave blank to use the default branded template. Click variable chips above to insert them."
               />
               <p className="text-xs text-slate-400 mt-1">Leave blank to use the default ProMechDirectory branded template.</p>
@@ -506,24 +506,24 @@ export default function CampaignsPage() {
                 type="text"
                 value={fName}
                 onChange={(e) => setFName(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Founding Slots</label>
               <input type="number" value={fSlots} onChange={(e) => setFSlots(Number(e.target.value))} min={1} max={10000}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20" />
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
               <p className="text-xs text-slate-400 mt-1">First N registrants get free access</p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Free Duration (days)</label>
               <input type="number" value={fDays} onChange={(e) => setFDays(Number(e.target.value))} min={1} max={365}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20" />
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider">Batch Size / Day</label>
               <input type="number" value={fBatch} onChange={(e) => setFBatch(Number(e.target.value))} min={1} max={1000}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20" />
+                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20" />
               <p className="text-xs text-slate-400 mt-1">Emails sent per batch</p>
             </div>
           </div>
@@ -539,7 +539,7 @@ export default function CampaignsPage() {
                 onClick={() => setTargetMode('all')}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors border ${
                   targetMode === 'all'
-                    ? 'bg-[#0F2B54] text-white border-[#0F2B54]'
+                    ? 'bg-primary text-white border-primary'
                     : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                 }`}
               >
@@ -550,7 +550,7 @@ export default function CampaignsPage() {
                 onClick={() => setTargetMode('selected')}
                 className={`px-4 py-2 rounded-lg text-sm font-semibold transition-colors border ${
                   targetMode === 'selected'
-                    ? 'bg-[#0F2B54] text-white border-[#0F2B54]'
+                    ? 'bg-primary text-white border-primary'
                     : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                 }`}
               >
@@ -573,7 +573,7 @@ export default function CampaignsPage() {
                     value={firmSearch}
                     onChange={(e) => setFirmSearch(e.target.value)}
                     placeholder="Search firm by name..."
-                    className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#0F2B54]/20"
+                    className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
                   {firmSearching && (
                     <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-slate-400" />
@@ -592,7 +592,7 @@ export default function CampaignsPage() {
                             }
                           }}
                           className={`w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-50 last:border-0 flex items-center justify-between ${
-                            selectedFirms.find((f) => f.id === r.id) ? 'bg-[#0F2B54]/5' : ''
+                            selectedFirms.find((f) => f.id === r.id) ? 'bg-primary/5' : ''
                           }`}
                         >
                           <div>
@@ -629,7 +629,7 @@ export default function CampaignsPage() {
                     </p>
                     <div className="flex flex-wrap gap-2">
                       {selectedFirms.map((f) => (
-                        <span key={f.id} className="inline-flex items-center gap-1.5 bg-[#0F2B54]/10 text-[#0F2B54] text-xs font-medium px-3 py-1.5 rounded-full">
+                        <span key={f.id} className="inline-flex items-center gap-1.5 bg-primary/10 text-primary text-xs font-medium px-3 py-1.5 rounded-full">
                           {f.firm_name}
                           {f.city ? ', ' + f.city : ''}
                           <button
@@ -656,7 +656,7 @@ export default function CampaignsPage() {
             <button
               onClick={createCampaign}
               disabled={busy === 'create'}
-              className="flex items-center gap-2 px-6 py-2.5 bg-[#0F2B54] hover:bg-[#1a3a6b] text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-60"
+              className="flex items-center gap-2 px-6 py-2.5 bg-primary hover:bg-primary/90 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-60"
             >
               {busy === 'create' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
               Create Campaign
@@ -681,7 +681,7 @@ export default function CampaignsPage() {
                     <span className="font-semibold">{cam.total_sent.toLocaleString()} / {cam.total_providers.toLocaleString()}</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-2.5">
-                    <div className="bg-[#0F2B54] h-2.5 rounded-full transition-all" style={{ width: `${sentPct}%` }} />
+                    <div className="bg-primary h-2.5 rounded-full transition-all" style={{ width: `${sentPct}%` }} />
                   </div>
                 </div>
                 <div>
@@ -767,7 +767,7 @@ export default function CampaignsPage() {
                     <button
                       key={s}
                       onClick={() => { setStatusF(s); setPage(0); }}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${statusF === s ? 'bg-[#0F2B54] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${statusF === s ? 'bg-primary text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                     >
                       {tabLabel}
                     </button>

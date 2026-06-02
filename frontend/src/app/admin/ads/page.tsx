@@ -359,12 +359,12 @@ export default function AdminAdsPage() {
       <div className="bg-white border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-6 py-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Megaphone className="h-6 w-6 text-[#0F2B54]" />
+            <Megaphone className="h-6 w-6 text-primary" />
             <h1 className="text-xl font-bold text-slate-900">Ad Management</h1>
           </div>
           <button
             onClick={() => setShowCreate(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#0a1f3e] transition-colors"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors"
           >
             <Plus className="h-4 w-4" />
             Create Advertisement
@@ -413,7 +413,7 @@ export default function AdminAdsPage() {
               key={t.key}
               onClick={() => setTab(t.key)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                tab === t.key ? 'bg-[#0F2B54] text-white' : 'text-slate-600 hover:bg-slate-100'
+                tab === t.key ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
               {t.label}
@@ -434,7 +434,7 @@ export default function AdminAdsPage() {
             <div className="p-12 text-center">
               <Megaphone className="h-8 w-8 text-slate-300 mx-auto mb-3" />
               <p className="text-sm text-slate-500 mb-2">No ads found for this filter.</p>
-              <button onClick={() => setShowCreate(true)} className="text-sm text-[#0F2B54] font-medium hover:underline">
+              <button onClick={() => setShowCreate(true)} className="text-sm text-primary font-medium hover:underline">
                 Create one now
               </button>
             </div>
@@ -575,7 +575,7 @@ export default function AdminAdsPage() {
                 </div>
                 <button
                   onClick={() => { resetCreateModal(); fetchAds(); fetchAnalytics(); }}
-                  className="w-full py-2.5 rounded-xl bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#0a1f3e]"
+                  className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:bg-primary/90"
                 >
                   Done
                 </button>
@@ -685,7 +685,7 @@ export default function AdminAdsPage() {
                 )}
 
                 <button onClick={handleCreate} disabled={createLoading || !selectedProvider}
-                  className="w-full py-3 rounded-xl bg-[#0F2B54] text-white text-sm font-semibold hover:bg-[#0a1f3e] disabled:opacity-60 flex items-center justify-center gap-2">
+                  className="w-full py-3 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 flex items-center justify-center gap-2">
                   {createLoading ? <><Loader2 className="h-4 w-4 animate-spin" />Generating with AI...</> : <><Sparkles className="h-4 w-4" />Create &amp; Auto-Approve</>}
                 </button>
               </div>
@@ -919,7 +919,7 @@ export default function AdminAdsPage() {
               )}
 
               <button onClick={handleEditSave} disabled={editLoading}
-                className="w-full py-2.5 rounded-xl bg-[#0F2B54] text-white text-sm font-semibold hover:bg-[#0a1f3e] disabled:opacity-60 flex items-center justify-center gap-2">
+                className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:opacity-60 flex items-center justify-center gap-2">
                 {editLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Pencil className="h-4 w-4" />} Save Changes
               </button>
             </div>

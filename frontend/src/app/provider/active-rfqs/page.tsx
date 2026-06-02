@@ -96,9 +96,9 @@ export default function ActiveRFQsPage() {
 
       {items.length === 0 ? (
         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-12 text-center max-w-lg mx-auto">
-          <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-300" />
+          <AlertCircle className="h-10 w-10 mx-auto mb-3 text-slate-500" />
           <p className="text-base font-medium text-slate-500">No active RFQs right now</p>
-          <p className="text-sm text-slate-400 mt-1 mb-4">
+          <p className="text-sm text-slate-500 mt-1 mb-4">
             Unlocked RFQs where you haven&apos;t submitted a quote yet will appear here.
           </p>
           <Link href="/provider/all-rfqs">
@@ -135,7 +135,7 @@ export default function ActiveRFQsPage() {
 
               {/* Date */}
               {(t as any).created_at && (
-                <p className="text-xs text-slate-400 mb-3">
+                <p className="text-xs text-slate-500 mb-3">
                   Received {formatDate((t as any).created_at)}
                 </p>
               )}
@@ -143,7 +143,7 @@ export default function ActiveRFQsPage() {
               <Button
                 size="sm"
                 onClick={() => router.push(`/provider/rfq/${t.rfq_id}`)}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs flex items-center justify-center gap-1 mt-auto"
+                className="w-full bg-primary hover:bg-primary/90 text-white text-xs flex items-center justify-center gap-1 mt-auto"
               >
                 Submit Quote <ArrowRight size={12} />
               </Button>

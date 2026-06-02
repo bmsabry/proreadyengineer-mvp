@@ -151,7 +151,7 @@ function AdvertisementStatusCard() {
   if (loading) {
     return (
       <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center gap-3">
-        <Loader2 className="h-4 w-4 text-slate-400 animate-spin shrink-0" />
+        <Loader2 className="h-4 w-4 text-slate-500 animate-spin shrink-0" />
         <p className="text-xs text-slate-500">Loading ad status…</p>
       </div>
     );
@@ -298,7 +298,7 @@ function AdvertisementStatusCard() {
           <p className="text-xs font-bold text-slate-900 truncate">{title}</p>
           <p className="text-[10px] text-slate-500 truncate">{subtitle}</p>
         </div>
-        <ArrowRight className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+        <ArrowRight className="h-3.5 w-3.5 text-slate-500 shrink-0" />
       </button>
 
       {modalOpen && (
@@ -313,7 +313,7 @@ function AdvertisementStatusCard() {
             <button
               type="button"
               onClick={() => setModalOpen(false)}
-              className="absolute top-3 right-3 text-slate-400 hover:text-slate-700"
+              className="absolute top-3 right-3 text-slate-500 hover:text-slate-700"
               aria-label="Close"
             >
               <X className="h-5 w-5" />
@@ -500,7 +500,7 @@ function ProviderAnalyticsPanel({
       {/* Header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <TrendingUp className="h-5 w-5 text-[#0F2B54]" />
+          <TrendingUp className="h-5 w-5 text-primary" />
           <h2 className="text-base font-bold text-slate-900">Activity Summary</h2>
         </div>
         {hasTasks && (
@@ -526,9 +526,9 @@ function ProviderAnalyticsPanel({
             >
               <div className="flex items-center gap-1.5">
                 <FileSignature className="h-3.5 w-3.5 text-violet-500 shrink-0" />
-                <span className="text-xs text-slate-700 group-hover:text-[#0F2B54]">NDA awaiting your signature</span>
+                <span className="text-xs text-slate-700 group-hover:text-primary">NDA awaiting your signature</span>
               </div>
-              <ArrowRight className="h-3 w-3 text-slate-400 group-hover:text-[#0F2B54]" />
+              <ArrowRight className="h-3 w-3 text-slate-500 group-hover:text-primary" />
             </Link>
           ))}
 
@@ -540,14 +540,14 @@ function ProviderAnalyticsPanel({
             >
               <div className="flex items-center gap-1.5">
                 <FileText className="h-3.5 w-3.5 text-blue-500 shrink-0" />
-                <span className="text-xs text-slate-700 group-hover:text-[#0F2B54]">
+                <span className="text-xs text-slate-700 group-hover:text-primary">
                   RFQ awaiting your quote
                   {t.urgency === 'High' && (
                     <span className="ml-1 text-red-500 font-medium">&middot; High priority</span>
                   )}
                 </span>
               </div>
-              <ArrowRight className="h-3 w-3 text-slate-400 group-hover:text-[#0F2B54]" />
+              <ArrowRight className="h-3 w-3 text-slate-500 group-hover:text-primary" />
             </Link>
           ))}
 
@@ -558,14 +558,14 @@ function ProviderAnalyticsPanel({
             >
               <div className="flex items-center gap-1.5">
                 <Phone className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
-                <span className="text-xs text-slate-700 group-hover:text-[#0F2B54]">
+                <span className="text-xs text-slate-700 group-hover:text-primary">
                   Accepted RFQ &mdash; contact the customer
                   {acceptedTasks.length > 1 && (
                     <span className="ml-1 text-emerald-600 font-medium">({acceptedTasks.length})</span>
                   )}
                 </span>
               </div>
-              <ArrowRight className="h-3 w-3 text-slate-400 group-hover:text-[#0F2B54]" />
+              <ArrowRight className="h-3 w-3 text-slate-500 group-hover:text-primary" />
             </Link>
           )}
         </div>
@@ -634,7 +634,7 @@ function ProviderAnalyticsPanel({
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Account</p>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <Calendar className="h-3.5 w-3.5 text-slate-400" />
+            <Calendar className="h-3.5 w-3.5 text-slate-500" />
             <span className="text-xs text-slate-500">Member since</span>
           </div>
           <span className="text-xs font-medium text-slate-700">
@@ -643,7 +643,7 @@ function ProviderAnalyticsPanel({
         </div>
         <div>
           <div className="flex items-center gap-1.5 mb-2">
-            <CreditCard className="h-3.5 w-3.5 text-slate-400" />
+            <CreditCard className="h-3.5 w-3.5 text-slate-500" />
             <span className="text-xs text-slate-500">Subscriptions</span>
           </div>
           {userSubs.length === 0 ? (
@@ -680,7 +680,7 @@ function ProviderAnalyticsPanel({
                       <div className="mt-0.5 flex flex-wrap gap-x-2">
                         <span className="text-[10px] text-slate-500 font-medium">{amount}</span>
                         {periodLabel && (
-                          <span className={`text-[10px] ${sub.billing_interval === 'one_time' ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                          <span className={`text-[10px] ${sub.billing_interval === 'one_time' ? 'text-amber-600 font-semibold' : 'text-slate-500'}`}>
                             {periodLabel}
                           </span>
                         )}
@@ -899,7 +899,7 @@ function ProviderDashboardInner() {
   if (authLoading || isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -933,7 +933,7 @@ function ProviderDashboardInner() {
             </div>
             <Link
               href="/provider/profile"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0F2B54] text-white text-sm font-medium hover:bg-[#0a1f3e] transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium hover:bg-primary/90 transition-colors"
             >
               <span>Manage Profile</span>
               <ArrowRight className="h-4 w-4" />
@@ -964,12 +964,12 @@ function ProviderDashboardInner() {
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
               <div className="flex items-center justify-between mb-5">
                 <div className="flex items-center gap-2">
-                  <Inbox className="h-5 w-5 text-[#0F2B54]" />
+                  <Inbox className="h-5 w-5 text-primary" />
                   <h2 className="text-base font-bold text-slate-900">Recent Active RFQs</h2>
                 </div>
                 <Link
                   href="/provider/all-rfqs"
-                  className="text-xs text-[#0F2B54] font-medium hover:underline flex items-center gap-1"
+                  className="text-xs text-primary font-medium hover:underline flex items-center gap-1"
                 >
                   View all <ArrowRight className="h-3 w-3" />
                 </Link>
@@ -978,7 +978,7 @@ function ProviderDashboardInner() {
               {activeRFQCards.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center">
                   <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
-                    <Inbox className="h-6 w-6 text-slate-400" />
+                    <Inbox className="h-6 w-6 text-slate-500" />
                   </div>
                   <p className="text-sm font-medium text-slate-700 mb-1">No active RFQs</p>
                   <p className="text-xs text-slate-500 max-w-xs">
@@ -1019,7 +1019,7 @@ function ProviderDashboardInner() {
                       )}
                       <Link
                         href={`/provider/rfq/${teaser.rfq_id}`}
-                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#0F2B54] hover:text-[#0a1f3e] transition-colors"
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary transition-colors"
                       >
                         View RFQ <ArrowRight className="h-3 w-3" />
                       </Link>
@@ -1041,7 +1041,7 @@ export default function ProviderDashboard() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[#0F2B54] border-t-transparent rounded-full animate-spin" />
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     }>
       <ProviderDashboardInner />

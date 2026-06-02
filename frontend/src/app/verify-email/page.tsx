@@ -68,7 +68,7 @@ function VerifyEmailContent() {
             </div>
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Email Verified!</h2>
             <p className="text-gray-600 mb-6">{message}</p>
-            <Link href="/login" className="inline-block bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors">
+            <Link href="/login" className="inline-block bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors">
               Go to Login
             </Link>
           </div>
@@ -84,7 +84,7 @@ function VerifyEmailContent() {
             <h2 className="text-xl font-semibold text-gray-900 mb-2">Verification Failed</h2>
             <p className="text-gray-600 mb-6">{message}</p>
             <div className="space-y-3">
-              <Link href="/register" className="block bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors">
+              <Link href="/register" className="block bg-primary text-white px-6 py-3 rounded-lg font-medium hover:bg-primary/90 transition-colors">
                 Register Again
               </Link>
               <Link href="/login" className="block text-blue-600 hover:underline text-sm">

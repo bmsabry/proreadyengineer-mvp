@@ -90,11 +90,11 @@ function StatBox({ icon: Icon, label, value, sub }: {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
       <div className="flex items-center gap-2 mb-1">
-        <Icon className="h-4 w-4 text-gray-400" />
+        <Icon className="h-4 w-4 text-gray-600" />
         <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">{label}</p>
       </div>
       <p className="text-2xl font-bold text-gray-900">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
+      {sub && <p className="mt-0.5 text-xs text-gray-600">{sub}</p>}
     </div>
   );
 }
@@ -111,7 +111,7 @@ function ProviderRow({ p }: { p: DispatchedProvider }) {
           </p>
         )}
         {p.teaser_email_sent_at && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-600">
             Emailed {new Date(p.teaser_email_sent_at).toLocaleString()}
           </p>
         )}
@@ -146,7 +146,7 @@ function BatchCard({ batch }: { batch: BatchDetail }) {
           ))}
         </div>
       ) : (
-        <p className="text-xs italic text-gray-400">No providers contacted yet in this batch.</p>
+        <p className="text-xs italic text-gray-600">No providers contacted yet in this batch.</p>
       )}
     </div>
   );
@@ -164,7 +164,7 @@ function QuoteCard({ q }: { q: QuoteDetail }) {
       <div className="mb-2 flex items-center justify-between">
         <StatusPill s={q.quote_status} />
         {q.submitted_at && (
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-600">
             {new Date(q.submitted_at).toLocaleDateString()}
           </span>
         )}
@@ -270,7 +270,7 @@ export default function RFQTrackingPage() {
         </div>
         <div className="flex items-center gap-2">
           {lastRefresh && (
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-600">
               <Clock className="inline h-3 w-3 mr-1" />
               {lastRefresh.toLocaleTimeString()}
             </span>
@@ -323,7 +323,7 @@ export default function RFQTrackingPage() {
             </div>
             <span className="text-xs font-medium text-gray-600">{quotes_received} / 5 quotes received</span>
           </div>
-          <p className="mt-2 text-xs text-gray-400">
+          <p className="mt-2 text-xs text-gray-600">
             The first 5 quotes received will be shown. All matched providers are contacted in batches until 5 quotes are collected.
           </p>
         </CardContent>

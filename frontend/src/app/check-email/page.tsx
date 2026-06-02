@@ -38,12 +38,12 @@ function CheckEmailContent() {
       <div className="max-w-md w-full bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
         {/* Brand */}
         <Link href="/" className="inline-flex items-center gap-2.5 mb-6 group">
-          <div className="w-10 h-10 rounded-xl bg-[#0F2B54] flex items-center justify-center shadow-md">
+          <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-md">
             <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
             </svg>
           </div>
-          <span className="font-bold text-xl text-[#0F2B54] tracking-tight">ProMechDirectory</span>
+          <span className="font-bold text-xl text-primary tracking-tight">ProMechDirectory</span>
         </Link>
 
         {/* Email icon */}
@@ -83,11 +83,11 @@ function CheckEmailContent() {
         <div className="space-y-3">
           <Link
             href="/login"
-            className="block w-full bg-[#0F2B54] hover:bg-[#1a3a6b] text-white text-sm font-semibold py-3 px-4 rounded-xl transition-all duration-150 shadow-sm hover:shadow-md"
+            className="block w-full bg-primary hover:bg-primary/90 text-white text-sm font-semibold py-3 px-4 rounded-xl transition-all duration-150 shadow-sm hover:shadow-md"
           >
             Go to Login
           </Link>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-slate-500">
             Already verified?{' '}
             <Link href="/login" className="text-blue-600 hover:text-blue-700">Sign in</Link>
           </p>

@@ -412,7 +412,7 @@ function CreateRFQForm() {
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-sm transition-all duration-150 flex items-center justify-center gap-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+              className="w-full h-12 bg-primary hover:bg-primary/90 text-white font-semibold rounded-xl shadow-sm transition-all duration-150 flex items-center justify-center gap-2 text-sm disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
@@ -429,7 +429,7 @@ function CreateRFQForm() {
                 </>
               )}
             </Button>
-            <p className="text-center text-xs text-slate-400 mt-3">
+            <p className="text-center text-xs text-slate-500 mt-3">
               By submitting, you agree to our{' '}
               <Link href="/terms" className="underline hover:text-slate-600">Terms of Service</Link>{' '}
               and{' '}

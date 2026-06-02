@@ -73,7 +73,7 @@ export default function CustomerProfilePage() {
   if (authLoading || !user) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#0F2B54]" />
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary" />
       </div>
     );
   }
@@ -180,16 +180,16 @@ export default function CustomerProfilePage() {
         {/* Account Information */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-            <User className="h-5 w-5 text-[#0F2B54]" />
+            <User className="h-5 w-5 text-primary" />
             <h2 className="font-semibold text-slate-800">Account Information</h2>
           </div>
           <div className="px-6 py-5 grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
-              <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Full Name</label>
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Full Name</label>
               <p className="mt-1 text-slate-800 font-medium">{displayName}</p>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Email Address</label>
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Email Address</label>
               <div className="mt-1 flex items-center gap-2">
                 <p className="text-slate-800 font-medium">{user.email}</p>
                 {emailVerified
@@ -200,40 +200,40 @@ export default function CustomerProfilePage() {
             </div>
             {businessName && (
               <div>
-                <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Business / Entity Name</label>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Business / Entity Name</label>
                 <p className="mt-1 text-slate-800 font-medium">{businessName}</p>
               </div>
             )}
             {entityType && (
               <div>
-                <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Entity Type</label>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Entity Type</label>
                 <p className="mt-1 text-slate-800 font-medium capitalize">{entityType}</p>
               </div>
             )}
             {state && (
               <div>
-                <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">State</label>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">State</label>
                 <p className="mt-1 text-slate-800 font-medium">{state}</p>
               </div>
             )}
             <div>
-              <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Account Created</label>
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Account Created</label>
               <div className="mt-1 flex items-center gap-1.5 text-slate-800 font-medium">
-                <Calendar className="h-4 w-4 text-slate-400" />
+                <Calendar className="h-4 w-4 text-slate-500" />
                 {formattedDate}
               </div>
             </div>
             {lastLogin && (
               <div>
-                <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Last Login</label>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Last Login</label>
                 <div className="mt-1 flex items-center gap-1.5 text-slate-800 font-medium">
-                  <Clock className="h-4 w-4 text-slate-400" />
+                  <Clock className="h-4 w-4 text-slate-500" />
                   {lastLogin.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
             )}
             <div>
-              <label className="text-xs font-medium text-slate-400 uppercase tracking-wide">Account Roles</label>
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Account Roles</label>
               <div className="mt-1 flex flex-wrap gap-1.5">
                 {user.roles.map((role) => (
                   <span key={role} className="px-2 py-0.5 bg-slate-100 text-slate-600 text-xs rounded-full capitalize">{role}</span>
@@ -245,7 +245,7 @@ export default function CustomerProfilePage() {
 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-            <Zap className="h-5 w-5 text-[#0F2B54]" />
+            <Zap className="h-5 w-5 text-primary" />
             <h2 className="font-semibold text-slate-800">Account Tier &amp; Search Quota</h2>
           </div>
           <div className="px-6 py-5">
@@ -263,7 +263,7 @@ export default function CustomerProfilePage() {
                     {cancelAtDate ? (
                       <p className="text-amber-600 text-xs mt-1 font-medium">Cancels on {cancelAtDate} &mdash; access continues until then</p>
                     ) : renewsDate ? (
-                      <p className="text-slate-400 text-xs mt-1">Renews {renewsDate}</p>
+                      <p className="text-slate-500 text-xs mt-1">Renews {renewsDate}</p>
                     ) : null}
                   </div>
                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
@@ -310,7 +310,7 @@ export default function CustomerProfilePage() {
                       style={{ width: searchPercent + '%' }}
                     />
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">{searchesRemaining} searches remaining this month</p>
+                  <p className="text-xs text-slate-500 mt-1">{searchesRemaining} searches remaining this month</p>
                 </div>
                 {ndaCreditsTotal > 0 && (
                   <div className="border-t border-slate-100 pt-4">
@@ -324,7 +324,7 @@ export default function CustomerProfilePage() {
                         style={{ width: ndaPercent + '%' }}
                       />
                     </div>
-                    <p className="text-xs text-slate-400 mt-1">{ndaCreditsRemaining} NDAs remaining &#xB7; $50 value included with your plan</p>
+                    <p className="text-xs text-slate-500 mt-1">{ndaCreditsRemaining} NDAs remaining &#xB7; $50 value included with your plan</p>
                   </div>
                 )}
               </div>
@@ -333,14 +333,14 @@ export default function CustomerProfilePage() {
                 <div className="flex items-start justify-between">
                   <div>
                     <div className="flex items-center gap-2">
-                      <User className="h-5 w-5 text-slate-400" />
+                      <User className="h-5 w-5 text-slate-500" />
                       <span className="font-semibold text-slate-800 text-lg">Free Account</span>
                     </div>
                     <p className="text-slate-500 text-sm mt-0.5">5 searches / month &middot; No charge</p>
                   </div>
                   <Link
                     href="/billing"
-                    className="px-4 py-2 bg-[#0F2B54] text-white rounded-lg text-sm font-semibold hover:bg-[#1a3a6b] transition-colors flex items-center gap-1.5"
+                    className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-semibold hover:bg-primary/90 transition-colors flex items-center gap-1.5"
                   >
                     <Zap className="h-4 w-4" /> Upgrade &mdash; $50/mo
                   </Link>
@@ -356,7 +356,7 @@ export default function CustomerProfilePage() {
                       style={{ width: searchPercent + '%' }}
                     />
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">{searchesRemaining} searches remaining &middot; Upgrade for 100/month</p>
+                  <p className="text-xs text-slate-500 mt-1">{searchesRemaining} searches remaining &middot; Upgrade for 100/month</p>
                 </div>
                 <div className="p-4 bg-blue-50 border border-blue-100 rounded-lg">
                   <p className="text-sm text-blue-800 font-medium">&#x1F680; Upgrade to Search Plan &mdash; $50/mo or $500/yr</p>
@@ -370,14 +370,14 @@ export default function CustomerProfilePage() {
         {/* Security & Password */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm">
           <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
-            <Shield className="h-5 w-5 text-[#0F2B54]" />
+            <Shield className="h-5 w-5 text-primary" />
             <h2 className="font-semibold text-slate-800">Security</h2>
           </div>
           <div className="px-6 py-5 space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-slate-800">Password</p>
-                <p className="text-xs text-slate-400 mt-0.5">Last changed: unknown</p>
+                <p className="text-xs text-slate-500 mt-0.5">Last changed: unknown</p>
               </div>
               <Link
                 href="/forgot-password"
@@ -389,7 +389,7 @@ export default function CustomerProfilePage() {
             <div className="flex items-center justify-between pt-3 border-t border-slate-100">
               <div>
                 <p className="text-sm font-medium text-slate-800">Email Verification</p>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-xs text-slate-500 mt-0.5">
                   {emailVerified ? 'Your email address is verified.' : 'Please verify your email address.'}
                 </p>
               </div>

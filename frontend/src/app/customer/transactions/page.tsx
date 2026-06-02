@@ -128,12 +128,12 @@ export default function CustomerTransactionsPage() {
         </a>
       );
     }
-    return <span className="text-xs text-slate-400">{txn.note || '—'}</span>;
+    return <span className="text-xs text-slate-500">{txn.note || '—'}</span>;
   };
 
   if (authLoading || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-slate-400">
+      <div className="min-h-screen flex items-center justify-center text-slate-500">
         <RefreshCw className="h-5 w-5 animate-spin mr-2" /> Loading your transactions…
       </div>
     );
@@ -168,7 +168,7 @@ export default function CustomerTransactionsPage() {
       )}
 
       {txns.length === 0 ? (
-        <div className="text-center py-16 text-slate-400">
+        <div className="text-center py-16 text-slate-500">
           <Receipt className="h-8 w-8 mx-auto mb-2 opacity-50" />
           <p className="text-sm">You don&apos;t have any transactions yet.</p>
         </div>
@@ -196,10 +196,10 @@ export default function CustomerTransactionsPage() {
                       </div>
                     )}
                     {txn.category === 'membership' && txn.within_window === false && (
-                      <div className="text-xs text-slate-400 mt-0.5">Refund window passed</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Refund window passed</div>
                     )}
                     {txn.category === 'one_time' && (
-                      <div className="text-xs text-slate-400 mt-0.5">Non-refundable fee</div>
+                      <div className="text-xs text-slate-500 mt-0.5">Non-refundable fee</div>
                     )}
                   </td>
                   <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{txn.amount_display}</td>

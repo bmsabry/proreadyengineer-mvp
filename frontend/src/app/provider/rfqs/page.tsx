@@ -71,11 +71,11 @@ export default function RFQsPage() {
           <div className="space-y-3">
             <p className="text-sm font-semibold text-slate-700">Choose how to list your firm to start receiving RFQs:</p>
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><div className="flex items-center gap-2 mb-1.5"><span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-emerald-600 text-white">FREE</span><h3 className="text-sm font-semibold text-emerald-900">Find &amp; Claim Existing Listing</h3></div><p className="text-xs text-emerald-700 mb-3">Search our database of 5,400+ firms. If yours is listed, claim it instantly.</p><Link href="/provider/claim"><Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs w-full rounded-xl">Search My Firm</Button></Link></div>
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-center gap-2 mb-1.5"><span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-[#0F2B54] text-white">$100</span><h3 className="text-sm font-semibold text-blue-900">Self-Service New Listing</h3></div><p className="text-xs text-blue-700 mb-3">Create your own profile with description, specialties, and notable projects.</p><Link href="/provider/add-firm"><Button size="sm" className="bg-[#0F2B54] hover:bg-[#1a3a6b] text-white text-xs w-full rounded-xl">Create My Listing</Button></Link></div>
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4"><div className="flex items-center gap-2 mb-1.5"><span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-primary text-white">$100</span><h3 className="text-sm font-semibold text-blue-900">Self-Service New Listing</h3></div><p className="text-xs text-blue-700 mb-3">Create your own profile with description, specialties, and notable projects.</p><Link href="/provider/add-firm"><Button size="sm" className="bg-primary hover:bg-primary/90 text-white text-xs w-full rounded-xl">Create My Listing</Button></Link></div>
             <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4"><div className="flex items-center gap-2 mb-1.5"><span className="rounded-full px-2.5 py-0.5 text-xs font-semibold bg-purple-600 text-white">$750</span><h3 className="text-sm font-semibold text-purple-900">AI-Assisted Premium Listing</h3></div><p className="text-xs text-purple-700 mb-3">Our team builds a comprehensive, optimized profile from your materials.</p><Link href="/provider/add-firm?tier=premium"><Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-white text-xs w-full rounded-xl">Request AI Listing</Button></Link></div>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center"><Mail className="h-10 w-10 mx-auto mb-3 text-slate-300" /><p className="text-slate-500">No RFQs found for this filter.</p></div>
+          <div className="rounded-xl border border-slate-200 bg-white p-10 text-center"><Mail className="h-10 w-10 mx-auto mb-3 text-slate-500" /><p className="text-slate-500">No RFQs found for this filter.</p></div>
         ) : (
           <div className="space-y-4">
             {filtered.map(t => (
@@ -94,7 +94,7 @@ export default function RFQsPage() {
                   {(t.status === 'unlocked' || t.status === 'quoted') ? (
                     <Button size="sm" variant="outline" onClick={() => router.push('/provider/rfq/' + t.rfq_id)} className="gap-1 rounded-xl text-xs shrink-0">View Details <ArrowRight className="h-3 w-3" /></Button>
                   ) : (
-                    <Button size="sm" onClick={() => router.push('/provider/rfq/' + t.rfq_id)} className="bg-[#0F2B54] hover:bg-[#1a3a6b] text-white gap-1 rounded-xl text-xs shrink-0"><Lock className="h-3 w-3" /> View &amp; Unlock ($50)</Button>
+                    <Button size="sm" onClick={() => router.push('/provider/rfq/' + t.rfq_id)} className="bg-primary hover:bg-primary/90 text-white gap-1 rounded-xl text-xs shrink-0"><Lock className="h-3 w-3" /> View &amp; Unlock ($50)</Button>
                   )}
                 </div>
               </div>

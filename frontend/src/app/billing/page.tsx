@@ -126,7 +126,7 @@ export default function BillingPage() {
             <Card className="border-emerald-300 ring-1 ring-emerald-200">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">Annual <span className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">Save $100</span></CardTitle>
-                <CardDescription><span className="text-2xl font-bold text-slate-800">$500</span> / year <span className="text-slate-400">(~$41.67/mo)</span></CardDescription>
+                <CardDescription><span className="text-2xl font-bold text-slate-800">$500</span> / year <span className="text-slate-500">(~$41.67/mo)</span></CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <ul className="space-y-1.5 text-sm text-slate-600">

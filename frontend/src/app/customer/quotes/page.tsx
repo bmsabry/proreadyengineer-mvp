@@ -132,7 +132,7 @@ export default function CustomerQuotesPage() {
             {error.includes('log in') && (
               <Link
                 href="/login"
-                className="mt-4 inline-block bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
+                className="mt-4 inline-block bg-primary text-white px-6 py-2 rounded-lg hover:bg-primary/90"
               >Log In</Link>
             )}
           </div>
@@ -140,14 +140,14 @@ export default function CustomerQuotesPage() {
 
         {!loading && !error && rfqs.length === 0 && (
           <div className="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
-            <FileText className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+            <FileText className="mx-auto h-12 w-12 text-gray-500 mb-4" />
             <h2 className="text-xl font-semibold text-gray-700 mb-2">No RFQs yet</h2>
-            <p className="text-gray-400 mb-6">
+            <p className="text-gray-600 mb-6">
               You haven&apos;t submitted any RFQs. Start by searching for engineering firms.
             </p>
             <Link
               href="/search"
-              className="inline-block bg-blue-600 text-white px-8 py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+              className="inline-block bg-primary text-white px-8 py-3 rounded-lg font-semibold hover:bg-primary/90 transition-colors"
             >
               Find Engineering Firms
             </Link>
@@ -167,7 +167,7 @@ export default function CustomerQuotesPage() {
                           {formatStatus(rfq.rfq_status)}
                         </span>
                         {rfq.urgency && (
-                          <span className="text-xs text-gray-400 border border-gray-200 px-2 py-0.5 rounded-full">
+                          <span className="text-xs text-gray-600 border border-gray-200 px-2 py-0.5 rounded-full">
                             {rfq.urgency} urgency
                           </span>
                         )}
@@ -178,18 +178,18 @@ export default function CustomerQuotesPage() {
                           ? rfq.project_description.slice(0, 140) + (rfq.project_description.length > 140 ? '...' : '')
                           : '(No description)'}
                       </p>
-                      <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                      <p className="text-xs text-gray-600 flex items-center gap-1.5">
                         <Clock className="h-3 w-3" />
                         {formatDate(rfq.submitted_at ?? rfq.created_at)}
                         {rfq.business_name && (
                           <>
-                            <span className="text-gray-300">&middot;</span>
+                            <span className="text-gray-500">&middot;</span>
                             <span>{rfq.business_name}</span>
                           </>
                         )}
                       </p>
                     </div>
-                    <ChevronRight className="h-5 w-5 text-gray-300 group-hover:text-blue-600 transition-colors flex-shrink-0 mt-1" />
+                    <ChevronRight className="h-5 w-5 text-gray-500 group-hover:text-blue-600 transition-colors flex-shrink-0 mt-1" />
                   </div>
 
                   {/* Stats grid */}
@@ -227,10 +227,10 @@ export default function CustomerQuotesPage() {
                       <div className="flex items-center justify-center gap-1.5 mb-1">
                         <Activity className={
                           rfq.is_closed || rfq.quote_count >= 5
-                            ? 'h-4 w-4 text-gray-400'
+                            ? 'h-4 w-4 text-gray-600'
                             : rfq.remaining_count > 0
                             ? 'h-4 w-4 text-orange-600'
-                            : 'h-4 w-4 text-gray-400'
+                            : 'h-4 w-4 text-gray-600'
                         } />
                         <span className={
                           rfq.is_closed || rfq.quote_count >= 5
@@ -242,10 +242,10 @@ export default function CustomerQuotesPage() {
                       </div>
                       <p className={
                         rfq.is_closed || rfq.quote_count >= 5
-                          ? 'text-2xl font-bold text-gray-400'
+                          ? 'text-2xl font-bold text-gray-600'
                           : rfq.remaining_count > 0
                           ? 'text-2xl font-bold text-orange-700'
-                          : 'text-2xl font-bold text-gray-400'
+                          : 'text-2xl font-bold text-gray-600'
                       }>
                         {rfq.is_closed || rfq.quote_count >= 5 ? '—' : rfq.remaining_count}
                       </p>
