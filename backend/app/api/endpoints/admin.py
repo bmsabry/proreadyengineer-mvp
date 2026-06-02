@@ -5743,3 +5743,17 @@ async def admin_email_auth(
         "found_at": {"spf": spf_domain, "dkim": "resend._domainkey." + send_domain, "dmarc": "_dmarc." + dmarc_domain},
         "summary": summary,
     }
+
+
+@router.post("/admin/providers/reembed-missing")
+async def admin_reembed_missing_embeddings(
+    limit: int = 25,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role(["admin"])),
+):
+    """Backstop maintenance: re-embed providers whose vector never generated
+    (embedding IS NULL) — e.g. if a profile save's inline re-embed failed during
+    an embedding-API outage. Bounded per call; safe to run repeatedly."""
+    from app.tasks.search_tasks import reembed_missing_provider_embeddings
+    res = await reembed_missing_provider_embeddings(min(max(int(limit or 25), 1), 200))
+    return res
