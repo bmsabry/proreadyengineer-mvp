@@ -202,10 +202,10 @@ export default function RFQUnlockPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <CreditCard className="h-5 w-5" /> Pay to Unlock &mdash; $10
+              <CreditCard className="h-5 w-5" /> Pay to Unlock &mdash; $50
             </CardTitle>
             <CardDescription>
-              Pay a one-time $10 fee to access the full RFQ details and submit a quote.
+              Pay a one-time $50 fee to access the full RFQ details and submit a quote.
               Only the first five quotes are shown to the customer.
             </CardDescription>
           </CardHeader>
@@ -219,7 +219,7 @@ export default function RFQUnlockPage() {
             <Button className="w-full" onClick={handleUnlock} disabled={paying}>
               {paying
                 ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting to payment...</>
-                : <><CreditCard className="mr-2 h-4 w-4" />Pay $10 to Unlock</>}
+                : <><CreditCard className="mr-2 h-4 w-4" />Pay $50 to Unlock</>}
             </Button>
             <PaymentTrust refund="one-time" className="mt-3" />
             <p className="text-xs text-gray-500 text-center">
