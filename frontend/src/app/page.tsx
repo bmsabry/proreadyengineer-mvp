@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import HelpTip from '@/components/ui/HelpTip';
-import { Search, Users, Building2, Megaphone, LogOut, LayoutDashboard, Cpu, ChevronRight, Info } from 'lucide-react';
+import { Search, Users, Building2, Megaphone, LogOut, LayoutDashboard, Cpu, ChevronRight, Info, Lock, FileSignature, FileText, GitCompare, ShieldCheck, Wrench } from 'lucide-react';
 
 function Footer() {
   const { setShowSetup, missingServices } = useConfig();
@@ -19,9 +19,13 @@ function Footer() {
   return (
     <footer className="border-t border-slate-200 bg-white">
       <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div>
+        <div className="max-w-md">
           <p className="text-sm font-semibold text-slate-800">ProMechDirectory</p>
-          <p className="text-xs text-slate-500 mt-0.5">&copy; {new Date().getFullYear()} All rights reserved.</p>
+          <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+            A service of <span className="font-medium text-slate-600">ProReadyEngineer LLC</span> &middot; 5325 Deerfield Blvd #148, Mason, OH 45040 &middot;{' '}
+            <a href="mailto:info@promechdirectory.com" className="text-primary hover:underline">info@promechdirectory.com</a>
+          </p>
+          <p className="text-xs text-slate-400 mt-1.5">&copy; {new Date().getFullYear()} ProReadyEngineer LLC. All rights reserved.</p>
         </div>
         <div className="flex flex-wrap gap-6 items-center">
           {needsConfig && (
@@ -35,6 +39,7 @@ function Footer() {
             </Button>
           )}
           <Link href="/about" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">About Us</Link>
+          <Link href="/trust" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">Trust &amp; Security</Link>
           <Link href="/software-providers" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">Software Providers</Link>
           <Link href="/featured-firms" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">Featured Firms</Link>
           <Link href="/contact" className="text-sm text-slate-500 hover:text-slate-900 transition-colors duration-150">Contact Us</Link>
@@ -167,6 +172,50 @@ export default function LandingPage() {
               </p>
             </div>
           </div>
+        </section>
+
+        {/* Trust strip */}
+        <section className="border-b border-slate-100 bg-white">
+          <div className="max-w-7xl mx-auto px-6 py-5">
+            <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-slate-600">
+              <span className="inline-flex items-center gap-2"><Lock className="h-4 w-4 text-emerald-600" /> Secure payments via <span className="font-semibold text-slate-700">Stripe</span></span>
+              <span className="inline-flex items-center gap-2"><FileSignature className="h-4 w-4 text-primary" /> NDA-protected projects</span>
+              <span className="inline-flex items-center gap-2"><Building2 className="h-4 w-4 text-primary" /> Registered US company</span>
+              <Link href="/about" className="inline-flex items-center gap-2 hover:text-slate-900 transition-colors"><Wrench className="h-4 w-4 text-primary" /> Built by a mechanical engineer</Link>
+            </div>
+          </div>
+        </section>
+
+        {/* How it works */}
+        <section className="max-w-7xl mx-auto px-6 py-16">
+          <div className="text-center mb-10">
+            <h2 className="text-2xl font-bold text-slate-900" style={{ letterSpacing: '-0.02em' }}>How it works</h2>
+            <p className="text-slate-500 mt-2 text-sm">From problem to awarded quote — transparent at every step.</p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              { n: '1', icon: FileText, title: 'Post your RFQ', desc: 'Describe the engineering problem, set a deadline, and attach drawings or specs.' },
+              { n: '2', icon: Search, title: 'Get AI-matched', desc: 'Your RFQ reaches the most relevant verified engineering firms for the work.' },
+              { n: '3', icon: GitCompare, title: 'Compare quotes', desc: 'Review price, turnaround, and scope from interested providers side by side.' },
+              { n: '4', icon: ShieldCheck, title: 'Sign NDA & award', desc: 'Confidential details unlock only after a mutual NDA. Award and pay the provider directly.' },
+            ].map((step) => {
+              const Icon = step.icon;
+              return (
+                <div key={step.n} className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-8 h-8 rounded-lg bg-primary text-white flex items-center justify-center text-sm font-bold flex-shrink-0">{step.n}</div>
+                    <Icon className="h-5 w-5 text-primary" />
+                  </div>
+                  <h3 className="font-semibold text-slate-900 text-base mb-1.5">{step.title}</h3>
+                  <p className="text-sm text-slate-500 leading-relaxed">{step.desc}</p>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-center text-sm text-slate-500 mt-8">
+            We never take a cut of your project fees — you pay the provider directly.{' '}
+            <Link href="/trust" className="text-primary hover:underline font-medium">See how we protect you</Link>.
+          </p>
         </section>
 
         {/* Navigation Cards */}
