@@ -6,6 +6,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { ConfigProvider } from '@/contexts/ConfigContext';
 import { SetupWrapper } from '@/components/setup/SetupWrapper';
 import HelpChatWidget from '@/components/help/HelpChatWidget';
+import SiteHeader from '@/components/SiteHeader';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -28,6 +29,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <ConfigProvider>
           <AuthProvider>
+            <SiteHeader />
             {children}
             <SetupWrapper />
             <HelpChatWidget />
