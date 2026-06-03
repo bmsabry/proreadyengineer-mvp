@@ -4752,8 +4752,10 @@ async def admin_force_complete_payment(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid payment_id format")
 
-    result = await db.execute(select(PaymentAttempt).where(PaymentAttempt.id == pa_uuid))
-    pa = result.scalar_one_or_none()
+    # populate_existing=True forces a fresh, full-column load onto the instance so a later
+    # attribute access can't trigger an async lazy-refresh (MissingGreenlet). Same pattern as
+    # rfq_service.get_rfq. Without it, `pa.payment_status` could 500 the refund.
+    pa = await db.get(PaymentAttempt, pa_uuid, populate_existing=True)
     if not pa:
         raise HTTPException(status_code=404, detail="Payment attempt not found")
 
@@ -4846,8 +4848,9 @@ async def admin_refund_payment(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid payment_id format")
 
-    result = await db.execute(select(PaymentAttempt).where(PaymentAttempt.id == pa_uuid))
-    pa = result.scalar_one_or_none()
+    # populate_existing=True forces a fresh full-column load so a later attribute access
+    # (e.g. pa.payment_status) can't trigger an async lazy-refresh -> MissingGreenlet 500.
+    pa = await db.get(PaymentAttempt, pa_uuid, populate_existing=True)
     if not pa:
         raise HTTPException(status_code=404, detail="Payment attempt not found")
 
