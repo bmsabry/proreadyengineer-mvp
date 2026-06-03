@@ -173,6 +173,39 @@ The `awaiting_nda_payment` / `awaiting_customer_signature` states are **transiti
 only and MUST NOT block dispatch** (§19). They exist for bookkeeping; dispatch proceeds
 once the customer's $10 NDA fee is recorded.
 
+### 5.1 RFQ completeness gate (LLM3, added 2026-06-03)
+
+Because providers **pay $50 to unlock an RFQ** (or the platform spends a free NDA credit /
+$10 NDA fee), a junk or under-specified RFQ wastes paid leads. Before an RFQ is dispatched
+or charged, it is run through a completeness gate (`app/services/rfq_quality_service.py`):
+
+- **Where it runs:** `submit_rfq_endpoint` (non-NDA, before dispatch) and `nda_checkout`
+  (NDA RFQs, **before** the $10 charge). Admins are exempt. On block the endpoint returns
+  **HTTP 422** with the structured gate payload in `detail`.
+- **What it reads:** the RFQ `project_description`, tollgate phases, urgency, NDA flag, and
+  up to 3 attachment excerpts from `RFQFile.extracted_text` (no re-fetch from S3).
+- **LLM3 (DOC_LLM)** scores completeness 0–100 and returns `missing[]` / `suggestions[]` /
+  `summary`. Three verdicts via thresholds (`RFQ_QUALITY_BLOCK_THRESHOLD=45`,
+  `RFQ_QUALITY_WARN_THRESHOLD=70`): **ready** (pass), **borderline** (pass + non-blocking
+  `quality_warning` echoed in the submit response), **incomplete** (block).
+- **Attempt budgets differ by tier** (the core rule):
+  - **Free users:** 2-strike. After `RFQ_QUALITY_MAX_ATTEMPTS_FREE=2` still-incomplete
+    attempts the RFQ is **terminally blocked** (`rfqs.quality_blocked=true`), reason
+    `rfq_terminally_blocked` — "doesn't meet industry-standard completeness," create a new
+    RFQ; free users are told a subscription unlocks the AI assistant.
+  - **Subscribers** (`search_tier_1`): up to `RFQ_QUALITY_MAX_ATTEMPTS_PAID=5` attempts with
+    the AI assistant offered each time; at the limit the RFQ is **escalated to support**
+    (reason `rfq_support_escalated`, best-effort admin email) rather than dead-ended.
+- **Fail-open (mandatory):** if the gate is disabled (`RFQ_QUALITY_GATE_ENABLED`), LLM3 is
+  unavailable, or the verdict can't be parsed, the gate returns **ready** — it must never
+  break submission. New columns: `rfqs.quality_attempts`, `rfqs.quality_blocked`
+  (migration `x0y1z2a3b4c5`).
+- **Frontend:** `frontend/src/components/rfq/RfqQualityGate.tsx` renders the gaps panel /
+  borderline warning / terminal & support messages, wired into the new-RFQ submit path and
+  the NDA sign page. Subscribers get a "Let the AI assistant complete this" button (opens the
+  help widget via a `promech:open-help` event, seeded with the missing items); free users get
+  an "Unlock the AI assistant" button to `/billing`.
+
 ---
 
 ## 6. Search & AI matching (the LLM stack)

@@ -82,6 +82,18 @@ export default function HelpChatWidget() {
     }
   }, [messages, open]);
 
+  // Allow other parts of the app (e.g. the RFQ completeness gate) to open the
+  // assistant, optionally seeding the input with a starter prompt.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      setOpen(true);
+      const seed = (e as CustomEvent)?.detail?.seed;
+      if (seed && typeof seed === 'string') setInput(seed);
+    };
+    window.addEventListener('promech:open-help', onOpen as EventListener);
+    return () => window.removeEventListener('promech:open-help', onOpen as EventListener);
+  }, []);
+
   const onSubscribeClick = () => {
     setOpen(false);
     if (!user) {
