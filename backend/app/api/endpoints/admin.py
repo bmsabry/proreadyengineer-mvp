@@ -20,7 +20,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_db, require_role
 from app.core.config import settings
 from app.models.advertising import Advertisement
-from app.models.payment import PaymentAttempt, WebhookEvent
+from app.models.payment import PaymentAttempt, WebhookEvent, PaymentStatus
 from app.models.provider import Provider, ProviderMembership, ProviderClaimRequest
 from app.models.admin import TierEvaluationRequest, AuditLog
 from app.models.rfq import RFQ, RFQDispatch
