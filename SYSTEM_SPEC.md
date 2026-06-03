@@ -557,6 +557,20 @@ NDA path; note it still uses customer-first ordering and DOES pre-fill fields (�
     change `rfq_status`** (must not strand the RFQ — §19).
   - `search_subscription`, `provider_annual_subscription`, `advertisement_subscription`,
     `full_profile_edit_unlock` → create/renew the relevant `Subscription` / flag.
+- **Refund correctness (2026-06-02, CRITICAL invariants):**
+  - `external_payment_id` on a `PaymentAttempt` may be EITHER a Stripe PaymentIntent
+    (`pi_...`) OR a hosted-Checkout Session (`cs_...`) depending on the flow. A refund needs
+    the PaymentIntent, so a `cs_` id MUST be resolved via the session. Use
+    `payment_service.resolve_stripe_payment_intent_id(external_payment_id, external_checkout_id)`.
+  - **Never mark a payment `REFUNDED` (or reverse fulfillment) unless Stripe actually refunded.**
+    `admin_refund_payment` raises 502 and makes no changes if the Stripe refund didn't complete;
+    only record-only payments (no external Stripe ids) may be marked refunded without a Stripe call.
+  - All Stripe calls read the key from runtime config (`get_runtime_config`), NOT
+    `settings.STRIPE_SECRET_KEY` (env is empty in prod; the key lives in admin Settings).
+  - In-app `cancel-subscription` auto-refunds within the window (5-day monthly / 14-day annual)
+    for ANY paid plan — recurring (`sub_`) AND one-time provider-annual/search (`cs_`); only
+    genuinely-free founding promos (no charge) skip the refund. Stripe subscription
+    cancel/modify run only for real `sub_` subscriptions.
 - **Self-serve transactions & refunds (2026-05-31):**
   - `GET /billing/my-transactions` — the signed-in user's payment history (unlocks, NDA fees,
     subscriptions, ads), powering the customer + provider **Transactions** pages
