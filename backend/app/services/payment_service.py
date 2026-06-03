@@ -45,6 +45,29 @@ def _create_idempotency_key(purpose: str, user_id: uuid.UUID, related_id: uuid.U
     return hashlib.sha256(key_data.encode()).hexdigest()[:32]
 
 
+async def resolve_stripe_payment_intent_id(external_payment_id, external_checkout_id=None):
+    """Resolve a Stripe PaymentIntent id (``pi_...``) for a payment.
+
+    ``external_payment_id`` may itself be a PaymentIntent id (``pi_...``) OR a
+    Checkout Session id (``cs_...``) depending on which flow created it. A refund
+    requires the PaymentIntent, so a ``cs_`` id must be resolved via the session.
+    Requires ``stripe.api_key`` to already be set. Returns ``pi_...`` or ``None``.
+    """
+    import stripe as _stripe
+    import asyncio as _asyncio
+    pid = (external_payment_id or "").strip()
+    if pid.startswith("pi_"):
+        return pid
+    if pid.startswith("cs_"):
+        try:
+            sess = await _asyncio.to_thread(_stripe.checkout.Session.retrieve, pid)
+            pi = getattr(sess, "payment_intent", None)
+            return (pi.id if hasattr(pi, "id") else pi) if pi else None
+        except Exception:
+            return None
+    return None
+
+
 async def create_payment_intent(
     db: AsyncSession,
     purpose: str,
