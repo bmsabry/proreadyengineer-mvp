@@ -1564,7 +1564,7 @@ export default function DebuggingPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-gray-600">
-            Verifies the $10 RFQ unlock checkout is properly configured: Stripe key, API
+            Verifies the $50 RFQ unlock checkout is properly configured: Stripe key, API
             connectivity, frontend URL, and database access.
           </p>
           <Button onClick={testRfqUnlockConfig} disabled={rfqUnlockLoading}>

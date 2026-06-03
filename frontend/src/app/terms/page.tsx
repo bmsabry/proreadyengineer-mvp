@@ -134,7 +134,7 @@ export default function TermsPage() {
           <Section title="6. Payment Terms">
             <p className="leading-relaxed">The following fees apply to Platform services:</p>
             <div className="bg-muted rounded-lg p-4 text-sm divide-y divide-border">
-              <div className="flex justify-between py-2"><span>RFQ Unlock Fee (per RFQ)</span><span className="font-semibold">$10.00</span></div>
+              <div className="flex justify-between py-2"><span>RFQ Unlock Fee (per RFQ)</span><span className="font-semibold">$50.00</span></div>
               <div className="flex justify-between py-2"><span>NDA Document Handling Fee</span><span className="font-semibold">$10.00</span></div>
               <div className="flex justify-between py-2"><span>Provider Profile Subscription</span><span className="font-semibold">$10.00/mo</span></div>
               <div className="flex justify-between py-2"><span>Search Subscription &mdash; 100 searches/mo</span><span className="font-semibold">$50.00/mo or $500.00/yr</span></div>
