@@ -13,7 +13,7 @@ export default function ForProvidersPage() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 mb-12">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           <div className="bg-white rounded-lg p-6 shadow-sm border">
             <div className="text-3xl mb-4">📌</div>
             <h3 className="text-lg font-semibold mb-2">Claim Your Profile</h3>
@@ -28,6 +28,11 @@ export default function ForProvidersPage() {
             <div className="text-3xl mb-4">⭐</div>
             <h3 className="text-lg font-semibold mb-2">Build Your Reputation</h3>
             <p className="text-gray-600 text-sm">Subscribe to edit your profile, showcase capabilities, and request tier upgrades based on your track record.</p>
+          </div>
+          <div className="bg-white rounded-lg p-6 shadow-sm border-2 border-primary/30 ring-1 ring-primary/10">
+            <div className="text-3xl mb-4">🤖</div>
+            <h3 className="text-lg font-semibold mb-2">AI Assistant <span className="text-[10px] font-bold uppercase tracking-wide text-primary align-middle bg-blue-50 px-1.5 py-0.5 rounded">Subscribers</span></h3>
+            <p className="text-gray-600 text-sm">An AI agent that <strong>does the work</strong>: it builds and optimizes your firm profile from a brochure or a few details, and drafts your Notable Projects — so you get matched to more, and better, RFQs.</p>
           </div>
         </div>
 
