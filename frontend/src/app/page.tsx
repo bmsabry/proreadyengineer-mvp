@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import HelpTip from '@/components/ui/HelpTip';
-import { Search, Users, Building2, Megaphone, LogOut, LayoutDashboard, Cpu, ChevronRight, Info, Lock, FileSignature, FileText, GitCompare, ShieldCheck, Wrench } from 'lucide-react';
+import { Search, Users, Building2, Megaphone, LogOut, LayoutDashboard, Cpu, ChevronRight, Info, Lock, FileSignature, FileText, GitCompare, Wrench } from 'lucide-react';
 
 function Footer() {
   const { setShowSetup, missingServices } = useConfig();
@@ -194,10 +194,10 @@ export default function LandingPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { n: '1', icon: FileText, title: 'Post your RFQ', desc: 'Describe the engineering problem, set a deadline, and attach drawings or specs.' },
+              { n: '1', icon: FileText, title: 'Post your RFQ', desc: 'Describe the engineering problem, set a deadline, attach files — and mark it NDA-required if it\'s confidential.' },
               { n: '2', icon: Search, title: 'Get AI-matched', desc: 'Your RFQ reaches the most relevant verified engineering firms for the work.' },
-              { n: '3', icon: GitCompare, title: 'Compare quotes', desc: 'Review price, turnaround, and scope from interested providers side by side.' },
-              { n: '4', icon: ShieldCheck, title: 'Sign NDA & award', desc: 'Confidential details unlock only after a mutual NDA. Award and pay the provider directly.' },
+              { n: '3', icon: FileSignature, title: 'Providers sign your NDA first', desc: 'If you required an NDA, a provider must sign it before they can see your full project — your IP stays protected.' },
+              { n: '4', icon: GitCompare, title: 'Compare quotes & award', desc: 'Review the quotes you receive, award the best fit, and pay the provider directly.' },
             ].map((step) => {
               const Icon = step.icon;
               return (
