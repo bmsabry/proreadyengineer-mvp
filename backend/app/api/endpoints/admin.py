@@ -4867,27 +4867,27 @@ async def admin_refund_payment(
     stripe_refund_id = None
     stripe_error = None
 
-    # We need a Stripe payment intent ID to issue the refund
-    external_pid = pa.external_payment_id  # payment_intent ID
-    external_cid = pa.external_checkout_id  # checkout session ID
+    # Resolve the REAL Stripe PaymentIntent. external_payment_id may be a checkout-session
+    # id ("cs_...") OR a payment-intent id ("pi_..."), so it must be resolved properly.
+    # CRITICAL: we must NOT mark a payment refunded unless Stripe actually returned the money.
+    external_pid = pa.external_payment_id
+    external_cid = pa.external_checkout_id
+    has_external = bool(external_pid or external_cid)
 
-    if external_pid or external_cid:
+    if has_external:
         try:
-            _stripe.api_key = settings.STRIPE_SECRET_KEY
+            import asyncio as _asyncio
+            from app.services.config_service import get_runtime_config as _grc
+            from app.services.payment_service import resolve_stripe_payment_intent_id as _resolve_pi
+            _cfg = await _grc(db)
+            _stripe.api_key = (_cfg.get("STRIPE_SECRET_KEY") or "").strip()
             if not _stripe.api_key:
                 raise HTTPException(status_code=500, detail="Stripe API key not configured")
 
-            # If we only have checkout_session_id, retrieve the payment_intent from it
-            payment_intent_id = external_pid
-            if not payment_intent_id and external_cid:
-                try:
-                    session = _stripe.checkout.Session.retrieve(external_cid)
-                    payment_intent_id = session.payment_intent
-                except Exception as se:
-                    _log.warning("Could not retrieve checkout session %s: %s", external_cid, se)
-
+            payment_intent_id = await _resolve_pi(external_pid, external_cid)
             if payment_intent_id:
-                refund = _stripe.Refund.create(
+                refund = await _asyncio.to_thread(
+                    _stripe.Refund.create,
                     payment_intent=payment_intent_id,
                     reason="requested_by_customer",
                     metadata={
@@ -4899,19 +4899,28 @@ async def admin_refund_payment(
                 stripe_refund_id = refund.id
                 _log.info("Stripe refund created: %s for payment_intent %s", refund.id, payment_intent_id)
             else:
-                stripe_error = "No payment_intent found — Stripe refund skipped. Mark as refunded in records only."
-                _log.warning("No payment_intent for PA %s — Stripe refund skipped", pa.id)
+                stripe_error = "Could not resolve a Stripe charge (payment_intent) to refund."
+                _log.warning("No resolvable payment_intent for PA %s (external_pid=%s)", pa.id, external_pid)
+        except HTTPException:
+            raise
         except _stripe.error.InvalidRequestError as e:
-            # e.g. "charge already refunded"
             stripe_error = str(e)
             _log.warning("Stripe refund API error for PA %s: %s", pa.id, e)
         except Exception as e:
             stripe_error = str(e)
             _log.error("Stripe refund failed for PA %s: %s", pa.id, e, exc_info=True)
-    else:
-        stripe_error = "No external Stripe IDs on this payment — record-only refund."
 
-    # ── update payment status ────────────────────────────────────────────
+    # INTEGRITY GUARD: for a real Stripe payment, only proceed if the refund actually
+    # completed. Otherwise leave the payment untouched and surface the error — never record a
+    # refund (or revoke access) for money that was not returned.
+    if has_external and not stripe_refund_id:
+        raise HTTPException(
+            status_code=502,
+            detail=(f"Stripe refund did not complete: {stripe_error or 'unknown error'}. "
+                    "No changes were made; the payment is still active."),
+        )
+
+    # ── update payment status (Stripe refunded above, OR a record-only payment) ──
     before_status = pa.payment_status
     pa.payment_status = PaymentStatus.REFUNDED
     pa.extra_data = pa.extra_data or {}
@@ -5060,12 +5069,17 @@ async def _reverse_fulfillment(db: AsyncSession, pa: PaymentAttempt, _log) -> st
                     _log.info("Subscription %s cancelled due to refund", sub.id)
 
                     # Also cancel in Stripe if external subscription ID exists
-                    if sub.external_subscription_id:
+                    # Only recurring Stripe subscriptions (sub_...) can be cancelled at Stripe;
+                    # one-time annual/search checkouts have no Stripe subscription to cancel.
+                    if sub.external_subscription_id and str(sub.external_subscription_id).startswith("sub_"):
                         try:
                             import stripe as _s2
-                            _s2.api_key = settings.STRIPE_SECRET_KEY
-                            _s2.Subscription.cancel(sub.external_subscription_id)
-                            _log.info("Stripe subscription %s cancelled", sub.external_subscription_id)
+                            from app.services.config_service import get_runtime_config as _grc2
+                            _rc2 = await _grc2(db)
+                            _s2.api_key = (_rc2.get("STRIPE_SECRET_KEY") or "").strip()
+                            if _s2.api_key:
+                                _s2.Subscription.cancel(sub.external_subscription_id)
+                                _log.info("Stripe subscription %s cancelled", sub.external_subscription_id)
                         except Exception as se:
                             _log.warning("Could not cancel Stripe subscription %s: %s", sub.external_subscription_id, se)
 
