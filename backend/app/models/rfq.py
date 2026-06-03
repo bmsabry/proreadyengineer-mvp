@@ -86,6 +86,10 @@ class RFQ(Base):
     has_documents: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # RFQ completeness gate (LLM3): how many times it failed the quality check, and whether
+    # it has been terminally blocked after too many failed attempts.
+    quality_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    quality_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     submitted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

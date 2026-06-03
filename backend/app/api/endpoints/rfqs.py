@@ -380,6 +380,15 @@ async def nda_checkout(
     if not rfq.nda_required:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="NDA not required for this RFQ")
 
+    # --- RFQ completeness gate: refuse to charge the $10 NDA fee for an incomplete RFQ ---
+    _is_admin = "admin" in (current_user.roles or [])
+    if not _is_admin:
+        from app.services.rfq_quality_service import gate_rfq_for_dispatch, is_search_subscriber
+        _is_sub = await is_search_subscriber(db, current_user)
+        _gate = await gate_rfq_for_dispatch(db, rfq, _is_sub)
+        if not _gate.get("ok"):
+            raise HTTPException(status_code=422, detail=_gate)
+
     frontend_url = getattr(_settings, "FRONTEND_URL", "https://promechdirectory.onrender.com")
     success_url = f"{frontend_url}/nda/{rfq_id}/sign?paid=true&session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{frontend_url}/nda/{rfq_id}/sign?cancelled=true"
@@ -655,6 +664,17 @@ async def submit_rfq_endpoint(
             detail=f"RFQ already submitted (status: {_status_val})"
         )
 
+    # --- RFQ completeness gate (LLM3): block junk before it is dispatched to paying providers.
+    #     Fail-open + admins exempt. Returns 422 with the gaps when incomplete. ---
+    _quality_warning = None
+    if not is_admin:
+        from app.services.rfq_quality_service import gate_rfq_for_dispatch, is_search_subscriber
+        _is_sub = await is_search_subscriber(db, current_user)
+        _gate = await gate_rfq_for_dispatch(db, rfq, _is_sub)
+        if not _gate.get("ok"):
+            raise HTTPException(status_code=422, detail=_gate)
+        _quality_warning = _gate.get("warning")
+
     # Run the full AI search + dispatch in the background
     # This avoids 30-60 second request timeout on Render
     async def _run_submit():
@@ -670,7 +690,7 @@ async def submit_rfq_endpoint(
 
     background_tasks.add_task(_run_submit)
 
-    return {"message": "RFQ submitted — provider matching and dispatch in progress", "rfq_id": rfq_id}
+    return {"message": "RFQ submitted — provider matching and dispatch in progress", "rfq_id": rfq_id, "quality_warning": _quality_warning}
 
 
 @router.post("/rfqs/{rfq_id}/cancel", status_code=status.HTTP_200_OK)

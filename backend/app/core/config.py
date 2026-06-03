@@ -100,6 +100,15 @@ class Settings(BaseSettings):
     SEARCH_TIER_1_PRICE: int = 5000  # $50.00/month
     SEARCH_ANNUAL_PRICE: int = 50000  # $500.00/year (same access as monthly, billed yearly)
     RFQ_UNLOCK_PRICE: int = 5000  # $50.00
+
+    # --- RFQ completeness gate (LLM3) ---
+    RFQ_QUALITY_GATE_ENABLED: bool = True
+    RFQ_QUALITY_BLOCK_THRESHOLD: int = 45   # score < this -> incomplete (hard block junk)
+    RFQ_QUALITY_WARN_THRESHOLD: int = 70    # block <= score < warn -> borderline (warn, allow)
+    # Free users: terminal-block the RFQ after this many incomplete attempts.
+    RFQ_QUALITY_MAX_ATTEMPTS_FREE: int = 2
+    # Subscribers: keep helping up to this many attempts, then escalate to support (no hard block).
+    RFQ_QUALITY_MAX_ATTEMPTS_PAID: int = 5
     NDA_FEE_PRICE: int = 1000  # $10.00
     # Paid customer search subscribers get this many free NDA-required RFQs per calendar
     # month; beyond it they pay the $10 NDA handling fee.

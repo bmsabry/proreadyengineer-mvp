@@ -10,6 +10,7 @@ import PaymentTrust from '@/components/PaymentTrust';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api, apiClient } from '@/lib/api';
 import { toast } from 'sonner';
+import RfqQualityGate, { extractQualityGate, type QualityGate } from '@/components/rfq/RfqQualityGate';
 
 function CustomerNdaSignContent() {
   const { isLoading: authLoading } = useRequireAuth();
@@ -21,6 +22,7 @@ function CustomerNdaSignContent() {
   const [subStatus, setSubStatus] = useState<{ has_active: boolean; nda_credits_remaining: number } | null>(null);
   const [freeCreditApplied, setFreeCreditApplied] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
+  const [qualityGate, setQualityGate] = useState<QualityGate | null>(null);
   const submitCalledRef = useRef(false);
   const isPaidReturn = searchParams.get('paid') === 'true';
   const isCancelled = searchParams.get('cancelled') === 'true';
@@ -82,8 +84,16 @@ function CustomerNdaSignContent() {
         setIsPaying(false);
       }
     } catch (err: unknown) {
+      const gate = extractQualityGate(err);
+      if (gate) {
+        setQualityGate(gate);
+        setIsPaying(false);
+        return; // incomplete RFQ — don't charge; show the gate panel
+      }
       const axiosErr = err as { response?: { data?: { detail?: string } } };
-      const detail = axiosErr?.response?.data?.detail || 'Request failed. Please try again.';
+      const detail = typeof axiosErr?.response?.data?.detail === 'string'
+        ? axiosErr.response!.data!.detail!
+        : 'Request failed. Please try again.';
       toast.error(detail);
       setIsPaying(false);
     }
@@ -199,6 +209,9 @@ function CustomerNdaSignContent() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      {qualityGate && (
+        <RfqQualityGate gate={qualityGate} onClose={() => setQualityGate(null)} />
+      )}
       <Card className="max-w-lg w-full">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
