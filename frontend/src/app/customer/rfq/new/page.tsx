@@ -15,6 +15,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import HelpTip from '@/components/ui/HelpTip';
 import { toast } from 'sonner';
 import { ChevronLeft, ArrowRight, Lock, CheckCircle2 } from 'lucide-react';
+import RfqQualityGate, { extractQualityGate, type QualityGate } from '@/components/rfq/RfqQualityGate';
 
 const RFQ_DRAFT_KEY = 'rfq_draft';
 
@@ -69,6 +70,7 @@ function CreateRFQForm() {
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [qualityGate, setQualityGate] = useState<QualityGate | null>(null);
 
   // NDA fee coverage: subscribed customers get free NDA credits/month, so we show
   // "covered by your subscription" instead of the $10 handling fee on the NDA toggle.
@@ -169,10 +171,21 @@ function CreateRFQForm() {
     } else {
       // No NDA: submit immediately to trigger AI search pipeline
       try {
-        await api.rfqs.submit(rfqId!);
-        toast.success('RFQ submitted! AI is matching providers and dispatch is in progress...');
+        const resp = await api.rfqs.submit(rfqId!);
+        const warn = (resp.data as any)?.quality_warning;
+        if (warn) {
+          toast.warning('RFQ submitted with a few suggestions — providers may ask for clarification.');
+        } else {
+          toast.success('RFQ submitted! AI is matching providers and dispatch is in progress...');
+        }
       } catch (error: any) {
-        const detail = error.response?.data?.detail || '';
+        const gate = extractQualityGate(error);
+        if (gate) {
+          setQualityGate(gate);
+          setIsSubmitting(false);
+          return; // hold on this page so the customer can fix or get help
+        }
+        const detail = typeof error.response?.data?.detail === 'string' ? error.response.data.detail : '';
         if (detail.includes('already submitted')) {
           toast.success('RFQ already submitted! Redirecting to tracking...');
         } else {
@@ -221,6 +234,9 @@ function CreateRFQForm() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {qualityGate && (
+        <RfqQualityGate gate={qualityGate} onClose={() => setQualityGate(null)} />
+      )}
       <div className="max-w-2xl mx-auto px-4 py-10">
         <div className="flex items-center gap-3 mb-8">
           <Link href="/">
