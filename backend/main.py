@@ -188,6 +188,22 @@ def create_application() -> FastAPI:
     # -----------------------------------------------------------------------
     from fastapi import HTTPException
 
+    import re as _re_cors
+    _cors_regex = _re_cors.compile(r"https://(proreadyengineer-web|proreadyengineer-web-staging)\.onrender\.com")
+
+    def _error_cors_headers(request: Request) -> dict:
+        # The CORS middleware does NOT add headers to unhandled-500 responses (they bypass it
+        # via ServerErrorMiddleware), so the browser blocks them and shows "Failed to fetch"
+        # instead of the real error. Echo the validated Origin here so 500s are visible.
+        origin = request.headers.get("origin")
+        if origin and (origin in allowed_origins or _cors_regex.match(origin)):
+            return {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Credentials": "true",
+                "Vary": "Origin",
+            }
+        return {}
+
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception):
         if isinstance(exc, HTTPException):
@@ -196,6 +212,7 @@ def create_application() -> FastAPI:
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error"},
+            headers=_error_cors_headers(request),
         )
 
     app.include_router(auth_router, prefix="/api/v1/auth", tags=["Authentication"])
