@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import PaymentTrust from '@/components/PaymentTrust';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 
@@ -220,6 +221,7 @@ export default function RFQUnlockPage() {
                 ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Redirecting to payment...</>
                 : <><CreditCard className="mr-2 h-4 w-4" />Pay $10 to Unlock</>}
             </Button>
+            <PaymentTrust refund="one-time" className="mt-3" />
             <p className="text-xs text-gray-500 text-center">
               Quotes are rough, non-binding, order-of-magnitude estimates.
               Refined estimates follow direct engagement.
