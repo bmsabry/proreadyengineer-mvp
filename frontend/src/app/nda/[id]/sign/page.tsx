@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Loader2, CheckCircle, FileText, CreditCard, Shield } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import PaymentTrust from '@/components/PaymentTrust';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api, apiClient } from '@/lib/api';
 import { toast } from 'sonner';
@@ -259,6 +260,7 @@ function CustomerNdaSignContent() {
                   ? <span className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Processing...</span>
                   : 'Pay $10 NDA Fee'}
               </Button>
+              <PaymentTrust refund="one-time" className="mt-3" />
             </div>
           )}
         </CardContent>
