@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
+import PaymentTrust from '@/components/PaymentTrust';
 import {
   CheckCircle,
   XCircle,
@@ -333,6 +334,7 @@ export default function ProviderUpgradePage() {
           />
 
         </div>
+        <PaymentTrust className="mt-6" />
       </div>
 
       {/* ── Social Proof / Motivating Copy ── */}

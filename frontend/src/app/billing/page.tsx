@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, AlertCircle, ExternalLink, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import PaymentTrust from '@/components/PaymentTrust';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { apiClient } from '@/lib/api';
 
@@ -140,6 +141,7 @@ export default function BillingPage() {
               </CardContent>
             </Card>
           </div>
+          <PaymentTrust refund="subscription" className="mt-5" />
           <div className="text-center mt-6">
             <Button variant="outline" onClick={() => window.history.back()}>Go Back</Button>
           </div>
