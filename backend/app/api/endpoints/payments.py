@@ -663,51 +663,64 @@ async def cancel_subscription(
         window_days = 14
     within_window = bool(p_start and now_utc <= p_start + _td(days=window_days))
 
-    is_stripe_sub = bool(sub.external_subscription_id and str(sub.external_subscription_id).startswith("sub_"))
+    # A subscription is REFUNDABLE if it is a real recurring Stripe sub (sub_...) OR it has a
+    # one-time charge on record (provider-annual / search are one-time Checkout payments, so
+    # their external_subscription_id is a cs_/UUID, not sub_). Only genuinely-free promos
+    # (founding) with no charge skip the refund path.
+    is_recurring = bool(sub.external_subscription_id and str(sub.external_subscription_id).startswith("sub_"))
+    has_charge = bool(ref_pa is not None and ref_pa.external_payment_id)
 
-    # Free / promo subscription (e.g. founding) — no money to move; downgrade immediately.
-    if not is_stripe_sub:
+    if not is_recurring and not has_charge:
         sub.subscription_status = _SS.CANCELLED
         sub.cancelled_at = datetime.utcnow()
         await db.commit()
         return {"success": True, "refunded": False, "immediate": True,
                 "message": "Your subscription was cancelled."}
 
-    # Within the refund window -> refund the latest charge + cancel immediately + downgrade now.
+    from app.services.payment_service import resolve_stripe_payment_intent_id as _resolve_pi
+
+    # Within the refund window -> refund the latest charge + downgrade now.
     if within_window:
         refunded = False
         refund_error = None
         try:
-            stripe_sub = await asyncio.to_thread(
-                _stripe.Subscription.retrieve, sub.external_subscription_id,
-                expand=["latest_invoice.payment_intent"],
-            )
-            li = getattr(stripe_sub, "latest_invoice", None)
-            pi_obj = getattr(li, "payment_intent", None) if li else None
-            pi = (pi_obj.id if hasattr(pi_obj, "id") else pi_obj) if pi_obj else None
+            pi = None
+            if is_recurring:
+                try:
+                    stripe_sub = await asyncio.to_thread(
+                        _stripe.Subscription.retrieve, sub.external_subscription_id,
+                        expand=["latest_invoice.payment_intent"],
+                    )
+                    li = getattr(stripe_sub, "latest_invoice", None)
+                    pi_obj = getattr(li, "payment_intent", None) if li else None
+                    pi = (pi_obj.id if hasattr(pi_obj, "id") else pi_obj) if pi_obj else None
+                except Exception as exc:
+                    logger.warning("subscription retrieve failed (sub=%s): %s", sub.external_subscription_id, exc)
+            # For one-time plans (and as a fallback), resolve the charge on the reference
+            # PaymentAttempt — converting a checkout-session id (cs_) to its PaymentIntent.
             if not pi and ref_pa is not None:
-                pi = ref_pa.external_payment_id
+                pi = await _resolve_pi(ref_pa.external_payment_id, ref_pa.external_checkout_id)
             if pi:
                 await asyncio.to_thread(
                     _stripe.Refund.create, payment_intent=pi, reason="requested_by_customer",
                     metadata={"reason": "in_app_cancel_within_window", "user_id": str(current_user.id)},
                 )
                 refunded = True
-                _pa = (await db.execute(_sel(_PA).where(_PA.external_payment_id == pi))).scalar_one_or_none()
-                if _pa is not None and _pa.payment_status != _PS.REFUNDED:
-                    _pa.payment_status = _PS.REFUNDED
+                if ref_pa is not None and ref_pa.payment_status != _PS.REFUNDED:
+                    ref_pa.payment_status = _PS.REFUNDED
             else:
                 refund_error = "No charge found to refund."
         except Exception as exc:
             refund_error = str(exc)
             logger.error("cancel within-window refund failed (user=%s sub=%s): %s",
                          current_user.id, sub.external_subscription_id, exc)
-        # Cancel the Stripe subscription immediately (prefer .cancel, fall back to .delete).
-        try:
-            _cancel_fn = getattr(_stripe.Subscription, "cancel", None) or _stripe.Subscription.delete
-            await asyncio.to_thread(_cancel_fn, sub.external_subscription_id)
-        except Exception as exc:
-            logger.warning("immediate Stripe cancel failed (sub=%s): %s", sub.external_subscription_id, exc)
+        # Cancel the recurring Stripe subscription immediately (one-time plans have none).
+        if is_recurring:
+            try:
+                _cancel_fn = getattr(_stripe.Subscription, "cancel", None) or _stripe.Subscription.delete
+                await asyncio.to_thread(_cancel_fn, sub.external_subscription_id)
+            except Exception as exc:
+                logger.warning("immediate Stripe cancel failed (sub=%s): %s", sub.external_subscription_id, exc)
         sub.subscription_status = _SS.CANCELLED
         sub.cancelled_at = datetime.utcnow()
         await db.commit()
@@ -717,14 +730,18 @@ async def cancel_subscription(
         return {"success": True, "refunded": refunded, "immediate": True,
                 "refund_error": refund_error, "message": msg}
 
-    # Outside the window -> cancel at period end (keep access to period end, no refund).
-    stripe_sub = await asyncio.to_thread(
-        _stripe.Subscription.modify,
-        sub.external_subscription_id,
-        cancel_at_period_end=True,
-    )
-    cancel_at_ts = getattr(stripe_sub, "cancel_at", None)
-    cancel_at_dt = datetime.fromtimestamp(cancel_at_ts, tz=timezone.utc) if cancel_at_ts else p_end
+    # Outside the window -> keep access to the end of the paid period, no refund.
+    if is_recurring:
+        stripe_sub = await asyncio.to_thread(
+            _stripe.Subscription.modify,
+            sub.external_subscription_id,
+            cancel_at_period_end=True,
+        )
+        cancel_at_ts = getattr(stripe_sub, "cancel_at", None)
+        cancel_at_dt = datetime.fromtimestamp(cancel_at_ts, tz=timezone.utc) if cancel_at_ts else p_end
+    else:
+        # One-time plan: nothing renews; access simply ends at the end of the paid period.
+        cancel_at_dt = p_end
     sub.cancel_at = cancel_at_dt
     await db.commit()
     return {
