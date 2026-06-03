@@ -227,6 +227,7 @@ export default function ProviderUpgradePage() {
   // ── Pricing tiers ────────────────────────────────────────────────────
 
   const annualFeatures: PricingFeature[] = [
+    { text: '\u2605 AI Assistant that helps you win work \u2014 builds & optimizes your firm profile from a brochure (or a few details), drafts your Notable Projects and quotes', included: true },
     { text: 'See the customer\u2019s direct contact info on every RFQ \u2014 reach out and win the deal', included: true },
     { text: 'Receive ALL matching RFQs automatically', included: true },
     { text: 'Unlimited RFQ access — no $50 per-unlock fee', included: true },
@@ -244,6 +245,7 @@ export default function ProviderUpgradePage() {
   ];
 
   const perRfqFeatures: PricingFeature[] = [
+    { text: 'AI Assistant \u2014 not included', included: false },
     { text: 'Access individual RFQ details', included: true },
     { text: 'Submit quotes on unlocked RFQs', included: true },
     { text: 'No profile editing included', included: false },

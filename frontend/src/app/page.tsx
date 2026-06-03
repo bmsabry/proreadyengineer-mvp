@@ -218,6 +218,35 @@ export default function LandingPage() {
           </p>
         </section>
 
+        {/* AI Assistant highlight */}
+        <section className="bg-primary">
+          <div className="max-w-5xl mx-auto px-6 py-14">
+            <div className="grid md:grid-cols-2 gap-8 items-center">
+              <div>
+                <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-3 py-1 mb-4">
+                  <Cpu className="h-4 w-4 text-blue-200" />
+                  <span className="text-xs font-semibold text-blue-100 uppercase tracking-wide">Included with any paid plan</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>
+                  An AI assistant that <span className="text-blue-200">does the work</span> — not just answers
+                </h2>
+                <p className="text-blue-100 leading-relaxed">
+                  Most help bots answer questions. Ours acts for you. Upload a spec and it drafts your RFQ;
+                  it compares the quotes you receive and recommends the best fit. For engineering firms, it
+                  builds and optimizes your profile from a brochure and drafts your project history — so you
+                  win more work.
+                </p>
+              </div>
+              <ul className="space-y-3 text-sm text-white">
+                <li className="flex items-start gap-2.5"><span className="text-emerald-300 font-bold">&#10003;</span> Drafts an RFQ from your spec sheet or document</li>
+                <li className="flex items-start gap-2.5"><span className="text-emerald-300 font-bold">&#10003;</span> Compares your quotes and recommends the best fit</li>
+                <li className="flex items-start gap-2.5"><span className="text-emerald-300 font-bold">&#10003;</span> Providers: builds &amp; optimizes your firm profile to win more RFQs</li>
+                <li className="flex items-start gap-2.5"><span className="text-emerald-300 font-bold">&#10003;</span> Acts on your behalf — always with your confirmation</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
         {/* Navigation Cards */}
         <section className="max-w-7xl mx-auto px-6 py-16">
           <div className="text-center mb-10">
