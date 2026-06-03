@@ -13,7 +13,7 @@ export default function ForCustomersPage() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 mb-12">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           <div className="bg-white rounded-lg p-6 shadow-sm border">
             <div className="text-3xl mb-4">🔍</div>
             <h3 className="text-lg font-semibold mb-2">Smart Search</h3>
@@ -28,6 +28,11 @@ export default function ForCustomersPage() {
             <div className="text-3xl mb-4">🔒</div>
             <h3 className="text-lg font-semibold mb-2">NDA Protection</h3>
             <p className="text-gray-600 text-sm">Protect your IP with built-in NDA handling. Providers sign before accessing your project documents.</p>
+          </div>
+          <div className="bg-white rounded-lg p-6 shadow-sm border-2 border-primary/30 ring-1 ring-primary/10">
+            <div className="text-3xl mb-4">🤖</div>
+            <h3 className="text-lg font-semibold mb-2">AI Assistant <span className="text-[10px] font-bold uppercase tracking-wide text-primary align-middle bg-blue-50 px-1.5 py-0.5 rounded">Paid</span></h3>
+            <p className="text-gray-600 text-sm">More than a chatbot — it <strong>does the work</strong>: upload a spec and it drafts your RFQ, then compares the quotes you receive and recommends the best fit. Free accounts get a preview only.</p>
           </div>
         </div>
 
@@ -49,6 +54,7 @@ export default function ForCustomersPage() {
                 <li className="flex items-center gap-2">✓ Submit unlimited RFQs</li>
                 <li className="flex items-center gap-2">✓ Receive up to 5 quotes per RFQ</li>
                 <li className="flex items-center gap-2">✓ Registration required to search</li>
+                <li className="flex items-center gap-2 text-gray-400">— AI Assistant: preview only</li>
               </ul>
               <Link
                 href="/register"
@@ -67,6 +73,7 @@ export default function ForCustomersPage() {
                 </div>
               </div>
               <ul className="space-y-2 text-sm text-blue-100 mb-6">
+                <li className="flex items-start gap-2 font-semibold text-white">&#10003; <span>AI Assistant that does the work for you — drafts RFQs &amp; compares your quotes <span className="text-emerald-300">★ exclusive</span></span></li>
                 <li className="flex items-center gap-2">&#10003; 100 searches / month</li>
                 <li className="flex items-center gap-2">&#10003; 5 free NDAs / month <span className="text-xs text-emerald-600 font-semibold ml-1">($50 value)</span></li>
                 <li className="flex items-center gap-2">✓ Submit unlimited RFQs</li>

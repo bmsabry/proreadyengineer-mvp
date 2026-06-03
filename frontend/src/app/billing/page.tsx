@@ -83,10 +83,10 @@ export default function BillingPage() {
 
   if (mode === 'choose') {
     const features = [
-      '100 searches per month (vs. 10 on the free plan)',
+      '\u2605 AI Assistant that acts for you \u2014 drafts an RFQ from a spec sheet, compares the quotes you receive and recommends the best fit (free plan: preview only)',
+      '100 searches per month (vs. 5 on the free plan)',
       '5 free NDA-required RFQs each month (then $10 each)',
       'Priority RFQ matching and full platform access',
-      'AI Help Assistant access',
     ];
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
