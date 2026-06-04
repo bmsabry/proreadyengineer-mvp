@@ -10,7 +10,8 @@ export type QualityGate = {
   reason?: 'rfq_incomplete' | 'rfq_terminally_blocked' | 'rfq_support_escalated';
   terminal?: boolean;
   message?: string;
-  missing?: string[];
+  /** Backend returns each gap as { item, why }; strings tolerated defensively. */
+  missing?: Array<{ item?: string; why?: string } | string>;
   suggestions?: string[];
   summary?: string;
   score?: number;
@@ -27,6 +28,30 @@ export function extractQualityGate(err: unknown): QualityGate | null {
     if (typeof d.reason === 'string' && d.reason.startsWith('rfq_')) return d;
   }
   return null;
+}
+
+/** A single missing-item entry may be an object {item, why} or a bare string. */
+function missingLabel(m: { item?: string; why?: string } | string): { item: string; why: string } {
+  if (typeof m === 'string') return { item: m, why: '' };
+  return { item: m?.item || '', why: m?.why || '' };
+}
+
+function MissingList({ items }: { items?: Array<{ item?: string; why?: string } | string> }) {
+  const rows = (items || []).map(missingLabel).filter((r) => r.item || r.why);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-3">
+      <p className="text-sm font-semibold text-slate-700">Missing or unclear</p>
+      <ul className="mt-1 list-disc pl-5 space-y-1">
+        {rows.map((r, i) => (
+          <li key={i} className="text-sm text-slate-600">
+            <span className="font-medium text-slate-700">{r.item}</span>
+            {r.why ? <span className="text-slate-500"> — {r.why}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function List({ title, items }: { title: string; items?: string[] }) {
@@ -68,7 +93,7 @@ export default function RfqQualityGate({
     const seed =
       'Please help me complete this RFQ so it meets industry standards. ' +
       (gate.missing && gate.missing.length
-        ? 'It is currently missing: ' + gate.missing.join(', ') + '.'
+        ? 'It is currently missing: ' + gate.missing.map((m) => missingLabel(m).item).filter(Boolean).join(', ') + '.'
         : '');
     window.dispatchEvent(new CustomEvent('promech:open-help', { detail: { seed } }));
   };
@@ -99,7 +124,7 @@ export default function RfqQualityGate({
               Providers pay to unlock each RFQ, so we hold back ones that aren&apos;t complete
               enough to quote accurately. Add the items below and resubmit.
             </p>
-            <List title="Missing or unclear" items={gate.missing} />
+            <MissingList items={gate.missing} />
             <List title="Suggestions" items={gate.suggestions} />
             {typeof gate.attempts_used === 'number' && typeof gate.attempts_max === 'number' && (
               <p className="mt-3 text-xs text-slate-500 tabular-nums">
