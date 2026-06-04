@@ -43,6 +43,26 @@ def test_scrub_removes_identity_and_contact():
     assert "stellite" in low
 
 
+def test_scrub_removes_inline_company_name():
+    # Company appears in a contact line AND inline in the prose; both must go.
+    src = (
+        "Company: Pro12\n"
+        "PROJECT OVERVIEW Pro12 is seeking valve sizing services. "
+        "VENDOR QUALIFICATIONS Pro12 seeks a provider with combustion experience."
+    )
+    out = ha._scrub_pii(src, _U())
+    assert "pro12" not in out.lower(), out
+    assert "combustion" in out.lower()
+
+
+def test_scrub_drops_page_markers_and_ref():
+    src = "Scope of work for valve sizing. Page 1/2 | RFQ-BCV-20260324 More scope here."
+    out = ha._scrub_pii(src, _U())
+    assert "page 1/2" not in out.lower()
+    assert "rfq-bcv" not in out.lower()
+    assert "valve sizing" in out.lower()
+
+
 def test_scrub_handles_empty():
     assert ha._scrub_pii("", _U()) == ""
     assert ha._scrub_pii(None, _U()) is None
