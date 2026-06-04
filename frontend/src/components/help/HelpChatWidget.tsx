@@ -525,7 +525,7 @@ export default function HelpChatWidget() {
                 </button>
               </div>
               <div className="text-[10px] text-slate-500 mt-1 px-1">
-                Grounded on the platform manual. Attach a doc and ask me to create an RFQ or quote.
+                Grounded on the platform manual. Attach a <strong>text-based PDF, DOCX, or TXT</strong> (max 10MB) and ask me to create an RFQ or quote. Scanned images can&apos;t be read; I analyze about the first few pages, so attach the most relevant pages of long files.
               </div>
             </div>
           ) : (
