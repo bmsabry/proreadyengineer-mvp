@@ -97,12 +97,12 @@ import re as _re_pii
 _EMAIL_RE_PII = _re_pii.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE_RE_PII = _re_pii.compile(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}")
 _URL_RE_PII = _re_pii.compile(r"https?://\S+|www\.\S+", _re_pii.IGNORECASE)
-# Whole lines that are an identity/contact field -> dropped entirely.
+# Whole lines that are an identity/contact field -> dropped (value captured for inline scrub).
 _CONTACT_LINE_RE = _re_pii.compile(
-    r"^\s*(customer name|customer|client name|client|company name|company|"
+    r"^\s*(?P<label>customer name|customer|client name|client|company name|company|"
     r"contact name|contact|prepared by|prepared for|submitted by|requested by|"
     r"requested for|attention|attn|address|mailing address|e-?mail|email|"
-    r"phone|telephone|tel|fax|mobile|cell|website|web|date|name)\s*[:\-].*$",
+    r"phone|telephone|tel|fax|mobile|cell|website|web|date|name)\s*[:\-]\s*(?P<value>.*)$",
     _re_pii.IGNORECASE,
 )
 # Section headers like "CUSTOMER INFORMATION" / "CONTACT DETAILS" -> dropped.
@@ -110,35 +110,103 @@ _CONTACT_HEADER_RE = _re_pii.compile(
     r"^\s*(customer|client|contact|vendor|buyer|requester)\s+(information|details|info)\s*:?\s*$",
     _re_pii.IGNORECASE,
 )
+# Page markers and the document's own reference number -> noise to drop.
+_PAGE_MARK_RE = _re_pii.compile(r"Page\s*\d+\s*/\s*\d+", _re_pii.IGNORECASE)
+_REF_NUM_RE = _re_pii.compile(r"\bRFQ-[A-Z0-9]+(?:-[A-Z0-9]+)*\b", _re_pii.IGNORECASE)
+# Labels whose VALUE is a name/company we must also scrub from inline prose.
+_NAME_LABELS = {"customer name", "customer", "client name", "client", "company name",
+                "company", "contact name", "contact", "prepared by", "submitted by",
+                "requested by", "requested for", "attention", "attn", "name"}
 
 
 def _scrub_pii(text: str, user=None) -> str:
     """Remove identity/contact info from counterparty-visible, doc-derived text.
 
-    Drops contact/identity lines and section headers, redacts emails/phones/URLs,
-    and removes the acting user's own name/company/email if they appear inline.
-    Defensive backstop to the prompt instruction — must not rely on the model.
+    Drops contact lines and section headers, redacts emails/phones/URLs/page-markers,
+    and — crucially — captures the customer/company NAME from the document's own
+    contact block and redacts it from the inline prose too (the doc often repeats the
+    company name in the overview), plus the acting user's own profile identifiers.
+    Defensive backstop to the prompt/summarizer — must not rely on the model.
     """
     if not text:
         return text
     kept = []
+    name_tokens = set()
     for ln in text.splitlines():
-        if _CONTACT_LINE_RE.match(ln) or _CONTACT_HEADER_RE.match(ln):
+        if _CONTACT_HEADER_RE.match(ln):
+            continue
+        m = _CONTACT_LINE_RE.match(ln)
+        if m:
+            label = (m.group("label") or "").strip().lower()
+            value = (m.group("value") or "").strip()
+            if label in _NAME_LABELS and value:
+                v = _EMAIL_RE_PII.sub("", value)
+                v = _PHONE_RE_PII.sub("", v).strip(" ,;:-")
+                if len(v) >= 3:
+                    name_tokens.add(v)
+                for tok in _re_pii.split(r"[\s,/]+", v):
+                    tok = tok.strip(".,;:()-")
+                    if len(tok) >= 3 and (any(c.isdigit() for c in tok) or tok[:1].isupper()):
+                        name_tokens.add(tok)
             continue
         kept.append(ln)
     text = "\n".join(kept)
     text = _EMAIL_RE_PII.sub("[redacted]", text)
     text = _URL_RE_PII.sub("[redacted]", text)
     text = _PHONE_RE_PII.sub("[redacted]", text)
+    text = _PAGE_MARK_RE.sub("", text)
+    text = _REF_NUM_RE.sub("", text)
     if user is not None:
         for attr in ("full_name", "business_name", "first_name", "last_name", "email"):
             val = getattr(user, attr, None)
             if isinstance(val, str) and len(val.strip()) >= 3:
-                text = _re_pii.sub(r"\b" + _re_pii.escape(val.strip()) + r"\b",
-                                   "[redacted]", text, flags=_re_pii.IGNORECASE)
+                name_tokens.add(val.strip())
+    for tok in sorted(name_tokens, key=len, reverse=True):
+        if len(tok) >= 3:
+            text = _re_pii.sub(r"\b" + _re_pii.escape(tok) + r"\b", "[redacted]", text,
+                               flags=_re_pii.IGNORECASE)
+    text = _re_pii.sub(r"[ \t]{2,}", " ", text)
     text = _re_pii.sub(r"\n{3,}", "\n\n", text).strip()
     return text
 
+
+async def _summarize_rfq_from_docs(db, doc_text):
+    """Rewrite an uploaded RFQ document into a clean, provider-facing project
+    description: technical scope only, no identity/contact, lightly structured.
+    Best-effort; returns None on any failure so the caller can fall back."""
+    if not (doc_text or "").strip():
+        return None
+    try:
+        from openai import AsyncOpenAI
+        from app.services.config_service import get_runtime_config
+        cfg = await get_runtime_config(db)
+        api_key = cfg.get("DOC_LLM_API_KEY") or cfg.get("CHAT_LLM_API_KEY") or cfg.get("OPENAI_API_KEY")
+        api_base = cfg.get("DOC_LLM_API_BASE") or cfg.get("CHAT_LLM_API_BASE") or cfg.get("OPENAI_API_BASE") or "https://api.openai.com/v1"
+        model = cfg.get("DOC_LLM_MODEL") or cfg.get("CHAT_LLM_MODEL") or cfg.get("OPENAI_LLM_MODEL") or "gpt-4o-mini"
+        if not api_key:
+            return None
+        client = AsyncOpenAI(api_key=api_key, base_url=api_base)
+        sys = (
+            "You turn an uploaded engineering RFQ document into a clean project description "
+            "for service providers to read. Output ONLY the description text (no preamble).\n"
+            "RULES:\n"
+            "- Include the technical scope, requirements, standards, and deliverables.\n"
+            "- EXCLUDE all identity/contact info: customer or company names, people, emails, "
+            "phones, addresses, dates, reference numbers, letterhead, and page markers. Refer "
+            "to the buyer generically as 'the customer'.\n"
+            "- Structure it readably: a short overview paragraph, then clear sections with "
+            "concise bullet lines (use '- ' for bullets). Keep it faithful; do not invent."
+        )
+        resp = await client.chat.completions.create(
+            model=model, temperature=0.2,
+            messages=[{"role": "system", "content": sys},
+                      {"role": "user", "content": doc_text[:8000]}],
+        )
+        out = (resp.choices[0].message.content or "").strip()
+        return out[:9000] if len(out) >= 40 else None
+    except Exception as exc:
+        logger.info("[help_actions] rfq summary failed: %s", exc)
+        return None
 
 async def _extract_quote_fields(db, doc_text: str) -> Dict[str, Any]:
     """Best-effort LLM extraction of quote fields from a quote document. Returns a dict with
@@ -473,13 +541,17 @@ async def execute_action(
         from app.models.rfq import RFQFile
         # Project description: the model-synthesized summary if provided, else stitched
         # from the documents' extracted text. Either way it's the user's OWN data.
-        desc = (params.get("project_description") or "").strip()
-        if len(desc) < 10:
-            desc = ("\n\n".join(a.get("excerpt", "") for a in attachments)).strip()[:9000]
-        if len(desc) < 10:
+        # Source text: the model's draft if it wrote one, else the documents' text.
+        _doc_text = ("\n\n".join(a.get("excerpt", "") for a in attachments)).strip()
+        _model_desc = (params.get("project_description") or "").strip()
+        _source = _model_desc if len(_model_desc) >= 40 else _doc_text
+        if len(_source) < 10:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The document(s) had too little readable text to build an RFQ. Please add a short description.")
-        # Never carry the customer's identity/contact (often on the doc's cover page)
-        # into the provider-visible RFQ description.
+        # Rewrite into a clean, structured, provider-facing description (no identity),
+        # falling back to the raw source if the summarizer is unavailable.
+        desc = await _summarize_rfq_from_docs(db, _source) or _source
+        # Defense in depth: strip any identity/contact the model left in (cover-page
+        # name/company often repeats in the prose), plus page markers.
         desc = _scrub_pii(desc, user)
         if len(desc) < 10:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="After removing contact details the document had too little technical content to build an RFQ. Please add a short scope description.")
