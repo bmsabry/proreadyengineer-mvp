@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useRequireAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
 import { RFQ, QuoteForCustomerResponse } from '@/types';
@@ -12,6 +12,8 @@ import { formatDate, getRFQStatusBadgeColor, formatCurrency } from '@/lib/utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FileText, MessageSquare, CheckCircle, Phone, Globe, Mail, MapPin, Trophy, Download , ShieldAlert, Loader2 } from 'lucide-react';
 import NdaBadge from '@/components/ui/NdaBadge';
+import RfqQualityGate, { extractQualityGate, type QualityGate } from '@/components/rfq/RfqQualityGate';
+import { toast } from 'sonner';
 
 export default function RFQDetailPage() {
   const { id } = useParams();
@@ -24,6 +26,28 @@ export default function RFQDetailPage() {
   const [downloadingQuoteId, setDownloadingQuoteId] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [ndaFullySigned, setNdaFullySigned] = useState(false);
+  const router = useRouter();
+  const [submitting, setSubmitting] = useState(false);
+  const [qualityGate, setQualityGate] = useState<QualityGate | null>(null);
+
+  const handleSubmitDraft = async () => {
+    if (!rfq) return;
+    if (rfq.nda_required) { router.push(`/nda/${id}/sign`); return; }
+    setSubmitting(true);
+    try {
+      await api.rfqs.submit(id as string);
+      try { localStorage.removeItem('rfq_draft'); } catch {}
+      toast.success('RFQ submitted! Matching providers now…');
+      router.push(`/customer/rfq/${id}/tracking`);
+    } catch (error: any) {
+      const gate = extractQualityGate(error);
+      if (gate) { setQualityGate(gate); setSubmitting(false); return; }
+      const detail = typeof error?.response?.data?.detail === 'string' ? error.response.data.detail : '';
+      if (detail.includes('already submitted')) { router.push(`/customer/rfq/${id}/tracking`); return; }
+      toast.error('Could not submit the RFQ. Please try again.');
+      setSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -133,12 +157,20 @@ export default function RFQDetailPage() {
     );
   }
 
+  // A real server draft supersedes any half-finished localStorage form draft,
+  // whose 'Continue' banner would otherwise mislead the user to an empty form.
+  if (typeof window !== 'undefined' && rfq.rfq_status === 'draft') {
+    try { localStorage.removeItem('rfq_draft'); } catch {}
+  }
   const isProviderSelected = rfq.rfq_status === 'customer_selected_provider';
   const acceptedQuote = quotes.find(q => q.quote_status === 'accepted');
   const acceptedProvider = acceptedQuote?.provider;
 
   return (
     <div className="container py-8">
+      {qualityGate && (
+        <RfqQualityGate gate={qualityGate} onClose={() => setQualityGate(null)} />
+      )}
       <div className="flex justify-between items-start mb-8">
         <div>
           <div className="flex items-center gap-3 mb-2">
@@ -149,7 +181,19 @@ export default function RFQDetailPage() {
           </div>
           <p className="text-muted-foreground">Created {formatDate(rfq.created_at)}</p>
         </div>
+        {rfq.rfq_status === 'draft' && (
+          <Button onClick={handleSubmitDraft} disabled={submitting} className="flex-shrink-0">
+            {submitting ? 'Submitting…' : (rfq.nda_required ? 'Continue to NDA & Submit' : 'Submit RFQ')}
+          </Button>
+        )}
       </div>
+      {rfq.rfq_status === 'draft' && (
+        <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+          This RFQ is a <strong>draft</strong>. Review the details below, then click
+          <strong> {rfq.nda_required ? 'Continue to NDA &amp; Submit' : 'Submit RFQ'}</strong> to send it
+          to matching providers. Nothing is sent until you submit.
+        </div>
+      )}
 
       {/* Provider Contact Card - shown when a provider has been selected */}
       {isProviderSelected && acceptedProvider && (
@@ -273,7 +317,7 @@ export default function RFQDetailPage() {
             <CardContent className="space-y-4">
               <div>
                 <h4 className="font-medium text-sm text-muted-foreground">Description</h4>
-                <p className="mt-1">{rfq.project_description}</p>
+                <p className="mt-1 whitespace-pre-wrap">{rfq.project_description}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
