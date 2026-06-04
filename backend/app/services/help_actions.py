@@ -87,6 +87,59 @@ def _validate_attachments(user, attachments):
     return out[:5]
 
 
+# --- PII scrubbing for document-derived, counterparty-visible text -----------
+# RFQ descriptions and quote notes built from an uploaded document are shown to
+# the OTHER party (RFQ desc -> providers; quote notes -> customer). The platform
+# never exposes either party's identity/contact, so any contact block carried in
+# from a letterhead/cover page must be stripped at the source before it is saved.
+import re as _re_pii
+
+_EMAIL_RE_PII = _re_pii.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_PHONE_RE_PII = _re_pii.compile(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}")
+_URL_RE_PII = _re_pii.compile(r"https?://\S+|www\.\S+", _re_pii.IGNORECASE)
+# Whole lines that are an identity/contact field -> dropped entirely.
+_CONTACT_LINE_RE = _re_pii.compile(
+    r"^\s*(customer name|customer|client name|client|company name|company|"
+    r"contact name|contact|prepared by|prepared for|submitted by|requested by|"
+    r"requested for|attention|attn|address|mailing address|e-?mail|email|"
+    r"phone|telephone|tel|fax|mobile|cell|website|web|date|name)\s*[:\-].*$",
+    _re_pii.IGNORECASE,
+)
+# Section headers like "CUSTOMER INFORMATION" / "CONTACT DETAILS" -> dropped.
+_CONTACT_HEADER_RE = _re_pii.compile(
+    r"^\s*(customer|client|contact|vendor|buyer|requester)\s+(information|details|info)\s*:?\s*$",
+    _re_pii.IGNORECASE,
+)
+
+
+def _scrub_pii(text: str, user=None) -> str:
+    """Remove identity/contact info from counterparty-visible, doc-derived text.
+
+    Drops contact/identity lines and section headers, redacts emails/phones/URLs,
+    and removes the acting user's own name/company/email if they appear inline.
+    Defensive backstop to the prompt instruction — must not rely on the model.
+    """
+    if not text:
+        return text
+    kept = []
+    for ln in text.splitlines():
+        if _CONTACT_LINE_RE.match(ln) or _CONTACT_HEADER_RE.match(ln):
+            continue
+        kept.append(ln)
+    text = "\n".join(kept)
+    text = _EMAIL_RE_PII.sub("[redacted]", text)
+    text = _URL_RE_PII.sub("[redacted]", text)
+    text = _PHONE_RE_PII.sub("[redacted]", text)
+    if user is not None:
+        for attr in ("full_name", "business_name", "first_name", "last_name", "email"):
+            val = getattr(user, attr, None)
+            if isinstance(val, str) and len(val.strip()) >= 3:
+                text = _re_pii.sub(r"\b" + _re_pii.escape(val.strip()) + r"\b",
+                                   "[redacted]", text, flags=_re_pii.IGNORECASE)
+    text = _re_pii.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
+
 async def _extract_quote_fields(db, doc_text: str) -> Dict[str, Any]:
     """Best-effort LLM extraction of quote fields from a quote document. Returns a dict with
     price_min/price_max (Decimal|None), turnaround/scope/assumptions (str|None). Never raises.
@@ -425,6 +478,11 @@ async def execute_action(
             desc = ("\n\n".join(a.get("excerpt", "") for a in attachments)).strip()[:9000]
         if len(desc) < 10:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The document(s) had too little readable text to build an RFQ. Please add a short description.")
+        # Never carry the customer's identity/contact (often on the doc's cover page)
+        # into the provider-visible RFQ description.
+        desc = _scrub_pii(desc, user)
+        if len(desc) < 10:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="After removing contact details the document had too little technical content to build an RFQ. Please add a short scope description.")
         req = RFQCreateRequest(
             customer_email=user.email,
             business_name=(params.get("business_name") or user.business_name or None),
@@ -475,13 +533,15 @@ async def execute_action(
         from app.schemas.quote import QuoteCreateRequest
         from app.services.rfq_service import submit_quote
         primary = attachments[0]
+        # Strip the provider's own identity/contact from customer-visible quote text.
+        _scope_src = fields.get("scope") or (doc_text[:1900] or None)
         req = QuoteCreateRequest(
             rough_price_min=fields.get("price_min"),
             rough_price_max=fields.get("price_max"),
             currency="USD",
             turnaround_estimate_text=fields.get("turnaround"),
-            assumptions_text=fields.get("assumptions"),
-            scope_notes=fields.get("scope") or (doc_text[:1900] or None),
+            assumptions_text=_scrub_pii(fields.get("assumptions") or "", user) or None,
+            scope_notes=_scrub_pii(_scope_src or "", user) or None,
             document_s3_key=primary["key"],
             document_filename=primary.get("filename"),
         )
