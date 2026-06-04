@@ -116,7 +116,19 @@ export default function HelpChatWidget() {
     const ar = resp.action_result;
     const baseLinks = (resp.links || []).filter(l => typeof l.href === 'string' && l.href.startsWith('/') && !l.href.startsWith('//'));
     const arLink = ar && ar.executed && ar.link && typeof ar.link.href === 'string' && ar.link.href.startsWith('/') ? [ar.link] : [];
-    const msg: Msg = { role: 'assistant', content: resp.reply, links: [...baseLinks, ...arLink], action, actionStatus: action ? 'pending' : undefined, autoResult: ar && ar.executed ? (ar.message || 'Done.') : undefined, logId: resp.log_id || undefined };
+    // The executed action's link is authoritative (it points to the exact record
+    // just created). When present it supersedes any link the model guessed — the
+    // model can't know the new record's id, so its link would be a near-duplicate.
+    // Always de-duplicate by href as a final guard.
+    const mergedLinks = arLink.length ? arLink : baseLinks;
+    const seenHref = new Set<string>();
+    const links = mergedLinks.filter(l => {
+      const k = l.href.toLowerCase();
+      if (seenHref.has(k)) return false;
+      seenHref.add(k);
+      return true;
+    });
+    const msg: Msg = { role: 'assistant', content: resp.reply, links, action, actionStatus: action ? 'pending' : undefined, autoResult: ar && ar.executed ? (ar.message || 'Done.') : undefined, logId: resp.log_id || undefined };
     setMessages((prev) => {
       if (replaceLast && prev.length && prev[prev.length - 1].role === 'assistant') {
         const copy = [...prev];
