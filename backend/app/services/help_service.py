@@ -836,12 +836,16 @@ async def answer_question(
     # them in a doc-driven workflow action. The file KEYS are authoritative here (server
     # validates them); the model only references them.
     atts = attachments or []
+    doc_block = None
     if atts:
-        lines = ["UPLOADED DOCUMENTS the user staged for you (use ONLY these for doc actions):"]
+        lines = ["UPLOADED DOCUMENTS the user staged for you. Their extracted text follows — "
+                 "treat this AS the document content (do NOT ask the user to upload it again):"]
         for a in atts[:5]:
-            ex = (a.get("excerpt") or "").strip().replace("\n", " ")[:600]
-            lines.append(f"- key={a.get('key')} filename={a.get('filename')} :: {ex}")
-        account_ctx = (account_ctx + "\n\n" + "\n".join(lines)).strip() if account_ctx else "\n".join(lines)
+            ex = (a.get("excerpt") or "").strip()[:3500]
+            body = ex if ex else "(no extractable text — the file may be scanned/image-only)"
+            lines.append(f"- key={a.get('key')} filename={a.get('filename')}\n  CONTENT:\n{body}")
+        doc_block = "\n".join(lines)
+        account_ctx = (account_ctx + "\n\n" + doc_block).strip() if account_ctx else doc_block
 
     # RAG: ground on the most relevant manual chunks (falls back to full manual).
     grounding, max_sim = await _get_grounding(db, user_message)
@@ -903,6 +907,9 @@ async def answer_question(
             }
         spec_prompt = _build_specialist_prompt(grounding, user, roles)
         spec_messages: List[Dict[str, str]] = [{"role": "system", "content": spec_prompt}]
+        # Forward the staged document text so the specialist actually has it to analyse.
+        if doc_block:
+            spec_messages.append({"role": "system", "content": doc_block})
         spec_messages.extend(safe_history)
         if not safe_history or safe_history[-1]["role"] != "user" or safe_history[-1]["content"] != user_message:
             spec_messages.append({"role": "user", "content": user_message})
