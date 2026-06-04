@@ -207,7 +207,7 @@ def _build_system_prompt(manual: str, user: Optional[User], roles: List[str], ac
            "DOCUMENTS above) and asks you to create an RFQ from them, or (as a provider) to quote "
            "from them, propose 'create_rfq_from_docs|<any>|...', 'submit_quote_from_docs|<rfq_id>|...', or (provider) 'update_profile_from_docs|<any>|...'. Do NOT put file keys in the line — the server "
            "uses the staged uploads automatically. For create_rfq_from_docs you may also write a "
-           "concise project_description; the RFQ is created as a DRAFT for the user to submit.\n"
+           "concise project_description — include ONLY the technical scope, requirements, and deliverables. NEVER include the customer's name, company, email, phone, address, dates, reference numbers, or any letterhead/cover-page contact block; the platform keeps customer identity private from providers. The RFQ is created as a DRAFT for the user to submit.\n"
            "- You STILL must NOT pay any fee or sign/countersign an NDA — those are never "
            "automated. Guide the user through them and link the page; the user clicks.\n\n"
            if autonomous else
