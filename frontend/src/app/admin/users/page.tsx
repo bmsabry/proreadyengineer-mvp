@@ -28,7 +28,7 @@ interface AdminUser {
 }
 
 const MEMBERSHIP_QUOTA: Record<string, number> = {
-  free: 10,
+  free: 5,
   search_tier_1: 100,
 };
 
@@ -254,7 +254,7 @@ export default function AdminUsersPage() {
       <div className="mb-4 flex flex-wrap gap-4 text-sm text-muted-foreground">
         <span className="font-medium text-foreground">Monthly search quotas:</span>
         <span>&#128275; Unregistered: <strong>3</strong></span>
-        <span>&#128100; Free account: <strong>10</strong></span>
+        <span>&#128100; Free account: <strong>5</strong></span>
         <span>&#11088; Search Plan ($50/mo): <strong>100</strong></span>
         <span className="ml-auto text-xs italic">Auto-refreshes every 30s &bull; Updates on tab focus</span>
       </div>
@@ -288,7 +288,7 @@ export default function AdminUsersPage() {
                 </TableHeader>
                 <TableBody>
                   {users.map((user) => {
-                    const quota = MEMBERSHIP_QUOTA[user.membership_type] ?? 10;
+                    const quota = MEMBERSHIP_QUOTA[user.membership_type] ?? 5;
                     const pct = Math.min(100, Math.round((user.monthly_search_count / quota) * 100));
                     const overLimit = user.monthly_search_count >= quota;
                     return (
