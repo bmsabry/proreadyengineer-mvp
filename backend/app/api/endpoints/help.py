@@ -342,7 +342,7 @@ async def help_upload(
         # Without S3 we cannot attach the file to a workflow; surface a clean error.
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Could not store the file right now. Please try again.")
 
-    excerpt = (doc_text or "").strip()[:1500]
+    excerpt = (doc_text or "").strip()[:3500]
     return {
         "key": key,
         "filename": filename,
