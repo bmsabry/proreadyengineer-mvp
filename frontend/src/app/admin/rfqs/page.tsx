@@ -27,17 +27,19 @@ export default function AdminRFQsPage() {
   // Production vs Sandbox view. Default = Production (hide pre-go-live test RFQs).
   // Cutoff is the shared go-live marker (PAYMENTS_PRODUCTION_SINCE).
   const [viewMode, setViewMode] = useState<'production' | 'sandbox'>('production');
+  const [showDrafts, setShowDrafts] = useState(false);
   const [productionSince, setProductionSince] = useState<string | null>(null);
-  const viewRef = useRef<{ mode: 'production' | 'sandbox'; since: string | null }>({ mode: 'production', since: null });
-  useEffect(() => { viewRef.current = { mode: viewMode, since: productionSince }; }, [viewMode, productionSince]);
+  const viewRef = useRef<{ mode: 'production' | 'sandbox'; since: string | null; drafts: boolean }>({ mode: 'production', since: null, drafts: false });
+  useEffect(() => { viewRef.current = { mode: viewMode, since: productionSince, drafts: showDrafts }; }, [viewMode, productionSince, showDrafts]);
 
   const fetchRFQs = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const _v = viewRef.current;
-      const params: { page: number; page_size: number; since?: string } = { page: 1, page_size: 100 };
+      const params: { page: number; page_size: number; since?: string; include_drafts?: boolean } = { page: 1, page_size: 100 };
       if (_v.mode === 'production' && _v.since) params.since = _v.since;
+      if (_v.drafts) params.include_drafts = true;
       const response = await api.admin.listRFQs(params);
       setRfqs(response.data.items ?? []);
     } catch (err: any) {
@@ -60,7 +62,7 @@ export default function AdminRFQsPage() {
         if (since) {
           setProductionSince(since);
           if (viewRef.current.mode === 'production') {
-            viewRef.current = { mode: 'production', since };
+            viewRef.current = { mode: 'production', since, drafts: showDrafts };
             fetchRFQs();
           }
         }
@@ -71,8 +73,15 @@ export default function AdminRFQsPage() {
 
   const toggleView = () => {
     const next = viewMode === 'production' ? 'sandbox' : 'production';
-    viewRef.current = { mode: next, since: productionSince };
+    viewRef.current = { mode: next, since: productionSince, drafts: showDrafts };
     setViewMode(next);
+    fetchRFQs();
+  };
+
+  const toggleDrafts = () => {
+    const next = !showDrafts;
+    viewRef.current = { mode: viewMode, since: productionSince, drafts: next };
+    setShowDrafts(next);
     fetchRFQs();
   };
 
@@ -138,6 +147,17 @@ export default function AdminRFQsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={toggleDrafts}
+            title={showDrafts
+              ? 'Showing drafts too. Click to track placed RFQs only.'
+              : 'Tracking placed RFQs only (drafts in preparation are hidden). Click to include drafts.'}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm ${
+              showDrafts ? 'bg-slate-800 text-white hover:bg-slate-900' : 'bg-slate-200 text-slate-800 hover:bg-slate-300'
+            }`}
+          >
+            {showDrafts ? 'Hide drafts' : 'Show drafts'}
+          </button>
           <button
             onClick={toggleView}
             title={viewMode === 'production'

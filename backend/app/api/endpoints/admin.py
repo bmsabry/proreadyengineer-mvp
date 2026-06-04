@@ -154,6 +154,7 @@ async def admin_status_alias(
 async def admin_list_rfqs(
     status: Optional[str] = None,
     since: Optional[str] = None,
+    include_drafts: bool = False,
     page: int = 1,
     page_size: int = 50,
     db: AsyncSession = Depends(get_db),
@@ -170,7 +171,11 @@ async def admin_list_rfqs(
 
     query = select(RFQ).options(selectinload(RFQ.files))
     if status:
+        # Explicit status filter wins (admin can inspect drafts directly if they want).
         query = query.where(RFQ.rfq_status == status)
+    elif not include_drafts:
+        # This panel tracks PLACED RFQs (submitted onward); hide drafts in preparation.
+        query = query.where(RFQ.rfq_status != "draft")
     if since:
         try:
             _since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")).replace(tzinfo=None)
