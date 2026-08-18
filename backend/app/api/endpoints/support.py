@@ -33,6 +33,71 @@ from app.services.support_service import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ---------------------------------------------------------------------------
+# Cross-brand isolation
+# ---------------------------------------------------------------------------
+#
+# Resend webhooks subscribe to EVENT TYPES, not domains — there is no
+# per-domain filter in the dashboard or the API. Every `email.received` in
+# the Resend account is fanned out to EVERY endpoint listening for that
+# event, including endpoints belonging to a different product.
+#
+# This Resend account also serves proreadyengineer.com, which runs its own
+# support desk on its own inbound webhook. Without checking who the mail
+# was addressed to, this desk would open tickets for that business's
+# customers and auto-reply to them as ProMechDirectory Support.
+
+RECEIVING_DOMAINS = {
+    "mail.promechdirectory.com",
+    "promechdirectory.com",
+}
+
+
+def _addressed_to_us(payload: Dict[str, Any], data: Dict[str, Any], headers: Dict[str, Any]) -> bool:
+    """True when an inbound email was addressed to one of our domains.
+
+    `received_for` is Resend's own "which of your addresses caught this",
+    so it is checked first; to/cc/bcc and the To header are fallbacks for
+    older payload shapes.
+
+    A message with no recognisable recipient returns True: one we cannot
+    attribute is better seen by a human than dropped silently, and the
+    cross-brand fan-out this guards against always carries an explicit
+    recipient.
+    """
+    values: List[str] = []
+    for key in ("received_for", "to", "cc", "bcc"):
+        for src in (data, payload):
+            if not isinstance(src, dict):
+                continue
+            v = src.get(key)
+            if isinstance(v, str) and v.strip():
+                values.append(v)
+            elif isinstance(v, list):
+                values.extend(x for x in v if isinstance(x, str))
+    if not values and isinstance(headers, dict):
+        for key in ("to", "To", "delivered-to", "Delivered-To", "x-original-to"):
+            v = headers.get(key)
+            if isinstance(v, str) and v.strip():
+                values.append(v)
+                break
+
+    seen_any = False
+    for entry in values:
+        for part in entry.split(","):
+            part = part.strip().lower()
+            if "<" in part and ">" in part:
+                part = part.split("<", 1)[1].split(">", 1)[0].strip()
+            if "@" not in part:
+                continue
+            seen_any = True
+            if part.rsplit("@", 1)[-1] in RECEIVING_DOMAINS:
+                return True
+    return not seen_any
+
+
+
+
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
@@ -231,6 +296,20 @@ async def resend_inbound_webhook(
     }
     if from_email.lower() in OUR_SUPPORT_EMAILS:
         logger.info("[inbound_webhook] ignoring email from our own address: %s", from_email)
+        return {"ok": True}
+
+    # CRITICAL: Resend fans email.received out to every endpoint in the
+    # account, across products. Drop anything not addressed to us, or this
+    # desk answers another brand's customers. See RECEIVING_DOMAINS above.
+    _hdrs = data.get("headers") or body.get("headers") or {}
+    if not isinstance(_hdrs, dict):
+        _hdrs = {}
+    if not _addressed_to_us(body, data, _hdrs):
+        logger.info(
+            "[inbound_webhook] ignoring email not addressed to our domains "
+            "(from=%s, received_for=%s, to=%s)",
+            from_email, data.get("received_for"), data.get("to"),
+        )
         return {"ok": True}
 
 
